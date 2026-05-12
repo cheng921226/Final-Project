@@ -1,0 +1,32 @@
+{
+  "mind_map": {
+    "title": "人工智慧、機器學習與深度學習",
+    "description": "介紹 AI、機器學習與深度學習的定義與彼此關係。",
+    "start_time": null,
+    "end_time": null,
+    "children": [
+      {
+        "title": "人工智慧",
+        "description": "讓機器模仿人類智慧的技術。",
+        "start_time": null,
+        "end_time": null,
+        "children": [
+          {
+            "title": "主要能力",
+            "description": "包括判斷、學習、理解語言與解決問題。",
+            "start_time": null,
+            "end_time": null,
+            "children": []
+          }
+        ]
+      },
+      {
+        "title": "機器學習",
+        "description": "人工智慧中的一種學習方法。",
+        "start_time": null,
+        "end_time": null,
+        "children": []
+      }
+    ]
+  }
+}

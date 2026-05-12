@@ -1,0 +1,91 @@
+{
+"mind_map": {
+"title": "人工智慧、機器學習與深度學習",
+"description": "介紹 AI、機器學習與深度學習的基本概念與層級關係。",
+"start_time": null,
+"end_time": null,
+"children": [
+{
+"title": "人工智慧",
+"description": "讓機器模仿人類智慧的技術。",
+"start_time": null,
+"end_time": null,
+"children": [
+{
+"title": "主要功能",
+"description": "包含判斷、學習、理解語言與解決問題。",
+"start_time": null,
+"end_time": null,
+"children": []
+},
+{
+"title": "核心目標",
+"description": "希望機器能像人類一樣思考與回應。",
+"start_time": null,
+"end_time": null,
+"children": []
+}
+]
+},
+{
+"title": "機器學習",
+"description": "人工智慧中的一種學習方法。",
+"start_time": null,
+"end_time": null,
+"children": [
+{
+"title": "學習方式",
+"description": "從資料中找出規律，而不是手動設定規則。",
+"start_time": null,
+"end_time": null,
+"children": []
+},
+{
+"title": "應用例子",
+"description": "透過大量貓狗圖片訓練系統進行分類。",
+"start_time": null,
+"end_time": null,
+"children": []
+}
+]
+},
+{
+"title": "深度學習",
+"description": "機器學習中的進階技術。",
+"start_time": null,
+"end_time": null,
+"children": [
+{
+"title": "核心技術",
+"description": "通常使用神經網路處理大量資料。",
+"start_time": null,
+"end_time": null,
+"children": []
+},
+{
+"title": "常見應用",
+"description": "包含影像辨識、語音辨識與自然語言處理。",
+"start_time": null,
+"end_time": null,
+"children": []
+}
+]
+},
+{
+"title": "層級關係",
+"description": "AI 包含機器學習，機器學習再包含深度學習。",
+"start_time": null,
+"end_time": null,
+"children": [
+{
+"title": "範圍大小",
+"description": "人工智慧範圍最大，深度學習範圍最小。",
+"start_time": null,
+"end_time": null,
+"children": []
+}
+]
+}
+]
+}
+}

@@ -1,0 +1,31 @@
+{
+  "summary": "本課程介紹人工智慧、機器學習與深度學習的基本關係。人工智慧是最大的概念，機器學習是其中一種方法，而深度學習則是機器學習中的分支。",
+  "knowledge_points": [
+    {
+      "title": "人工智慧的概念",
+      "description": "人工智慧是讓電腦或機器模仿人類智慧的技術。",
+      "start_time": null,
+      "end_time": null
+    },
+    {
+      "title": "機器學習的概念",
+      "description": "機器學習是人工智慧的一種方法，讓電腦從資料中學習規律。",
+      "start_time": null,
+      "end_time": null
+    }
+  ],
+  "questions": [
+    {
+      "question_text": "人工智慧、機器學習與深度學習的關係為何？",
+      "options": [
+        "A. 人工智慧包含機器學習，機器學習包含深度學習",
+        "B. 深度學習包含人工智慧",
+        "C. 三者完全沒有關係",
+        "D. 機器學習包含人工智慧"
+      ],
+      "answer": "A",
+      "explanation": "人工智慧是最大的範圍，機器學習是其中一種方法，而深度學習是機器學習的分支。",
+      "related_knowledge_point": "三者的層級關係"
+    }
+  ]
+}
