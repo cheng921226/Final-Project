@@ -1,0 +1,77 @@
+import React from 'react';
+import { useParams } from 'react-router-dom';
+import { mockAiData } from './data';
+
+function CourseDetail() {
+  const { id } = useParams();
+
+  return (
+    <div className="min-h-screen bg-slate-50 p-6">
+      <header className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">AI 輔助學習系統</h1>
+          <p className="text-slate-500">課程：{id}</p>
+        </div>
+        <div className="bg-white px-4 py-2 rounded-full shadow-sm text-sm font-medium">
+          使用者：Jun-Cheng
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
+        {/* 影片播放區 */}
+        <div className="lg:col-span-3 space-y-4">
+          <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
+            <iframe 
+              width="100%" height="100%" 
+              src="https://www.youtube.com/embed/5MgBikgcWnY" 
+              title="Course Video" frameBorder="0" allowFullScreen
+            ></iframe>
+          </div>
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <h2 className="text-xl font-bold mb-4 flex items-center">
+              <span className="bg-blue-100 text-blue-600 p-1 rounded mr-2">📚</span>
+              課程知識點
+            </h2>
+            <div className="grid gap-3">
+              {mockAiData.knowledge_points.map((p, i) => (
+                <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-300 transition-colors">
+                  <h3 className="font-bold text-blue-700">{p.title}</h3>
+                  <p className="text-slate-600 text-sm">{p.description}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 側邊欄：摘要與 AI 助教 */}
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border-t-4 border-blue-500">
+            <h3 className="text-lg font-bold mb-2 flex items-center text-slate-800">
+              ✨ AI 內容摘要
+            </h3>
+            <p className="text-slate-600 text-sm leading-relaxed">
+              {mockAiData.summary}
+            </p>
+          </div>
+
+          <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white">
+            <h3 className="text-lg font-bold mb-4 flex items-center">
+              💬 AI 課程助教
+            </h3>
+            <div className="h-40 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto">
+              <div className="bg-slate-700 p-2 rounded mb-2">助教：你好，我是你的 AI 學習夥伴。</div>
+              <div className="bg-blue-600 p-2 rounded ml-4 mb-2">學生：什麼是機器學習？</div>
+              <div className="bg-slate-700 p-2 rounded">助教：機器學習是 AI 的一種方法，讓電腦從資料中學習規律。</div>
+            </div>
+            <div className="flex gap-2">
+              <input className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none" placeholder="輸入問題..." />
+              <button className="bg-blue-500 hover:bg-blue-400 px-3 py-2 rounded-lg text-xs font-bold">送出</button>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+export default CourseDetail;
