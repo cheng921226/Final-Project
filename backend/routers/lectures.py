@@ -3,10 +3,15 @@ from fastapi import APIRouter, Query
 
 router = APIRouter()
 
-# 取得所有課程
+# 取得所有課程 + 輸入keyword可搜尋
 @router.get("/lectures")
-def get_lectures():
-    res = supabase.table("lectures").select("*").execute()
+def get_lectures(keyword : str = None):
+    query = supabase.table("lectures").select("*")
+
+    if keyword:
+        query = query.ilike("title", f"%{keyword}%")
+
+    res = query.execute()
     return res.data
 
 # 取得特定課程
