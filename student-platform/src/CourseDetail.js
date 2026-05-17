@@ -1,8 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { MindMap } from '@ant-design/graphs';
+import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
+
+// 將資料庫的 mind_map 格式轉成 react-d3-tree 需要的格式
+function convertToD3Tree(node) {
+  if (!node) return null;
+  return {
+    name: node.title,
+    attributes: node.description ? { description: node.description } : undefined,
+    children: node.children?.length > 0
+      ? node.children.map(convertToD3Tree)
+      : undefined,
+  };
+}
 
 function CourseDetail() {
   const { id } = useParams();
@@ -12,6 +24,7 @@ function CourseDetail() {
   const [mindmap, setMindmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const treeContainerRef = useRef(null);
 
   useEffect(() => {
     async function fetchCourseData() {
@@ -59,7 +72,7 @@ function CourseDetail() {
         if (mmRes.ok) {
           const mmData = await mmRes.json();
           if (mmData?.[0]?.mindmap_json?.mind_map) {
-            setMindmap(mmData[0].mindmap_json.mind_map);
+            setMindmap(convertToD3Tree(mmData[0].mindmap_json.mind_map));
           }
         }
       } catch (err) {
@@ -131,7 +144,35 @@ function CourseDetail() {
             {loading ? (
               <p className="text-slate-500">正在載入心智圖...</p>
             ) : mindmap ? (
-              <MindMap data={mindmap} style={{ height: 400 }} />
+              <div ref={treeContainerRef} style={{ width: '100%', height: '450px' }}>
+                <Tree
+                  data={mindmap}
+                  orientation="horizontal"
+                  pathFunc="step"
+                  translate={{ x: 120, y: 225 }}
+                  nodeSize={{ x: 200, y: 60 }}
+                  separation={{ siblings: 1.2, nonSiblings: 1.5 }}
+                  renderCustomNodeElement={({ nodeDatum }) => (
+                    <g>
+                      <rect
+                        x="-60" y="-18"
+                        width="120" height="36"
+                        rx="8"
+                        fill={nodeDatum.children ? '#dbeafe' : '#f1f5f9'}
+                        stroke={nodeDatum.children ? '#3b82f6' : '#cbd5e1'}
+                        strokeWidth="1.5"
+                      />
+                      <text
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        style={{ fontSize: '12px', fill: '#1e3a5f', fontWeight: nodeDatum.children ? 'bold' : 'normal' }}
+                      >
+                        {nodeDatum.name}
+                      </text>
+                    </g>
+                  )}
+                />
+              </div>
             ) : (
               <p className="text-slate-400 text-sm">無心智圖資料</p>
             )}
