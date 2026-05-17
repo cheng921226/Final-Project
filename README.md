@@ -13,6 +13,10 @@ cd backend
 ```bash
 python -m venv venv
 ```
+或
+```bash
+python3 -m venv venv
+```
 ### 啟動虛擬環境
 Windows(CMD)
 ```bash
@@ -30,6 +34,10 @@ source venv/bin/activate
 ### 安裝套件
 ```bash
 pip install -r requirements.txt
+```
+或
+```bash
+pip3 install -r requirements.txt
 ```
 ### 啟動 FastAPI
 ```bash
