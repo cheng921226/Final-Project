@@ -1,13 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { mockAiData } from './data';
 
 const API_URL = 'http://127.0.0.1:8000';
 
 function CourseDetail() {
   const { id } = useParams();
-  const [summary, setSummary] = useState(mockAiData.summary);
-  const [knowledgePoints, setKnowledgePoints] = useState(mockAiData.knowledge_points);
+  const [summary, setSummary] = useState('');
+  const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -24,7 +23,7 @@ function CourseDetail() {
         }
 
         // 取得摘要
-        const summaryRes = await fetch(`${API_URL}/lectures/${id}/summary`);
+        const summaryRes = await fetch(`${API_URL}/lectures/${id}/summaries`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
           if (summaryData?.summary) {
