@@ -1,11 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { courses as defaultCourses } from './data';
 
 const API_URL = 'http://127.0.0.1:8000';
 
 function Home() {
-  const [courses, setCourses] = useState(defaultCourses);
+  const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
