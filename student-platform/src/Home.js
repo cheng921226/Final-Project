@@ -12,16 +12,32 @@ function Home() {
   useEffect(() => {
     async function fetchCourses() {
       try {
-        const response = await fetch(`${API_URL}/lecture`);
+        const response = await fetch(`${API_URL}/lectures`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
+          const teacherIds = Array.from(new Set(data.map(item => item.teacher_id).filter(Boolean)));
+          const teacherMap = {};
+
+          await Promise.all(teacherIds.map(async teacherId => {
+            try {
+              const teacherRes = await fetch(`${API_URL}/teachers/${teacherId}`);
+              if (!teacherRes.ok) return;
+              const teacherData = await teacherRes.json();
+              if (teacherData?.id) {
+                teacherMap[teacherData.id] = teacherData.name ?? teacherData.email ?? `講師 ${teacherData.id}`;
+              }
+            } catch (e) {
+              // ignore individual teacher fetch errors
+            }
+          }));
+
           setCourses(data.map(item => ({
-            id: item.id?.toString() ?? item.title,
-            title: item.title ?? '未命名課程',
-            teacher: item.teacher ?? '未知講師',
+            id: item.id?.toString() ?? item.course_name ?? item.title ?? 'unknown',
+            title: item.course_name ?? item.title ?? '未命名課程',
+            teacher: item.teacher ?? item.teacher_name ?? teacherMap[item.teacher_id] ?? (item.teacher_id ? `講師 ${item.teacher_id}` : '未知講師'),
             status: item.status ?? '未設定狀態',
           })));
         }
