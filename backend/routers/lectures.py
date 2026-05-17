@@ -35,15 +35,11 @@ def get_lecture_summary(lecture_id : int):
 # 取得該課程知識點
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id : int):
-<<<<<<< HEAD
     res = supabase.table("knowledge_points").select("*").eq("lecture_id", lecture_id).execute()
-=======
-    res = supabase.table("knowledge_points").select("*").eq("lecture_id",lecture_id).execute()
     return res.data
 
 # 取得該課程心智圖
 @router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id : int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id",lecture_id).execute()
->>>>>>> 49b40801264203d29325113506f77bd6334d869e
     return res.data
