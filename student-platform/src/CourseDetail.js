@@ -1,9 +1,44 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { mockAiData } from './data';
 
+const API_URL = 'http://127.0.0.1:8000';
+
 function CourseDetail() {
   const { id } = useParams();
+  const [summary, setSummary] = useState(mockAiData.summary);
+  const [knowledgePoints, setKnowledgePoints] = useState(mockAiData.knowledge_points);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function fetchCourseData() {
+      try {
+        // 取得知識點
+        const kpRes = await fetch(`${API_URL}/lectures/${id}/knowledge_points`);
+        if (kpRes.ok) {
+          const kpData = await kpRes.json();
+          if (Array.isArray(kpData) && kpData.length > 0) {
+            setKnowledgePoints(kpData);
+          }
+        }
+
+        // 取得摘要
+        const summaryRes = await fetch(`${API_URL}/lectures/${id}/summary`);
+        if (summaryRes.ok) {
+          const summaryData = await summaryRes.json();
+          if (summaryData?.summary) {
+            setSummary(summaryData.summary);
+          }
+        }
+      } catch (err) {
+        setError(err.message || '取得課程資料失敗');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchCourseData();
+  }, [id]);
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -32,14 +67,20 @@ function CourseDetail() {
               <span className="bg-blue-100 text-blue-600 p-1 rounded mr-2">📚</span>
               課程知識點
             </h2>
+            {loading ? (
+              <p className="text-slate-500">正在載入知識點...</p>
+            ) : error ? (
+              <p className="text-red-500 text-sm">{error}</p>
+            ) : (
             <div className="grid gap-3">
-              {mockAiData.knowledge_points.map((p, i) => (
+              {knowledgePoints.map((p, i) => (
                 <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-300 transition-colors">
                   <h3 className="font-bold text-blue-700">{p.title}</h3>
                   <p className="text-slate-600 text-sm">{p.description}</p>
                 </div>
               ))}
             </div>
+            )}
           </div>
         </div>
 
@@ -50,7 +91,7 @@ function CourseDetail() {
               ✨ AI 內容摘要
             </h3>
             <p className="text-slate-600 text-sm leading-relaxed">
-              {mockAiData.summary}
+              {summary}
             </p>
           </div>
 

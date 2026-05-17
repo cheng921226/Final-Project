@@ -30,5 +30,5 @@ def get_lecture_summary(lecture_id : int):
 # 取得該課程知識點
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id : int):
-    res = supabase.table("knowledge_points").select("*").eq("lecture_id",lecture_id).execute()
+    res = supabase.table("knowledge_points").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
