@@ -15,20 +15,14 @@ def get_seleted_lectures(lecture_id : int):
     res = supabase.table("lectures").select("*").eq("id",lecture_id).execute()
     return res.data
 
-# 取得講師資訊
-@router.get("/teachers/{teacher_id}")
-def get_teacher(teacher_id : int):
-    res = supabase.table("users").select("*").eq("id",teacher_id).single().execute()
-    return res.data
-
 # 取得該課程逐字稿
-@router.get("/lectures/{lecture_id}/transcript")
+@router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id : int):
     res = supabase.table("transcripts").select("*").eq("lecture_id",lecture_id).execute()
     return res.data
 
 # 取得該課程摘要
-@router.get("/lectures/{lecture_id}/summary")
+@router.get("/lectures/{lecture_id}/summaries")
 def get_lecture_summary(lecture_id : int):
     res = supabase.table("summaries").select("*").eq("lecture_id",lecture_id).single().execute()
     return res.data
@@ -40,7 +34,7 @@ def get_lecture_knowledge_points(lecture_id : int):
     return res.data
 
 # 取得該課程心智圖
-@router.get("/lectures/{lecture_id}/mindmap")
+@router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id : int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id",lecture_id).execute()
     return res.data

@@ -11,6 +11,10 @@ def register():
 def login():
     return []
 
+@router.post("/llogout")
+def logout():
+    return []
+
 @router.get("/me")
 def me():
     return []
