@@ -7,12 +7,28 @@ function CourseDetail() {
   const { id } = useParams();
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
+  const [videoUrl, setVideoUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     async function fetchCourseData() {
       try {
+        // 取得課程資料（含影片網址）
+        const lectureRes = await fetch(`${API_URL}/lectures/${id}`);
+        if (lectureRes.ok) {
+          const lectureData = await lectureRes.json();
+          const raw = lectureData[0]?.media_url;
+          if (raw) {
+            try {
+              const videoId = new URL(raw).searchParams.get('v');
+              if (videoId) setVideoUrl(`https://www.youtube.com/embed/${videoId}`);
+            } catch (e) {
+              // 若網址格式有問題就略過
+            }
+          }
+        }
+
         // 取得知識點
         const kpRes = await fetch(`${API_URL}/lectures/${id}/knowledge_points`);
         if (kpRes.ok) {
@@ -26,8 +42,13 @@ function CourseDetail() {
         const summaryRes = await fetch(`${API_URL}/lectures/${id}/summaries`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
-          if (summaryData?.summary) {
-            setSummary(summaryData.summary);
+          if (summaryData?.summary_text) {
+            try {
+              const parsed = JSON.parse(summaryData.summary_text);
+              setSummary(parsed.summary ?? summaryData.summary_text);
+            } catch {
+              setSummary(summaryData.summary_text);
+            }
           }
         }
       } catch (err) {
@@ -55,11 +76,17 @@ function CourseDetail() {
         {/* 影片播放區 */}
         <div className="lg:col-span-3 space-y-4">
           <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
-            <iframe 
-              width="100%" height="100%" 
-              src="https://www.youtube.com/embed/5MgBikgcWnY" 
-              title="Course Video" frameBorder="0" allowFullScreen
-            ></iframe>
+            {videoUrl ? (
+              <iframe
+                width="100%" height="100%"
+                src={videoUrl}
+                title="Course Video" frameBorder="0" allowFullScreen
+              ></iframe>
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-slate-400">
+                {loading ? '載入影片中...' : '無影片資料'}
+              </div>
+            )}
           </div>
           <div className="bg-white p-6 rounded-2xl shadow-sm">
             <h2 className="text-xl font-bold mb-4 flex items-center">
