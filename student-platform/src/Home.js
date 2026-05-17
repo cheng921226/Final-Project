@@ -1,8 +1,39 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { courses } from './data';
+import { courses as defaultCourses } from './data';
+
+const API_URL = 'http://127.0.0.1:8000';
 
 function Home() {
+  const [courses, setCourses] = useState(defaultCourses);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function fetchCourses() {
+      try {
+        const response = await fetch(`${API_URL}/lecture`);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setCourses(data.map(item => ({
+            id: item.id?.toString() ?? item.title,
+            title: item.title ?? '未命名課程',
+            teacher: item.teacher ?? '未知講師',
+            status: item.status ?? '未設定狀態',
+          })));
+        }
+      } catch (err) {
+        setError(err.message || '取得課程失敗');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchCourses();
+  }, []);
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       {/* 搜尋區 */}
@@ -21,22 +52,28 @@ function Home() {
       {/* 課程列表區 */}
       <section className="max-w-6xl mx-auto">
         <h2 className="text-xl font-bold mb-6">我的課程</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {courses.map(course => (
-            <Link to={`/course/${course.id}`} key={course.id}>
-              <div className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-xl transition-all border border-slate-100 group">
-                <div className="aspect-video bg-slate-200 rounded-xl mb-4 group-hover:bg-blue-100 transition-colors flex items-center justify-center text-slate-400">
-                  影片封面圖
+        {loading ? (
+          <p className="text-slate-500">正在載入課程資料...</p>
+        ) : error ? (
+          <p className="text-red-500">{error}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {courses.map(course => (
+              <Link to={`/course/${course.id}`} key={course.id}>
+                <div className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-xl transition-all border border-slate-100 group">
+                  <div className="aspect-video bg-slate-200 rounded-xl mb-4 group-hover:bg-blue-100 transition-colors flex items-center justify-center text-slate-400">
+                    影片封面圖
+                  </div>
+                  <h3 className="font-bold text-lg text-slate-800">{course.title}</h3>
+                  <p className="text-slate-500 text-sm mb-3">{course.teacher}</p>
+                  <span className={`text-xs px-2 py-1 rounded-full ${course.status === 'AI 分析完成' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
+                    {course.status}
+                  </span>
                 </div>
-                <h3 className="font-bold text-lg text-slate-800">{course.title}</h3>
-                <p className="text-slate-500 text-sm mb-3">{course.teacher}</p>
-                <span className={`text-xs px-2 py-1 rounded-full ${course.status === 'AI 分析完成' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                  {course.status}
-                </span>
-              </div>
-            </Link>
-          ))}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
