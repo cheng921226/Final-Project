@@ -1,45 +1,9 @@
-# Final-Project
-大四畢業專題
+# Final-Project (大四畢業專題)
 
-## 後端操作方法
-### 進入後端資料夾
-```bash
-cd backend
-```
-### 第一次使用
-1.在backend加入.env檔
+這是一個結合 React 前端與 FastAPI 後端的線上課程平台。
 
-2.建立虛擬環境
-```bash
-python -m venv venv
-```
-或
-```bash
-python3 -m venv venv
-```
-### 啟動虛擬環境
-Windows(CMD)
-```bash
-.\venv\Scripts\activate.bat
-```
-Windows(PowerShell)
-```bash
-.\venv\Scripts\activate.ps1 	     
-```
-Mac/Linux 
-```bash
-source venv/bin/activate
-```
-啟動後會看到前面有(venv)
-### 安裝套件
-```bash
-pip install -r requirements.txt
-```
-或
-```bash
-pip3 install -r requirements.txt
-```
-### 啟動 FastAPI
-```bash
-uvicorn main:app --reload
-```
+## 🛠 專案開發說明文件
+請點擊下方連結查看詳細的操作與安裝步驟：
+
+* [🎨 前端網頁操作說明](./前端使用明.md)
+* [⚙️ 後端 API 操作說明](./backend/前端使用明.md)
