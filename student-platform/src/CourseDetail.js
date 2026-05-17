@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { MindMap } from '@ant-design/graphs';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -8,6 +9,7 @@ function CourseDetail() {
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoUrl, setVideoUrl] = useState('');
+  const [mindmap, setMindmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -51,6 +53,15 @@ function CourseDetail() {
             }
           }
         }
+
+        // 取得心智圖
+        const mmRes = await fetch(`${API_URL}/lectures/${id}/mindmaps`);
+        if (mmRes.ok) {
+          const mmData = await mmRes.json();
+          if (mmData?.[0]?.mindmap_json?.mind_map) {
+            setMindmap(mmData[0].mindmap_json.mind_map);
+          }
+        }
       } catch (err) {
         setError(err.message || '取得課程資料失敗');
       } finally {
@@ -88,6 +99,8 @@ function CourseDetail() {
               </div>
             )}
           </div>
+
+          {/* 課程知識點 */}
           <div className="bg-white p-6 rounded-2xl shadow-sm">
             <h2 className="text-xl font-bold mb-4 flex items-center">
               <span className="bg-blue-100 text-blue-600 p-1 rounded mr-2">📚</span>
@@ -98,14 +111,29 @@ function CourseDetail() {
             ) : error ? (
               <p className="text-red-500 text-sm">{error}</p>
             ) : (
-            <div className="grid gap-3">
-              {knowledgePoints.map((p, i) => (
-                <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-300 transition-colors">
-                  <h3 className="font-bold text-blue-700">{p.title}</h3>
-                  <p className="text-slate-600 text-sm">{p.description}</p>
-                </div>
-              ))}
-            </div>
+              <div className="grid gap-3">
+                {knowledgePoints.map((p, i) => (
+                  <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-300 transition-colors">
+                    <h3 className="font-bold text-blue-700">{p.title}</h3>
+                    <p className="text-slate-600 text-sm">{p.description}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 心智圖 */}
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <h2 className="text-xl font-bold mb-4 flex items-center">
+              <span className="bg-purple-100 text-purple-600 p-1 rounded mr-2">🗺️</span>
+              心智圖
+            </h2>
+            {loading ? (
+              <p className="text-slate-500">正在載入心智圖...</p>
+            ) : mindmap ? (
+              <MindMap data={mindmap} style={{ height: 400 }} />
+            ) : (
+              <p className="text-slate-400 text-sm">無心智圖資料</p>
             )}
           </div>
         </div>
