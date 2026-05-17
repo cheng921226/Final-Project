@@ -165,3 +165,5 @@ related_knowledge_point 要對應到課程中的知識點。
 
 【課程逐字稿】
 {transcript}
+【知識點列表】
+{knowledge_points}
