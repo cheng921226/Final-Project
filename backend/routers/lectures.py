@@ -1,5 +1,9 @@
+import os
+import tempfile
+
 from database.supabase import supabase
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from services.transcription import save_transcript_segments, transcribe_media
 
 router = APIRouter()
 
@@ -43,3 +47,46 @@ def get_lecture_knowledge_points(lecture_id : int):
 def get_lecture_mindmap(lecture_id : int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id",lecture_id).execute()
     return res.data
+
+# 上傳影片/音檔並轉成有時間戳的逐字稿
+@router.post("/lectures/{lecture_id}/transcribe")
+async def transcribe_lecture_media(
+    lecture_id: int,
+    file: UploadFile = File(...),
+    language: str | None = Form(default=None),
+    model_size: str = Form(default="tiny"),
+    word_timestamps: bool = Form(default=False),
+    save_to_db: bool = Form(default=True),
+):
+    suffix = os.path.splitext(file.filename or "")[1] or ".media"
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_path = temp_file.name
+            while chunk := await file.read(1024 * 1024):
+                temp_file.write(chunk)
+
+        result = transcribe_media(
+            temp_path,
+            model_size=model_size,
+            language=language or None,
+            word_timestamps=word_timestamps,
+        )
+
+        db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
+        if save_to_db:
+            db_result = save_transcript_segments(lecture_id, result["segments"])
+
+        return {
+            "lecture_id": lecture_id,
+            "filename": file.filename,
+            **result,
+            **db_result,
+        }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}") from exc
+    finally:
+        if "temp_path" in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
