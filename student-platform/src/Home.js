@@ -11,7 +11,7 @@ function Home() {
   useEffect(() => {
     async function fetchCourses() {
       try {
-        const response = await fetch(`${API_URL}/lectures`);
+        const response = await fetch(`${API_URL}/courses`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
