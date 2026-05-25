@@ -11,6 +11,7 @@ router = APIRouter()
 # 🗂️ 課程總表相關 (Courses)
 # =====================================================================
 
+
 # 💡 修改：改為取得所有「課程」 + 關鍵字搜尋課程名稱
 @router.get("/courses")
 def get_courses(keyword: str = None):
@@ -35,6 +36,7 @@ def get_lectures_by_course(course_id: int):
 # 🎬 單一小節影片內部功能 (Lectures) - 維持使用 lecture_id
 # =====================================================================
 
+
 # 💡 修改：取得特定「小節影片」的詳細資訊
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
@@ -45,21 +47,34 @@ def get_selected_lecture(lecture_id: int):
 # 取得該小節的逐字稿
 @router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id: int):
-    res = supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
+    res = (
+        supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
+    )
     return res.data
 
 
 # 取得該小節的摘要
 @router.get("/lectures/{lecture_id}/summaries")
 def get_lecture_summary(lecture_id: int):
-    res = supabase.table("summaries").select("*").eq("lecture_id", lecture_id).single().execute()
+    res = (
+        supabase.table("summaries")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .single()
+        .execute()
+    )
     return res.data
 
 
 # 取得該小節的知識點
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id: int):
-    res = supabase.table("knowledge_points").select("*").eq("lecture_id", lecture_id).execute()
+    res = (
+        supabase.table("knowledge_points")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .execute()
+    )
     return res.data
 
 
@@ -108,7 +123,9 @@ async def transcribe_lecture_media(
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Transcription failed: {exc}"
+        ) from exc
     finally:
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.remove(temp_path)

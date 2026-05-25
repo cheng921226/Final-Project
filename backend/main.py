@@ -9,15 +9,17 @@ from routers.users import router as users_router
 
 app = FastAPI()
 
+
 # 根目錄測試api
 @app.get("/")
 async def read_root():
     return {"message": "Hello, World!"}
 
+
 # CORS (Cross-Origin Resource Sharing) 跨來源資源共用 防止前端被擋
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # 允許的來源，之後會改成前端網址
+    allow_origins=["*"],  # 允許的來源，之後會改成前端網址
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
