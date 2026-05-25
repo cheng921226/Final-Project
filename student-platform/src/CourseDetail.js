@@ -22,39 +22,82 @@ function CourseDetail() {
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoUrl, setVideoUrl] = useState('');
   const [mindmap, setMindmap] = useState(null);
+  const [lectures, setLectures] = useState([]);
+  const [selectedLectureId, setSelectedLectureId] = useState(null);
+  const [selectedLecture, setSelectedLecture] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const treeContainerRef = useRef(null);
 
   useEffect(() => {
-    async function fetchCourseData() {
+    async function fetchLectureList() {
+      setLoading(true);
+      setError(null);
       try {
-        // 取得課程資料（含影片網址）
-        const lectureRes = await fetch(`${API_URL}/lectures/${id}`);
+        const listRes = await fetch(`${API_URL}/courses/${id}/lectures`);
+        if (!listRes.ok) {
+          throw new Error(`HTTP ${listRes.status}`);
+        }
+        const listData = await listRes.json();
+        if (Array.isArray(listData)) {
+          setLectures(listData);
+          const firstLectureId = listData[0]?.id;
+          setSelectedLectureId(firstLectureId ?? null);
+          setSelectedLecture(listData[0] ?? null);
+        } else {
+          setLectures([]);
+          setSelectedLectureId(null);
+          setSelectedLecture(null);
+        }
+      } catch (err) {
+        setError(err.message || '取得課程章節列表失敗');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchLectureList();
+  }, [id]);
+
+  useEffect(() => {
+    if (!selectedLectureId) {
+      return;
+    }
+
+    async function fetchSelectedLectureData() {
+      setLoading(true);
+      setError(null);
+      setSummary('');
+      setKnowledgePoints([]);
+      setMindmap(null);
+      setVideoUrl('');
+
+      try {
+        const lectureRes = await fetch(`${API_URL}/lectures/${selectedLectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const raw = lectureData[0]?.media_url;
           if (raw) {
             try {
               const videoId = new URL(raw).searchParams.get('v');
-              if (videoId) setVideoUrl(`https://www.youtube.com/embed/${videoId}`);
+              if (videoId) {
+                setVideoUrl(`https://www.youtube.com/embed/${videoId}`);
+              }
             } catch (e) {
               // 若網址格式有問題就略過
             }
           }
         }
 
-        // 取得知識點
-        const kpRes = await fetch(`${API_URL}/lectures/${id}/knowledge_points`);
+        const kpRes = await fetch(`${API_URL}/lectures/${selectedLectureId}/knowledge_points`);
         if (kpRes.ok) {
           const kpData = await kpRes.json();
-          if (Array.isArray(kpData) && kpData.length > 0) {
+          if (Array.isArray(kpData)) {
             setKnowledgePoints(kpData);
           }
         }
 
-        // 取得摘要
-        const summaryRes = await fetch(`${API_URL}/lectures/${id}/summaries`);
+        const summaryRes = await fetch(`${API_URL}/lectures/${selectedLectureId}/summaries`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
           if (summaryData?.summary_text) {
@@ -67,8 +110,7 @@ function CourseDetail() {
           }
         }
 
-        // 取得心智圖
-        const mmRes = await fetch(`${API_URL}/lectures/${id}/mindmaps`);
+        const mmRes = await fetch(`${API_URL}/lectures/${selectedLectureId}/mindmaps`);
         if (mmRes.ok) {
           const mmData = await mmRes.json();
           if (mmData?.[0]?.mindmap_json?.mind_map) {
@@ -76,13 +118,14 @@ function CourseDetail() {
           }
         }
       } catch (err) {
-        setError(err.message || '取得課程資料失敗');
+        setError(err.message || '取得小節資料失敗');
       } finally {
         setLoading(false);
       }
     }
-    fetchCourseData();
-  }, [id]);
+
+    fetchSelectedLectureData();
+  }, [selectedLectureId]);
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -99,6 +142,53 @@ function CourseDetail() {
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* 影片播放區 */}
         <div className="lg:col-span-3 space-y-4">
+          <div className="bg-white p-6 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-xl font-bold">影片章節</h2>
+                <p className="text-slate-500 text-sm">選擇你要觀看的小節，頁面會自動載入該小節的摘要、知識點與心智圖。</p>
+              </div>
+              <span className="text-sm text-slate-500">共 {lectures.length} 個小節</span>
+            </div>
+            {loading && lectures.length === 0 ? (
+              <p className="text-slate-500">正在載入小節列表...</p>
+            ) : error && lectures.length === 0 ? (
+              <p className="text-red-500">{error}</p>
+            ) : lectures.length === 0 ? (
+              <p className="text-slate-500">尚無小節資料</p>
+            ) : (
+              <div className="grid gap-3">
+                {lectures.map((lecture, index) => {
+                  const lectureTitle = lecture.title || lecture.name || `第 ${index + 1} 小節`;
+                  const isActive = lecture.id === selectedLectureId;
+                  return (
+                    <button
+                      key={lecture.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedLectureId(lecture.id);
+                        setSelectedLecture(lecture);
+                      }}
+                      className={`w-full text-left p-4 rounded-2xl border transition-all ${isActive ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-slate-100'}`}
+                    >
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="font-semibold text-slate-800">{lectureTitle}</p>
+                          {lecture.description ? (
+                            <p className="text-sm text-slate-500 mt-1 line-clamp-2">{lecture.description}</p>
+                          ) : null}
+                        </div>
+                        <span className={`text-xs px-2 py-1 rounded-full ${isActive ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                          小節 {index + 1}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
           <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
             {videoUrl ? (
               <iframe
