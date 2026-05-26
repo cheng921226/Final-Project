@@ -3,6 +3,7 @@ import tempfile
 
 from database.supabase import supabase
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from pydantic import BaseModel
 from services.transcription import save_transcript_segments, transcribe_media
 
 router = APIRouter()
@@ -11,49 +12,66 @@ router = APIRouter()
 # 🗂️ 課程總表相關 (Courses)
 # =====================================================================
 
+class CourseCreate(BaseModel):
+    title: str
+    teacher_id: int | None = None
 
-# 💡 修改：改為取得所有「課程」 + 關鍵字搜尋課程名稱
 @router.get("/courses")
 def get_courses(keyword: str = None):
     query = supabase.table("courses").select("*")
-
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
-
     res = query.execute()
     return res.data
 
+@router.post("/courses")
+def create_course(body: CourseCreate):
+    res = supabase.table("courses").insert({
+        "title": body.title,
+        "teacher_id": body.teacher_id,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="新增課程失敗")
+    return res.data[0]
 
-# 💡 修改：點進特定課程後，取得該課程底下的「所有小節影片清單」
 @router.get("/courses/{course_id}/lectures")
 def get_lectures_by_course(course_id: int):
-    # 撈取 lectures 表中，所有 course_id 符合的小節
     res = supabase.table("lectures").select("*").eq("course_id", course_id).execute()
     return res.data
 
 
 # =====================================================================
-# 🎬 單一小節影片內部功能 (Lectures) - 維持使用 lecture_id
+# 🎬 單一小節影片內部功能 (Lectures)
 # =====================================================================
 
+class LectureCreate(BaseModel):
+    title: str
+    media_url: str
+    course_id: int
+    status: str = "uploaded"
 
-# 💡 修改：取得特定「小節影片」的詳細資訊
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
     res = supabase.table("lectures").select("*").eq("id", lecture_id).execute()
     return res.data
 
+@router.post("/lectures")
+def create_lecture(body: LectureCreate):
+    res = supabase.table("lectures").insert({
+        "title": body.title,
+        "media_url": body.media_url,
+        "course_id": body.course_id,
+        "status": body.status,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="新增小節失敗")
+    return res.data[0]
 
-# 取得該小節的逐字稿
 @router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id: int):
-    res = (
-        supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
-    )
+    res = supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
 
-
-# 取得該小節的摘要
 @router.get("/lectures/{lecture_id}/summaries")
 def get_lecture_summary(lecture_id: int):
     res = (
@@ -65,8 +83,6 @@ def get_lecture_summary(lecture_id: int):
     )
     return res.data
 
-
-# 取得該小節的知識點
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id: int):
     res = (
@@ -77,15 +93,11 @@ def get_lecture_knowledge_points(lecture_id: int):
     )
     return res.data
 
-
-# 取得該小節的心智圖
 @router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id: int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
 
-
-# 上傳單一小節的影片/音檔並轉成有時間戳的逐字稿
 @router.post("/lectures/{lecture_id}/transcribe")
 async def transcribe_lecture_media(
     lecture_id: int,
@@ -96,24 +108,20 @@ async def transcribe_lecture_media(
     save_to_db: bool = Form(default=True),
 ):
     suffix = os.path.splitext(file.filename or "")[1] or ".media"
-
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             temp_path = temp_file.name
             while chunk := await file.read(1024 * 1024):
                 temp_file.write(chunk)
-
         result = transcribe_media(
             temp_path,
             model_size=model_size,
             language=language or None,
             word_timestamps=word_timestamps,
         )
-
         db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
         if save_to_db:
             db_result = save_transcript_segments(lecture_id, result["segments"])
-
         return {
             "lecture_id": lecture_id,
             "filename": file.filename,
@@ -123,9 +131,7 @@ async def transcribe_lecture_media(
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=500, detail=f"Transcription failed: {exc}"
-        ) from exc
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}") from exc
     finally:
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.remove(temp_path)
