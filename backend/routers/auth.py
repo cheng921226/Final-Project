@@ -25,6 +25,7 @@ def register(data: RegisterRequest):
 
         supabase_admin.table("users").insert(
             {
+                "auth_id": user.id,
                 "name": data.name,
                 "email": data.email,
                 "role": "student",
@@ -45,7 +46,7 @@ class LoginRequest(BaseModel):
 def login(data: LoginRequest):
     try:
         res = supabase_admin.auth.sign_in_with_password(
-            {"email": data.email, "password": data.password}
+            {"id": data.id, "password": data.password}
         )
 
         return {
