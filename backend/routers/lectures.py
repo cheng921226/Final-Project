@@ -4,6 +4,7 @@ import tempfile
 from database.supabase import supabase
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel
+from typing import Any
 from services.transcription import save_transcript_segments, transcribe_media
 
 router = APIRouter()
@@ -97,6 +98,42 @@ def get_lecture_knowledge_points(lecture_id: int):
 def get_lecture_mindmap(lecture_id: int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
+
+
+# =====================================================================
+# 📊 學習事件紀錄 (Learning Events)
+# =====================================================================
+
+class LearningEventCreate(BaseModel):
+    student_id: int
+    lecture_id: int
+    event_type: str
+    event_data: dict[str, Any] = {}
+
+@router.post("/learning_events")
+def create_learning_event(body: LearningEventCreate):
+    res = supabase.table("learning_events").insert({
+        "student_id": body.student_id,
+        "lecture_id": body.lecture_id,
+        "event_type": body.event_type,
+        "event_data": body.event_data,
+    }).execute()
+    if not res.data:
+        raise HTTPException(status_code=500, detail="記錄學習事件失敗")
+    return res.data[0]
+
+@router.get("/learning_events/{lecture_id}")
+def get_learning_events(lecture_id: int, student_id: int | None = None):
+    query = supabase.table("learning_events").select("*").eq("lecture_id", lecture_id)
+    if student_id:
+        query = query.eq("student_id", student_id)
+    res = query.execute()
+    return res.data
+
+
+# =====================================================================
+# 🎙️ 逐字稿轉錄
+# =====================================================================
 
 @router.post("/lectures/{lecture_id}/transcribe")
 async def transcribe_lecture_media(

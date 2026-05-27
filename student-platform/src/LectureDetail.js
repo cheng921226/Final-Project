@@ -1,56 +1,103 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
+const STUDENT_ID = 2; // 暫時寫死，之後登入功能完成後替換
 
 function convertToD3Tree(node) {
   if (!node) return null;
   return {
     name: node.title,
     attributes: node.description ? { description: node.description } : undefined,
-    children: node.children?.length > 0
-      ? node.children.map(convertToD3Tree)
-      : undefined,
+    children: node.children?.length > 0 ? node.children.map(convertToD3Tree) : undefined,
   };
+}
+
+function timeToSeconds(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':').map(Number);
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return 0;
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+async function logEvent(lectureId, eventType, eventData) {
+  try {
+    await fetch(`${API_URL}/learning_events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_id: STUDENT_ID,
+        lecture_id: parseInt(lectureId),
+        event_type: eventType,
+        event_data: eventData,
+      }),
+    });
+  } catch (e) {
+    // 靜默失敗，不影響使用者體驗
+  }
 }
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
-  const [videoUrl, setVideoUrl] = useState('');
+  const [videoId, setVideoId] = useState('');
   const [mindmap, setMindmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const treeContainerRef = useRef(null);
 
+  // YouTube IFrame API
+  const playerRef = useRef(null);
+  const playerContainerRef = useRef(null);
+  const playerReadyRef = useRef(false);
+
+  // 學習事件追蹤
+  const lastPositionRef = useRef(0);
+  const pauseCountRef = useRef(0);
+  const watchedSegmentsRef = useRef([]); // [{start, end}]
+  const segmentStartRef = useRef(0);
+  const totalDurationRef = useRef(0);
+  const trackingIntervalRef = useRef(null);
+
+  // 聊天室
+  const [chatMessages, setChatMessages] = useState([
+    { role: 'assistant', text: '你好，我是你的 AI 學習夥伴。有任何問題都可以問我！' }
+  ]);
+  const [chatInput, setChatInput] = useState('');
+
+  // 載入課程資料
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
-        // 影片網址
         const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const raw = lectureData[0]?.media_url;
           if (raw) {
             try {
-              const videoId = new URL(raw).searchParams.get('v');
-              if (videoId) setVideoUrl(`https://www.youtube.com/embed/${videoId}`);
+              const vid = new URL(raw).searchParams.get('v');
+              if (vid) setVideoId(vid);
             } catch (e) {}
           }
         }
 
-        // 知識點
         const kpRes = await fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`);
         if (kpRes.ok) {
           const kpData = await kpRes.json();
           if (Array.isArray(kpData)) setKnowledgePoints(kpData);
         }
 
-        // 摘要
         const summaryRes = await fetch(`${API_URL}/lectures/${lectureId}/summaries`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
@@ -64,7 +111,6 @@ function LectureDetail() {
           }
         }
 
-        // 心智圖
         const mmRes = await fetch(`${API_URL}/lectures/${lectureId}/mindmaps`);
         if (mmRes.ok) {
           const mmData = await mmRes.json();
@@ -80,6 +126,146 @@ function LectureDetail() {
     }
     fetchData();
   }, [lectureId]);
+
+  // 初始化 YouTube IFrame API
+  useEffect(() => {
+    if (!videoId) return;
+
+    function initPlayer() {
+      if (!window.YT || !window.YT.Player) return;
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+
+      playerRef.current = new window.YT.Player('yt-player', {
+        videoId: videoId,
+        playerVars: { rel: 0, modestbranding: 1 },
+        events: {
+          onReady: (event) => {
+            playerReadyRef.current = true;
+            totalDurationRef.current = event.target.getDuration();
+
+            // 開始定期追蹤播放位置（每 2 秒）
+            trackingIntervalRef.current = setInterval(() => {
+              if (!playerRef.current || !playerReadyRef.current) return;
+              const state = playerRef.current.getPlayerState();
+              if (state === window.YT.PlayerState.PLAYING) {
+                const currentTime = playerRef.current.getCurrentTime();
+                lastPositionRef.current = currentTime;
+              }
+            }, 2000);
+          },
+          onStateChange: (event) => {
+            const state = event.data;
+            const currentTime = playerRef.current?.getCurrentTime() || 0;
+
+            if (state === window.YT.PlayerState.PLAYING) {
+              segmentStartRef.current = currentTime;
+            }
+
+            if (state === window.YT.PlayerState.PAUSED) {
+              // 記錄暫停
+              pauseCountRef.current += 1;
+              logEvent(lectureId, 'pause', {
+                timestamp: Math.floor(currentTime),
+                pause_count: pauseCountRef.current,
+              });
+
+              // 記錄已觀看片段
+              if (segmentStartRef.current < currentTime) {
+                watchedSegmentsRef.current.push({
+                  start: Math.floor(segmentStartRef.current),
+                  end: Math.floor(currentTime),
+                });
+              }
+            }
+
+            if (state === window.YT.PlayerState.ENDED) {
+              const duration = totalDurationRef.current || 1;
+              const watchedSeconds = watchedSegmentsRef.current.reduce(
+                (acc, seg) => acc + (seg.end - seg.start), 0
+              );
+              const completed = watchedSeconds / duration >= 0.9;
+
+              logEvent(lectureId, 'watch_progress', {
+                last_position: Math.floor(currentTime),
+                watched_seconds: watchedSeconds,
+                total_duration: Math.floor(duration),
+                completed,
+              });
+            }
+          },
+        },
+      });
+    }
+
+    if (window.YT && window.YT.Player) {
+      initPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initPlayer;
+      if (!document.getElementById('yt-api-script')) {
+        const tag = document.createElement('script');
+        tag.id = 'yt-api-script';
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+      }
+    }
+
+    return () => {
+      // 離開頁面時記錄最後觀看位置
+      if (playerRef.current && playerReadyRef.current) {
+        const currentTime = playerRef.current.getCurrentTime() || 0;
+        const duration = totalDurationRef.current || 1;
+        const watchedSeconds = watchedSegmentsRef.current.reduce(
+          (acc, seg) => acc + (seg.end - seg.start), 0
+        );
+        logEvent(lectureId, 'watch_progress', {
+          last_position: Math.floor(currentTime),
+          watched_seconds: watchedSeconds,
+          total_duration: Math.floor(duration),
+          completed: watchedSeconds / duration >= 0.9,
+        });
+      }
+      if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
+    };
+  }, [videoId, lectureId]);
+
+  // 點知識點 → 跳到對應時間
+  function seekToKnowledgePoint(startTime) {
+    if (!playerRef.current || !playerReadyRef.current) return;
+    const seconds = timeToSeconds(startTime);
+
+    // 記錄 seek 事件
+    const currentTime = playerRef.current.getCurrentTime() || 0;
+    logEvent(lectureId, 'seek', {
+      from: Math.floor(currentTime),
+      to: seconds,
+      triggered_by: 'knowledge_point',
+    });
+
+    playerRef.current.seekTo(seconds, true);
+    playerRef.current.playVideo();
+  }
+
+  // AI 助教提問（記錄當前時間戳）
+  function handleAskQuestion() {
+    if (!chatInput.trim()) return;
+    const currentTime = playerRef.current?.getCurrentTime() || 0;
+
+    // 記錄提問事件
+    logEvent(lectureId, 'question_asked', {
+      timestamp: Math.floor(currentTime),
+      question: chatInput.trim(),
+    });
+
+    setChatMessages(prev => [
+      ...prev,
+      { role: 'user', text: chatInput.trim() },
+      { role: 'assistant', text: '（AI 回覆功能開發中...）' },
+    ]);
+    setChatInput('');
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 p-6">
@@ -99,12 +285,8 @@ function LectureDetail() {
         <div className="lg:col-span-3 space-y-4">
           {/* 影片 */}
           <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
-            {videoUrl ? (
-              <iframe
-                width="100%" height="100%"
-                src={videoUrl}
-                title="Course Video" frameBorder="0" allowFullScreen
-              ></iframe>
+            {videoId ? (
+              <div id="yt-player" style={{ width: '100%', height: '100%' }} />
             ) : (
               <div className="w-full h-full flex items-center justify-center text-slate-400">
                 {loading ? '載入影片中...' : '無影片資料'}
@@ -117,6 +299,7 @@ function LectureDetail() {
             <h2 className="text-xl font-bold mb-4 flex items-center">
               <span className="bg-blue-100 text-blue-600 p-1 rounded mr-2">📚</span>
               課程知識點
+              <span className="ml-2 text-sm font-normal text-slate-400">點擊可跳至對應時間</span>
             </h2>
             {loading ? (
               <p className="text-slate-500">正在載入知識點...</p>
@@ -127,8 +310,19 @@ function LectureDetail() {
             ) : (
               <div className="grid gap-3">
                 {knowledgePoints.map((p, i) => (
-                  <div key={i} className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-300 transition-colors">
-                    <h3 className="font-bold text-blue-700">{p.title}</h3>
+                  <div
+                    key={i}
+                    onClick={() => seekToKnowledgePoint(p.start_time)}
+                    className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <h3 className="font-bold text-blue-700 group-hover:text-blue-600">{p.title}</h3>
+                      {p.start_time && (
+                        <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-mono">
+                          ▶ {p.start_time}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-slate-600 text-sm">{p.description}</p>
                   </div>
                 ))}
@@ -156,16 +350,13 @@ function LectureDetail() {
                   renderCustomNodeElement={({ nodeDatum }) => (
                     <g>
                       <rect
-                        x="-60" y="-18"
-                        width="120" height="36"
-                        rx="8"
+                        x="-60" y="-18" width="120" height="36" rx="8"
                         fill={nodeDatum.children ? '#dbeafe' : '#f1f5f9'}
                         stroke={nodeDatum.children ? '#3b82f6' : '#cbd5e1'}
                         strokeWidth="1.5"
                       />
                       <text
-                        textAnchor="middle"
-                        dominantBaseline="middle"
+                        textAnchor="middle" dominantBaseline="middle"
                         style={{ fontSize: '12px', fill: '#1e3a5f', fontWeight: nodeDatum.children ? 'bold' : 'normal' }}
                       >
                         {nodeDatum.name}
@@ -193,17 +384,30 @@ function LectureDetail() {
           {/* AI 助教 */}
           <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white">
             <h3 className="text-lg font-bold mb-4">💬 AI 課程助教</h3>
-            <div className="h-40 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto">
-              <div className="bg-slate-700 p-2 rounded mb-2">助教：你好，我是你的 AI 學習夥伴。</div>
-              <div className="bg-blue-600 p-2 rounded ml-4 mb-2">學生：什麼是機器學習？</div>
-              <div className="bg-slate-700 p-2 rounded">助教：機器學習是 AI 的一種方法，讓電腦從資料中學習規律。</div>
+            <div className="h-48 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto space-y-2">
+              {chatMessages.map((msg, i) => (
+                <div
+                  key={i}
+                  className={`p-2 rounded ${msg.role === 'assistant' ? 'bg-slate-700' : 'bg-blue-600 ml-4'}`}
+                >
+                  {msg.text}
+                </div>
+              ))}
             </div>
             <div className="flex gap-2">
               <input
                 className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none"
                 placeholder="輸入問題..."
+                value={chatInput}
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAskQuestion()}
               />
-              <button className="bg-blue-500 hover:bg-blue-400 px-3 py-2 rounded-lg text-xs font-bold">送出</button>
+              <button
+                onClick={handleAskQuestion}
+                className="bg-blue-500 hover:bg-blue-400 px-3 py-2 rounded-lg text-xs font-bold"
+              >
+                送出
+              </button>
             </div>
           </div>
         </div>
