@@ -1,4 +1,4 @@
-from database.supabase import supabase
+from database.supabase import supabase_admin
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -15,7 +15,7 @@ class UserCreate(BaseModel):
 @router.post("/users")
 def create_user(body: UserCreate):
     res = (
-        supabase.table("users")
+        supabase_admin.table("users")
         .insert(
             {
                 "name": body.name,
@@ -39,12 +39,18 @@ def me():
 # 取得所有老師清單
 @router.get("/teachers")
 def get_teachers():
-    res = supabase.table("users").select("*").eq("role", "teacher").execute()
+    res = supabase_admin.table("users").select("*").eq("role", "teacher").execute()
     return res.data
 
 
 # 取得講師資訊
 @router.get("/teachers/{teacher_id}")
 def get_teacher(teacher_id: int):
-    res = supabase.table("users").select("*").eq("id", teacher_id).single().execute()
+    res = (
+        supabase_admin.table("users")
+        .select("*")
+        .eq("id", teacher_id)
+        .single()
+        .execute()
+    )
     return res.data

@@ -1,6 +1,6 @@
 from typing import Any
 
-from database.supabase import supabase
+from database.supabase import supabase_admin
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ class CourseCreate(BaseModel):
 
 @router.get("/courses")
 def get_courses(keyword: str = None):
-    query = supabase.table("courses").select("*")
+    query = supabase_admin.table("courses").select("*")
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
@@ -29,7 +29,7 @@ def get_courses(keyword: str = None):
 @router.post("/courses")
 def create_course(body: CourseCreate):
     res = (
-        supabase.table("courses")
+        supabase_admin.table("courses")
         .insert(
             {
                 "title": body.title,
@@ -45,7 +45,12 @@ def create_course(body: CourseCreate):
 
 @router.get("/courses/{course_id}/lectures")
 def get_lectures_by_course(course_id: int):
-    res = supabase.table("lectures").select("*").eq("course_id", course_id).execute()
+    res = (
+        supabase_admin.table("lectures")
+        .select("*")
+        .eq("course_id", course_id)
+        .execute()
+    )
     return res.data
 
 
@@ -63,7 +68,7 @@ class LectureCreate(BaseModel):
 
 @router.get("/lectures")
 def get_lectures(keyword: str = None):
-    query = supabase.table("lectures").select("*")
+    query = supabase_admin.table("lectures").select("*")
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
@@ -72,14 +77,14 @@ def get_lectures(keyword: str = None):
 
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
-    res = supabase.table("lectures").select("*").eq("id", lecture_id).execute()
+    res = supabase_admin.table("lectures").select("*").eq("id", lecture_id).execute()
     return res.data
 
 
 @router.post("/lectures")
 def create_lecture(body: LectureCreate):
     res = (
-        supabase.table("lectures")
+        supabase_admin.table("lectures")
         .insert(
             {
                 "title": body.title,
@@ -98,7 +103,7 @@ def create_lecture(body: LectureCreate):
 @router.get("/lectures/{lecture_id}/summaries")
 def get_lecture_summary(lecture_id: int):
     res = (
-        supabase.table("summaries")
+        supabase_admin.table("summaries")
         .select("*")
         .eq("lecture_id", lecture_id)
         .single()
@@ -110,7 +115,7 @@ def get_lecture_summary(lecture_id: int):
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id: int):
     res = (
-        supabase.table("knowledge_points")
+        supabase_admin.table("knowledge_points")
         .select("*")
         .eq("lecture_id", lecture_id)
         .execute()
@@ -120,14 +125,22 @@ def get_lecture_knowledge_points(lecture_id: int):
 
 @router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id: int):
-    res = supabase.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
+    res = (
+        supabase_admin.table("mindmaps")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .execute()
+    )
     return res.data
 
 
 @router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id: int):
     res = (
-        supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
+        supabase_admin.table("transcripts")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .execute()
     )
     return res.data
 
@@ -147,7 +160,7 @@ class LearningEventCreate(BaseModel):
 @router.post("/learning_events")
 def create_learning_event(body: LearningEventCreate):
     res = (
-        supabase.table("learning_events")
+        supabase_admin.table("learning_events")
         .insert(
             {
                 "student_id": body.student_id,
@@ -165,7 +178,9 @@ def create_learning_event(body: LearningEventCreate):
 
 @router.get("/learning_events/{lecture_id}")
 def get_learning_events(lecture_id: int, student_id: int | None = None):
-    query = supabase.table("learning_events").select("*").eq("lecture_id", lecture_id)
+    query = (
+        supabase_admin.table("learning_events").select("*").eq("lecture_id", lecture_id)
+    )
     if student_id:
         query = query.eq("student_id", student_id)
     res = query.execute()

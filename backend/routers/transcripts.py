@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 
-from database.supabase import supabase
+from database.supabase import supabase_admin
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from services.transcription import (
