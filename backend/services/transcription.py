@@ -99,9 +99,15 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
     }
 
 
-def save_transcript_segments(lecture_id: int, segments: list[dict[str, Any]]) -> dict[str, Any]:
+def save_transcript_segments(
+    lecture_id: int, segments: list[dict[str, Any]]
+) -> dict[str, Any]:
     if not segments:
-        return {"saved_to_db": False, "inserted": 0, "db_error": "No transcript segments"}
+        return {
+            "saved_to_db": False,
+            "inserted": 0,
+            "db_error": "No transcript segments",
+        }
 
     content = " ".join(
         f"({format_timestamp(segment['start_time'])}) {segment['text']}"

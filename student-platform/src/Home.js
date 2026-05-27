@@ -11,7 +11,7 @@ function Home() {
   useEffect(() => {
     async function fetchCourses() {
       try {
-        const response = await fetch(`${API_URL}/lectures`);
+        const response = await fetch(`${API_URL}/courses`);
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
@@ -52,8 +52,20 @@ function Home() {
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       {/* 搜尋區 */}
-      <section className="max-w-4xl mx-auto mb-12 text-center">
-        <h1 className="text-4xl font-extrabold text-slate-800 mb-4">今天想學什麼？</h1>
+      <section className="max-w-4xl mx-auto mb-12">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+          <div className="text-center sm:text-left">
+            <h1 className="text-4xl font-extrabold text-slate-800 mb-2">今天想學什麼？</h1>
+            <p className="text-slate-500">快速搜尋課程，或上傳新的課程小節影片。</p>
+          </div>
+          <div className="text-center sm:text-right">
+            <Link to="/upload-lecture">
+              <button className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-bold">
+                + 上傳課程
+              </button>
+            </Link>
+          </div>
+        </div>
         <div className="relative">
           <input 
             type="text" 
