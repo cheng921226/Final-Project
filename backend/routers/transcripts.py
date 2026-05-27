@@ -22,13 +22,6 @@ class YoutubeTranscribeRequest(BaseModel):
     save_to_db: bool = True
 
 
-# 取得該課程逐字稿
-@router.get("/lectures/{lecture_id}/transcripts")
-def get_lecture_transcript(lecture_id: int):
-    res = supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
-    return res.data
-
-
 # 上傳影片/音檔並轉成有時間戳的逐字稿
 @router.post("/lectures/{lecture_id}/transcribe")
 async def transcribe_lecture_media(
@@ -67,7 +60,9 @@ async def transcribe_lecture_media(
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"Transcription failed: {exc}"
+        ) from exc
     finally:
         if "temp_path" in locals() and os.path.exists(temp_path):
             os.remove(temp_path)
@@ -102,6 +97,8 @@ def transcribe_lecture_youtube(lecture_id: int, payload: YoutubeTranscribeReques
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"YouTube transcription failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"YouTube transcription failed: {exc}"
+        ) from exc
     finally:
         shutil.rmtree(download_dir, ignore_errors=True)
