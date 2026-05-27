@@ -1,4 +1,5 @@
 import os
+import tempfile
 from functools import lru_cache
 from typing import Any
 
@@ -67,6 +68,34 @@ def transcribe_media(
         "duration": round(float(info.duration), 3) if info.duration else None,
         "text": " ".join(part for part in full_text_parts if part),
         "segments": segments,
+    }
+
+
+def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str, Any]:
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError as exc:
+        raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
+
+    target_dir = output_dir or tempfile.mkdtemp(prefix="youtube_audio_")
+    output_template = os.path.join(target_dir, "%(id)s.%(ext)s")
+    ydl_opts = {
+        "format": "bestaudio/best",
+        "noplaylist": True,
+        "outtmpl": output_template,
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info)
+
+    return {
+        "file_path": file_path,
+        "title": info.get("title"),
+        "webpage_url": info.get("webpage_url") or url,
+        "duration": info.get("duration"),
     }
 
 
