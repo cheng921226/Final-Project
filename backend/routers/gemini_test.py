@@ -16,11 +16,15 @@ gemini_client = genai.Client()
 # 🤖 AI 助教對話
 # =====================================================================
 
+
 class ChatRequest(BaseModel):
     lecture_id: int
     question: str
-    video_timestamp: int = 0      # 學生提問時的影片秒數
-    chat_history: list[dict] = [] # 前端傳來的對話歷史 [{"role": "user/assistant", "text": "..."}]
+    video_timestamp: int = 0  # 學生提問時的影片秒數
+    chat_history: list[
+        dict
+    ] = []  # 前端傳來的對話歷史 [{"role": "user/assistant", "text": "..."}]
+
 
 @router.post("/ai/chat")
 def ai_chat(body: ChatRequest):
@@ -34,9 +38,13 @@ def ai_chat(body: ChatRequest):
         knowledge_points_raw = get_lecture_knowledge_points(body.lecture_id)
 
         # 把逐字稿轉成純文字
-        transcript_text = "\n".join(
-            [seg.get("text", "") for seg in transcript_raw if isinstance(seg, dict)]
-        ) if isinstance(transcript_raw[0], dict) else str(transcript_raw)
+        transcript_text = (
+            "\n".join(
+                [seg.get("text", "") for seg in transcript_raw if isinstance(seg, dict)]
+            )
+            if isinstance(transcript_raw[0], dict)
+            else str(transcript_raw)
+        )
 
         # 抓影片當前時間點前後 60 秒的逐字稿片段（上下文）
         timestamp = body.video_timestamp
@@ -51,12 +59,21 @@ def ai_chat(body: ChatRequest):
                 start_sec = 0
             if abs(start_sec - timestamp) <= 60:
                 context_segments.append(seg.get("text", ""))
-        transcript_context = "\n".join(context_segments) if context_segments else transcript_text[:500]
+        transcript_context = (
+            "\n".join(context_segments) if context_segments else transcript_text[:500]
+        )
 
         # 格式化知識點
-        kp_text = "\n".join(
-            [f"- {kp.get('title', '')}: {kp.get('description', '')}" for kp in knowledge_points_raw]
-        ) if knowledge_points_raw else "（本節無知識點資料）"
+        kp_text = (
+            "\n".join(
+                [
+                    f"- {kp.get('title', '')}: {kp.get('description', '')}"
+                    for kp in knowledge_points_raw
+                ]
+            )
+            if knowledge_points_raw
+            else "（本節無知識點資料）"
+        )
 
         # 格式化影片時間
         minutes = timestamp // 60
@@ -133,13 +150,20 @@ JSON 格式：
 # 以下為原本的測試 API
 # =====================================================================
 
+
+class SummaryRequest(BaseModel):
+    lecture_id: int
+
+
 # 生成摘要
-@router.get("/lectures/{lecture_id}/test-summary")
-def test_generate_summary(lecture_id: int):
+@router.post("/lectures/test-summary")
+def test_generate_summary(body: SummaryRequest):
     try:
-        transcript = get_lecture_transcript(lecture_id)
+        transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
-            raise HTTPException(status_code=400, detail="Transcript not found for this lecture.")
+            raise HTTPException(
+                status_code=400, detail="Transcript not found for this lecture."
+            )
 
         prompt = f"""
             請根據以下課程逐字稿，產生 150 字內的繁體中文課程摘要。
@@ -160,18 +184,28 @@ def test_generate_summary(lecture_id: int):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
-        return {"status": "success", "lecture_id": lecture_id, "data": result_json}
+        supabase_admin.table("summaries").insert(
+            {"lecture_id": body.lecture_id, "summary_text": result_json}
+        ).execute()
+
+        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
 
 
+class MindMapRequest(BaseModel):
+    lecture_id: int
+
+
 # 生成心智圖
-@router.get("/lectures/{lecture_id}/test-mindmap")
-def test_generate_mindmap(lecture_id: int):
+@router.post("/lectures/test-mindmap")
+def test_generate_mindmap(body: MindMapRequest):
     try:
-        transcript = get_lecture_transcript(lecture_id)
+        transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
-            raise HTTPException(status_code=400, detail="Transcript not found for this lecture.")
+            raise HTTPException(
+                status_code=400, detail="Transcript not found for this lecture."
+            )
 
         prompt = f"""
             請根據以下課程逐字稿，產生最多 3 層的課程心智圖。
@@ -194,24 +228,50 @@ def test_generate_mindmap(lecture_id: int):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
-        return {"status": "success", "lecture_id": lecture_id, "data": result_json}
+        lecture_title = (
+            supabase_admin.table("lectures")
+            .select("title")
+            .eq("id", body.lecture_id)
+            .single()
+            .execute()
+        )
+
+        if not lecture_title.data:
+            raise HTTPException(status_code=404, detail="Lecture not found")
+
+        supabase_admin.table("mindmaps").insert(
+            {
+                "lecture_id": body.lecture_id,
+                "title": lecture_title.data["title"],
+                "mindmap_json": result_json,
+            }
+        ).execute()
+
+        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
 
 
+class KnowledgePointsRequest(BaseModel):
+    lecture_id: int
+
+
 # 生成知識點
-@router.get("/lectures/{lecture_id}/test-knowledge_points")
-def test_generate_knowledge_points(lecture_id: int):
+@router.post("/lectures/test-knowledge_points")
+def test_generate_knowledge_points(body: KnowledgePointsRequest):
     try:
-        transcript = get_lecture_transcript(lecture_id)
+        transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
-            raise HTTPException(status_code=400, detail="Transcript not found for this lecture.")
+            raise HTTPException(
+                status_code=400, detail="Transcript not found for this lecture."
+            )
 
         prompt = f"""
             請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
             JSON格式：
             {{ "knowledge_points": [ {{ "title": "知識點標題", "description": "知識點說明", "start_time": null, "end_time": null }} ] }}
             使用繁體中文。如果沒有時間資訊請填 null。
+            start_time / end_time 請輸出 mm:ss
             課程逐字稿：
             {transcript}
         """
@@ -227,32 +287,48 @@ def test_generate_knowledge_points(lecture_id: int):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
-        return {"status": "success", "lecture_id": lecture_id, "data": result_json}
+        for kp in result_json["knowledge_points"]:
+            supabase_admin.table("knowledge_points").insert(
+                {
+                    "lecture_id": body.lecture_id,
+                    "title": kp["title"],
+                    "description": kp["description"],
+                    "start_time": kp["start_time"],
+                    "end_time": kp["end_time"],
+                }
+            ).execute()
+
+        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
 
 
+class QuestionsRequest(BaseModel):
+    lecture_id: int
+
+
 # 生成題目
-@router.get("/lectures/{lecture_id}/test-questions")
-def test_generate_questions(lecture_id: int):
+@router.post("/lectures/test-questions")
+def test_generate_questions(body: QuestionsRequest):
     try:
-        transcript = get_lecture_transcript(lecture_id)
-        knowledge_points = get_lecture_knowledge_points(lecture_id)
+        transcript = get_lecture_transcript(body.lecture_id)
+        knowledge_points = get_lecture_knowledge_points(body.lecture_id)
         if not transcript:
-            raise HTTPException(status_code=400, detail="Transcript not found for this lecture.")
+            raise HTTPException(
+                status_code=400, detail="Transcript not found for this lecture."
+            )
 
         prompt = f"""
             請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
             JSON格式：
-            {{"questions": [{{"question_text": "題目文字", "options": ["A. ...", "B. ...", "C. ...", "D. ..."], "answer": "A", "explanation": "簡單清楚的解釋", "related_knowledge_point": "必須完全使用提供的知識點標題"}}]}}
+            {{"questions": [{{"question_text": "題目文字", "options": ["A. ...", "B. ...", "C. ...", "D. ..."], "answer": "A", "explanation": "簡單清楚的解釋", "related_knowledge_point": 使用提供的知識點 id }}]}}
             使用繁體中文。每題固定 4 個選項，且 answer 只能是 A、B、C 或 D。
-            related_knowledge_point 必須嚴格等於「知識點列表」中的名稱，禁止自行修改或自創。
             課程逐字稿：{transcript}
             知識點列表：{knowledge_points}
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -262,6 +338,18 @@ def test_generate_questions(lecture_id: int):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
-        return {"status": "success", "lecture_id": lecture_id, "data": result_json}
+        for q in result_json["questions"]:
+            supabase_admin.table("questions").insert(
+                {
+                    "lecture_id": body.lecture_id,
+                    "knowledge_point_id": q["related_knowledge_point"],
+                    "question_text": q["question_text"],
+                    "options_json": q["options"],
+                    "answer": q["answer"],
+                    "explanation": q["explanation"],
+                }
+            ).execute()
+
+        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
