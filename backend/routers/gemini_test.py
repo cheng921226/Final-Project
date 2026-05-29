@@ -158,6 +158,17 @@ class SummaryRequest(BaseModel):
 # 生成摘要
 @router.post("/lectures/test-summary")
 def test_generate_summary(body: SummaryRequest):
+    existing = (
+        supabase_admin.table("summaries")
+        .select("*")
+        .eq("lecture_id", body.lecture_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if existing.data:
+        return {"status": "cached", "data": existing.data}
+
     try:
         transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
@@ -200,6 +211,17 @@ class MindMapRequest(BaseModel):
 # 生成心智圖
 @router.post("/lectures/test-mindmap")
 def test_generate_mindmap(body: MindMapRequest):
+    existing = (
+        supabase_admin.table("mindmaps")
+        .select("*")
+        .eq("lecture_id", body.lecture_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if existing.data:
+        return {"status": "cached", "data": existing.data}
+
     try:
         transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
@@ -259,6 +281,17 @@ class KnowledgePointsRequest(BaseModel):
 # 生成知識點
 @router.post("/lectures/test-knowledge_points")
 def test_generate_knowledge_points(body: KnowledgePointsRequest):
+    existing = (
+        supabase_admin.table("knowledge_points")
+        .select("*")
+        .eq("lecture_id", body.lecture_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if existing.data:
+        return {"status": "cached", "data": existing.data}
+
     try:
         transcript = get_lecture_transcript(body.lecture_id)
         if not transcript:
@@ -310,6 +343,17 @@ class QuestionsRequest(BaseModel):
 # 生成題目
 @router.post("/lectures/test-questions")
 def test_generate_questions(body: QuestionsRequest):
+    existing = (
+        supabase_admin.table("questions")
+        .select("*")
+        .eq("lecture_id", body.lecture_id)
+        .maybe_single()
+        .execute()
+    )
+
+    if existing.data:
+        return {"status": "cached", "data": existing.data}
+
     try:
         transcript = get_lecture_transcript(body.lecture_id)
         knowledge_points = get_lecture_knowledge_points(body.lecture_id)
