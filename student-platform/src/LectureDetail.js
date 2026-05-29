@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
-const STUDENT_ID = 2; // 暫時寫死，之後登入功能完成後替換
+const STUDENT_ID = 2; // 暫時寫死，登入功能完成後替換
 
 function convertToD3Tree(node) {
   if (!node) return null;
@@ -22,12 +22,6 @@ function timeToSeconds(timeStr) {
   return 0;
 }
 
-function formatTime(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60);
-  return `${m}:${s.toString().padStart(2, '0')}`;
-}
-
 async function logEvent(lectureId, eventType, eventData) {
   try {
     await fetch(`${API_URL}/learning_events`, {
@@ -40,9 +34,7 @@ async function logEvent(lectureId, eventType, eventData) {
         event_data: eventData,
       }),
     });
-  } catch (e) {
-    // 靜默失敗，不影響使用者體驗
-  }
+  } catch (e) {}
 }
 
 function LectureDetail() {
@@ -57,22 +49,23 @@ function LectureDetail() {
 
   // YouTube IFrame API
   const playerRef = useRef(null);
-  const playerContainerRef = useRef(null);
   const playerReadyRef = useRef(false);
 
   // 學習事件追蹤
   const lastPositionRef = useRef(0);
   const pauseCountRef = useRef(0);
-  const watchedSegmentsRef = useRef([]); // [{start, end}]
+  const watchedSegmentsRef = useRef([]);
   const segmentStartRef = useRef(0);
   const totalDurationRef = useRef(0);
   const trackingIntervalRef = useRef(null);
 
   // 聊天室
   const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', text: '你好，我是你的 AI 學習夥伴。有任何問題都可以問我！' }
+    { role: 'assistant', text: '你好！我是你的 AI 學習夥伴 😊 有任何課程問題都可以問我！' }
   ]);
   const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatBottomRef = useRef(null);
 
   // 載入課程資料
   useEffect(() => {
@@ -146,13 +139,11 @@ function LectureDetail() {
             playerReadyRef.current = true;
             totalDurationRef.current = event.target.getDuration();
 
-            // 開始定期追蹤播放位置（每 2 秒）
             trackingIntervalRef.current = setInterval(() => {
               if (!playerRef.current || !playerReadyRef.current) return;
               const state = playerRef.current.getPlayerState();
               if (state === window.YT.PlayerState.PLAYING) {
-                const currentTime = playerRef.current.getCurrentTime();
-                lastPositionRef.current = currentTime;
+                lastPositionRef.current = playerRef.current.getCurrentTime();
               }
             }, 2000);
           },
@@ -165,14 +156,11 @@ function LectureDetail() {
             }
 
             if (state === window.YT.PlayerState.PAUSED) {
-              // 記錄暫停
               pauseCountRef.current += 1;
               logEvent(lectureId, 'pause', {
                 timestamp: Math.floor(currentTime),
                 pause_count: pauseCountRef.current,
               });
-
-              // 記錄已觀看片段
               if (segmentStartRef.current < currentTime) {
                 watchedSegmentsRef.current.push({
                   start: Math.floor(segmentStartRef.current),
@@ -186,13 +174,11 @@ function LectureDetail() {
               const watchedSeconds = watchedSegmentsRef.current.reduce(
                 (acc, seg) => acc + (seg.end - seg.start), 0
               );
-              const completed = watchedSeconds / duration >= 0.9;
-
               logEvent(lectureId, 'watch_progress', {
                 last_position: Math.floor(currentTime),
                 watched_seconds: watchedSeconds,
                 total_duration: Math.floor(duration),
-                completed,
+                completed: watchedSeconds / duration >= 0.9,
               });
             }
           },
@@ -213,7 +199,6 @@ function LectureDetail() {
     }
 
     return () => {
-      // 離開頁面時記錄最後觀看位置
       if (playerRef.current && playerReadyRef.current) {
         const currentTime = playerRef.current.getCurrentTime() || 0;
         const duration = totalDurationRef.current || 1;
@@ -231,40 +216,71 @@ function LectureDetail() {
     };
   }, [videoId, lectureId]);
 
+  // 聊天室自動捲到底部
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
   // 點知識點 → 跳到對應時間
   function seekToKnowledgePoint(startTime) {
     if (!playerRef.current || !playerReadyRef.current) return;
     const seconds = timeToSeconds(startTime);
-
-    // 記錄 seek 事件
     const currentTime = playerRef.current.getCurrentTime() || 0;
     logEvent(lectureId, 'seek', {
       from: Math.floor(currentTime),
       to: seconds,
       triggered_by: 'knowledge_point',
     });
-
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
   }
 
-  // AI 助教提問（記錄當前時間戳）
-  function handleAskQuestion() {
-    if (!chatInput.trim()) return;
-    const currentTime = playerRef.current?.getCurrentTime() || 0;
+  // AI 助教提問
+  async function handleAskQuestion() {
+    if (!chatInput.trim() || chatLoading) return;
+
+    const question = chatInput.trim();
+    const currentTime = playerRef.current?.getCurrentTime
+      ? Math.floor(playerRef.current.getCurrentTime())
+      : 0;
 
     // 記錄提問事件
     logEvent(lectureId, 'question_asked', {
-      timestamp: Math.floor(currentTime),
-      question: chatInput.trim(),
+      timestamp: currentTime,
+      question,
     });
 
-    setChatMessages(prev => [
-      ...prev,
-      { role: 'user', text: chatInput.trim() },
-      { role: 'assistant', text: '（AI 回覆功能開發中...）' },
-    ]);
+    // 加入學生訊息
+    const newMessages = [...chatMessages, { role: 'user', text: question }];
+    setChatMessages(newMessages);
     setChatInput('');
+    setChatLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/ai/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          lecture_id: parseInt(lectureId),
+          question,
+          video_timestamp: currentTime,
+          chat_history: chatMessages.slice(-6), // 只傳最近 6 則
+        }),
+      });
+
+      if (!res.ok) throw new Error('AI 助教回應失敗');
+      const data = await res.json();
+      const answer = data.answer || '（助教無法回應，請稍後再試）';
+
+      setChatMessages(prev => [...prev, { role: 'assistant', text: answer }]);
+    } catch (err) {
+      setChatMessages(prev => [
+        ...prev,
+        { role: 'assistant', text: '抱歉，助教暫時無法回應，請稍後再試 🙏' }
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
   }
 
   return (
@@ -382,29 +398,41 @@ function LectureDetail() {
           </div>
 
           {/* AI 助教 */}
-          <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white">
+          <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white flex flex-col">
             <h3 className="text-lg font-bold mb-4">💬 AI 課程助教</h3>
-            <div className="h-48 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto space-y-2">
+            <div className="h-64 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto space-y-2">
               {chatMessages.map((msg, i) => (
                 <div
                   key={i}
-                  className={`p-2 rounded ${msg.role === 'assistant' ? 'bg-slate-700' : 'bg-blue-600 ml-4'}`}
+                  className={`p-2 rounded leading-relaxed ${
+                    msg.role === 'assistant'
+                      ? 'bg-slate-700 text-slate-100'
+                      : 'bg-blue-600 ml-4 text-white'
+                  }`}
                 >
                   {msg.text}
                 </div>
               ))}
+              {chatLoading && (
+                <div className="bg-slate-700 p-2 rounded text-slate-400 animate-pulse">
+                  助教思考中...
+                </div>
+              )}
+              <div ref={chatBottomRef} />
             </div>
             <div className="flex gap-2">
               <input
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none"
-                placeholder="輸入問題..."
+                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500"
+                placeholder="輸入課程相關問題..."
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAskQuestion()}
+                disabled={chatLoading}
               />
               <button
                 onClick={handleAskQuestion}
-                className="bg-blue-500 hover:bg-blue-400 px-3 py-2 rounded-lg text-xs font-bold"
+                disabled={chatLoading || !chatInput.trim()}
+                className="bg-blue-500 hover:bg-blue-400 disabled:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold transition"
               >
                 送出
               </button>
