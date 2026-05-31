@@ -37,7 +37,7 @@ def create_course(body: CourseCreate):
 
 @router.get("/courses/{course_id}/lectures")
 def get_lectures_by_course(course_id: int):
-    res = supabase.table("lectures").select("*").eq("course_id", course_id).execute()
+    res = supabase.table("lectures").select("*").eq("course_id", course_id).order("id").execute()
     return res.data
 
 
