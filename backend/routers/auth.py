@@ -23,14 +23,22 @@ def register(data: RegisterRequest):
         if user is None:
             raise HTTPException(400, detail="Create user failed")
 
-        supabase_admin.table("users").insert(
-            {
-                "auth_id": user.id,
-                "name": data.name,
-                "email": data.email,
-                "role": "student",
-            }
-        ).execute()
+        db_res = (
+            supabase_admin.table("users")
+            .insert(
+                {
+                    "auth_id": user.id,
+                    "name": data.name,
+                    "email": data.email,
+                    "role": "student",
+                }
+            )
+            .execute()
+        )
+
+        if not db_res.data:
+            supabase_admin.auth.admin.delete_user(user.id)
+            raise HTTPException(status_code=400, detail="Insert user profile failed")
 
         return {"message": "register success"}
     except Exception as e:
@@ -46,13 +54,13 @@ class LoginRequest(BaseModel):
 def login(data: LoginRequest):
     try:
         res = supabase_admin.auth.sign_in_with_password(
-            {"id": data.id, "password": data.password}
+            {"email": data.email, "password": data.password}
         )
 
         return {
             "access_token": res.session.access_token,
             "refresh_token": res.session.refresh_token,
-            "user": {"id": res.user.id, "email": res.user.email},
+            "user": {"auth_id": res.user.id, "email": res.user.email},
         }
 
     except Exception as e:
