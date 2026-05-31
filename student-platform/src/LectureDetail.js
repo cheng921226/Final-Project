@@ -3,8 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
-const STUDENT_ID = 2; // 暫時寫死，登入功能完成後替換
-const COMPLETION_THRESHOLD = 0.8; // 80% 算完成
+const STUDENT_ID = 2;
+const COMPLETION_THRESHOLD = 0.8;
 
 // =====================================================================
 // 工具函式
@@ -27,7 +27,6 @@ function timeToSeconds(timeStr) {
   return 0;
 }
 
-// 區間合併演算法
 function mergeSegments(segments) {
   if (segments.length === 0) return [];
   const sorted = [...segments].sort((a, b) => a.start - b.start);
@@ -91,21 +90,19 @@ function LectureDetail() {
   const [mindmap, setMindmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('summary');
+  const [activeKp, setActiveKp] = useState(null);
   const treeContainerRef = useRef(null);
 
-  // YouTube IFrame API
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
-
-  // 學習事件追蹤
   const pauseCountRef = useRef(0);
   const segmentStartRef = useRef(0);
   const totalDurationRef = useRef(0);
-  const watchedSegmentsRef = useRef([]); // 原始片段，合併前
+  const watchedSegmentsRef = useRef([]);
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
 
-  // 聊天室
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', text: '你好！我是你的 AI 學習夥伴 😊 有任何課程問題都可以問我！' }
   ]);
@@ -113,7 +110,6 @@ function LectureDetail() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
-  // 載入課程資料
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -166,7 +162,6 @@ function LectureDetail() {
     fetchData();
   }, [lectureId]);
 
-  // 初始化 YouTube IFrame API
   useEffect(() => {
     if (!videoId) return;
 
@@ -192,7 +187,6 @@ function LectureDetail() {
             playerReadyRef.current = true;
             totalDurationRef.current = event.target.getDuration();
 
-            // 抓上次進度，自動續播
             try {
               const res = await fetch(
                 `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
@@ -205,13 +199,11 @@ function LectureDetail() {
               }
             } catch (e) {}
 
-            // 每 2 秒記錄當前播放位置（用於追蹤播放區段）
             trackingIntervalRef.current = setInterval(() => {
               if (!playerRef.current || !playerReadyRef.current) return;
               const state = playerRef.current.getPlayerState();
               if (state === window.YT.PlayerState.PLAYING) {
                 const currentTime = playerRef.current.getCurrentTime();
-                // 把連續播放的每 2 秒記錄成一個小片段
                 watchedSegmentsRef.current.push({
                   start: Math.max(0, currentTime - 2),
                   end: currentTime,
@@ -219,7 +211,6 @@ function LectureDetail() {
               }
             }, 2000);
 
-            // 每 30 秒自動存一次進度
             saveIntervalRef.current = setInterval(() => {
               const { watchedSeconds, lastPosition } = getCurrentProgress();
               saveProgress(lectureId, lastPosition, watchedSeconds, totalDurationRef.current);
@@ -233,35 +224,18 @@ function LectureDetail() {
             if (state === window.YT.PlayerState.PLAYING) {
               segmentStartRef.current = currentTime;
             }
-
             if (state === window.YT.PlayerState.PAUSED) {
-              // 記錄這段播放區間
               if (segmentStartRef.current < currentTime) {
-                watchedSegmentsRef.current.push({
-                  start: segmentStartRef.current,
-                  end: currentTime,
-                });
+                watchedSegmentsRef.current.push({ start: segmentStartRef.current, end: currentTime });
               }
-
               pauseCountRef.current += 1;
-              logEvent(lectureId, 'pause', {
-                timestamp: Math.floor(currentTime),
-                pause_count: pauseCountRef.current,
-              });
-
-              // 暫停時存一次進度
+              logEvent(lectureId, 'pause', { timestamp: Math.floor(currentTime), pause_count: pauseCountRef.current });
               const merged = mergeSegments(watchedSegmentsRef.current);
-              const watchedSeconds = calcWatchedSeconds(merged);
-              saveProgress(lectureId, currentTime, watchedSeconds, totalDurationRef.current);
+              saveProgress(lectureId, currentTime, calcWatchedSeconds(merged), totalDurationRef.current);
             }
-
             if (state === window.YT.PlayerState.ENDED) {
-              // 影片結束，存最終進度
               if (segmentStartRef.current < currentTime) {
-                watchedSegmentsRef.current.push({
-                  start: segmentStartRef.current,
-                  end: currentTime,
-                });
+                watchedSegmentsRef.current.push({ start: segmentStartRef.current, end: currentTime });
               }
               const merged = mergeSegments(watchedSegmentsRef.current);
               const watchedSeconds = calcWatchedSeconds(merged);
@@ -271,7 +245,6 @@ function LectureDetail() {
                 watched_seconds: Math.floor(watchedSeconds),
                 total_duration: Math.floor(totalDurationRef.current),
                 completed: watchedSeconds / totalDurationRef.current >= COMPLETION_THRESHOLD,
-                merged_segments: merged,
               });
             }
           },
@@ -290,69 +263,48 @@ function LectureDetail() {
         document.head.appendChild(tag);
       }
     }
-    const segments = watchedSegmentsRef.current;
 
     return () => {
+      const segments = watchedSegmentsRef.current;
       if (playerRef.current && playerReadyRef.current) {
         const currentTime = playerRef.current.getCurrentTime() || 0;
         if (segmentStartRef.current < currentTime) {
           segments.push({ start: segmentStartRef.current, end: currentTime });
         }
         const merged = mergeSegments(segments);
-        const watchedSeconds = calcWatchedSeconds(merged);
-        saveProgress(lectureId, currentTime, watchedSeconds, totalDurationRef.current);
+        saveProgress(lectureId, currentTime, calcWatchedSeconds(merged), totalDurationRef.current);
       }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
     };
   }, [videoId, lectureId]);
 
-  // 聊天室自動捲到底部
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  // 點知識點 → 跳到對應時間
-  function seekToKnowledgePoint(startTime) {
+  function seekToKnowledgePoint(startTime, index) {
     if (!playerRef.current || !playerReadyRef.current) return;
     const seconds = timeToSeconds(startTime);
     const currentTime = playerRef.current.getCurrentTime() || 0;
-
-    // 跳轉前先把目前這段記錄起來
     if (segmentStartRef.current < currentTime) {
-      watchedSegmentsRef.current.push({
-        start: segmentStartRef.current,
-        end: currentTime,
-      });
+      watchedSegmentsRef.current.push({ start: segmentStartRef.current, end: currentTime });
     }
-
-    logEvent(lectureId, 'seek', {
-      from: Math.floor(currentTime),
-      to: seconds,
-      triggered_by: 'knowledge_point',
-    });
-
+    logEvent(lectureId, 'seek', { from: Math.floor(currentTime), to: seconds, triggered_by: 'knowledge_point' });
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
     segmentStartRef.current = seconds;
+    setActiveKp(index);
   }
 
-  // AI 助教提問
   async function handleAskQuestion() {
     if (!chatInput.trim() || chatLoading) return;
-
     const question = chatInput.trim();
     const currentTime = playerRef.current?.getCurrentTime
-      ? Math.floor(playerRef.current.getCurrentTime())
-      : 0;
+      ? Math.floor(playerRef.current.getCurrentTime()) : 0;
 
-    logEvent(lectureId, 'question_asked', {
-      timestamp: currentTime,
-      question,
-    });
-
-    const newMessages = [...chatMessages, { role: 'user', text: question }];
-    setChatMessages(newMessages);
+    logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
+    setChatMessages(prev => [...prev, { role: 'user', text: question }]);
     setChatInput('');
     setChatLoading(true);
 
@@ -367,176 +319,219 @@ function LectureDetail() {
           chat_history: chatMessages.slice(-6),
         }),
       });
-
-      if (!res.ok) throw new Error('AI 助教回應失敗');
+      if (!res.ok) throw new Error();
       const data = await res.json();
       setChatMessages(prev => [...prev, { role: 'assistant', text: data.answer || '（助教無法回應）' }]);
-    } catch (err) {
-      setChatMessages(prev => [
-        ...prev,
-        { role: 'assistant', text: '抱歉，助教暫時無法回應，請稍後再試 🙏' }
-      ]);
+    } catch {
+      setChatMessages(prev => [...prev, { role: 'assistant', text: '抱歉，助教暫時無法回應，請稍後再試 🙏' }]);
     } finally {
       setChatLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <header className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
-        <div>
-          <Link to={`/course/${id}`} className="text-blue-500 text-sm hover:underline">← 返回小節列表</Link>
-          <h1 className="text-2xl font-bold text-slate-800 mt-1">AI 輔助學習系統</h1>
-          <p className="text-slate-500 text-sm">小節：{lectureId}</p>
+    // 整個頁面鎖定在 100vh，不產生整頁捲軸
+    <div className="h-screen overflow-hidden flex flex-col bg-slate-100">
+
+      {/* Header — 固定高度 */}
+      <header className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center">
+        <div className="flex items-center gap-4">
+          <Link to={`/course/${id}`} className="text-blue-500 text-sm hover:underline">← 返回</Link>
+          <div>
+            <h1 className="text-lg font-bold text-slate-800">AI 輔助學習系統</h1>
+            <p className="text-slate-400 text-xs">小節 {lectureId}</p>
+          </div>
         </div>
-        <div className="bg-white px-4 py-2 rounded-full shadow-sm text-sm font-medium">
+        <div className="bg-slate-100 px-4 py-1.5 rounded-full text-sm font-medium text-slate-600">
           使用者：Jun-Cheng
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 space-y-4">
+      {/* 三欄主體 — 填滿剩餘高度，各自內部捲動 */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* 左側：知識點清單，內部可捲動 */}
+        <aside className="w-56 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
+          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100">
+            <h2 className="font-bold text-slate-700 text-sm flex items-center gap-1">
+              📚 知識點
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">點擊跳至影片時間點</p>
+          </div>
+          {/* 只有這裡可以捲動 */}
+          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {loading ? (
+              <p className="text-slate-400 text-xs p-2">載入中...</p>
+            ) : knowledgePoints.length === 0 ? (
+              <p className="text-slate-400 text-xs p-2">無知識點資料</p>
+            ) : (
+              knowledgePoints.map((p, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => seekToKnowledgePoint(p.start_time, i)}
+                  className={`w-full text-left p-3 rounded-xl border transition-all group ${
+                    activeKp === i
+                      ? 'border-blue-400 bg-blue-50'
+                      : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-1 mb-1">
+                    <span className={`text-xs font-bold leading-tight ${
+                      activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
+                    }`}>
+                      {p.title}
+                    </span>
+                    {p.start_time && (
+                      <span className="text-xs text-blue-400 font-mono flex-shrink-0">▶{p.start_time}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{p.description}</p>
+                </button>
+              ))
+            )}
+          </div>
+        </aside>
+
+        {/* 中間：影片 + Tab 面板，內部可捲動 */}
+        <main className="flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
           {/* 影片 */}
-          <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
+          <div className="flex-shrink-0 aspect-video bg-black rounded-2xl shadow-lg overflow-hidden">
             {videoId ? (
               <div id="yt-player" style={{ width: '100%', height: '100%' }} />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-400">
+              <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
                 {loading ? '載入影片中...' : '無影片資料'}
               </div>
             )}
           </div>
 
-          {/* 知識點 */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm">
-            <h2 className="text-xl font-bold mb-4 flex items-center">
-              <span className="bg-blue-100 text-blue-600 p-1 rounded mr-2">📚</span>
-              課程知識點
-              <span className="ml-2 text-sm font-normal text-slate-400">點擊可跳至對應時間</span>
-            </h2>
-            {loading ? (
-              <p className="text-slate-500">正在載入知識點...</p>
-            ) : error ? (
-              <p className="text-red-500 text-sm">{error}</p>
-            ) : knowledgePoints.length === 0 ? (
-              <p className="text-slate-400 text-sm">無知識點資料</p>
-            ) : (
-              <div className="grid gap-3">
-                {knowledgePoints.map((p, i) => (
-                  <div
-                    key={i}
-                    onClick={() => seekToKnowledgePoint(p.start_time)}
-                    className="p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-400 hover:bg-blue-50 transition-colors cursor-pointer group"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <h3 className="font-bold text-blue-700 group-hover:text-blue-600">{p.title}</h3>
-                      {p.start_time && (
-                        <span className="text-xs bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full font-mono">
-                          ▶ {p.start_time}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-slate-600 text-sm">{p.description}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* 心智圖 */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm">
-            <h2 className="text-xl font-bold mb-4 flex items-center">
-              <span className="bg-purple-100 text-purple-600 p-1 rounded mr-2">🗺️</span>
-              心智圖
-            </h2>
-            {loading ? (
-              <p className="text-slate-500">正在載入心智圖...</p>
-            ) : mindmap ? (
-              <div ref={treeContainerRef} style={{ width: '100%', height: '450px' }}>
-                <Tree
-                  data={mindmap}
-                  orientation="horizontal"
-                  pathFunc="step"
-                  translate={{ x: 120, y: 225 }}
-                  nodeSize={{ x: 200, y: 60 }}
-                  separation={{ siblings: 1.2, nonSiblings: 1.5 }}
-                  renderCustomNodeElement={({ nodeDatum }) => (
-                    <g>
-                      <rect
-                        x="-60" y="-18" width="120" height="36" rx="8"
-                        fill={nodeDatum.children ? '#dbeafe' : '#f1f5f9'}
-                        stroke={nodeDatum.children ? '#3b82f6' : '#cbd5e1'}
-                        strokeWidth="1.5"
-                      />
-                      <text
-                        textAnchor="middle" dominantBaseline="middle"
-                        style={{ fontSize: '12px', fill: '#1e3a5f', fontWeight: nodeDatum.children ? 'bold' : 'normal' }}
-                      >
-                        {nodeDatum.name}
-                      </text>
-                    </g>
-                  )}
-                />
-              </div>
-            ) : (
-              <p className="text-slate-400 text-sm">無心智圖資料</p>
-            )}
-          </div>
-        </div>
-
-        {/* 右側欄 */}
-        <div className="space-y-6">
-          {/* 摘要 */}
-          <div className="bg-white p-6 rounded-2xl shadow-sm border-t-4 border-blue-500">
-            <h3 className="text-lg font-bold mb-2 text-slate-800">✨ AI 內容摘要</h3>
-            <p className="text-slate-600 text-sm leading-relaxed">
-              {loading ? '載入中...' : summary || '無摘要資料'}
-            </p>
-          </div>
-
-          {/* AI 助教 */}
-          <div className="bg-slate-900 p-6 rounded-2xl shadow-lg text-white flex flex-col">
-            <h3 className="text-lg font-bold mb-4">💬 AI 課程助教</h3>
-            <div className="h-64 bg-slate-800 rounded-xl p-3 text-xs mb-4 overflow-y-auto space-y-2">
-              {chatMessages.map((msg, i) => (
-                <div
-                  key={i}
-                  className={`p-2 rounded leading-relaxed ${
-                    msg.role === 'assistant'
-                      ? 'bg-slate-700 text-slate-100'
-                      : 'bg-blue-600 ml-4 text-white'
+          {/* Tab 面板 */}
+          <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm overflow-hidden">
+            {/* Tab 標籤 */}
+            <div className="flex border-b border-slate-100">
+              {[
+                { key: 'summary', label: '✨ AI 摘要' },
+                { key: 'mindmap', label: '🗺️ 心智圖' },
+              ].map(tab => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
                   }`}
                 >
-                  {msg.text}
-                </div>
+                  {tab.label}
+                </button>
               ))}
-              {chatLoading && (
-                <div className="bg-slate-700 p-2 rounded text-slate-400 animate-pulse">
-                  助教思考中...
-                </div>
-              )}
-              <div ref={chatBottomRef} />
             </div>
+
+            {/* Tab 內容 */}
+            <div className="p-5">
+              {activeTab === 'summary' && (
+                <p className="text-slate-600 text-sm leading-relaxed">
+                  {loading ? '載入中...' : summary || '無摘要資料'}
+                </p>
+              )}
+              {activeTab === 'mindmap' && (
+                loading ? (
+                  <p className="text-slate-400 text-sm">正在載入心智圖...</p>
+                ) : mindmap ? (
+                  <div ref={treeContainerRef} style={{ width: '100%', height: '380px' }}>
+                    <Tree
+                      data={mindmap}
+                      orientation="horizontal"
+                      pathFunc="step"
+                      translate={{ x: 120, y: 190 }}
+                      nodeSize={{ x: 200, y: 60 }}
+                      separation={{ siblings: 1.2, nonSiblings: 1.5 }}
+                      renderCustomNodeElement={({ nodeDatum }) => (
+                        <g>
+                          <rect
+                            x="-60" y="-18" width="120" height="36" rx="8"
+                            fill={nodeDatum.children ? '#dbeafe' : '#f1f5f9'}
+                            stroke={nodeDatum.children ? '#3b82f6' : '#cbd5e1'}
+                            strokeWidth="1.5"
+                          />
+                          <text
+                            textAnchor="middle" dominantBaseline="middle"
+                            style={{ fontSize: '12px', fill: '#1e3a5f', fontWeight: nodeDatum.children ? 'bold' : 'normal' }}
+                          >
+                            {nodeDatum.name}
+                          </text>
+                        </g>
+                      )}
+                    />
+                  </div>
+                ) : (
+                  <p className="text-slate-400 text-sm">無心智圖資料</p>
+                )
+              )}
+            </div>
+          </div>
+        </main>
+
+        {/* 右側：AI 助教，內部對話可捲動，輸入框固定在底部 */}
+        <aside className="w-80 flex-shrink-0 bg-slate-900 flex flex-col">
+          <div className="flex-shrink-0 px-5 py-4 border-b border-slate-700">
+            <h2 className="font-bold text-white text-sm">💬 AI 課程助教</h2>
+            <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
+          </div>
+
+          {/* 只有對話記錄這裡可以捲動 */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {chatMessages.map((msg, i) => (
+              <div
+                key={i}
+                className={`text-xs leading-relaxed rounded-xl p-3 ${
+                  msg.role === 'assistant'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'bg-blue-600 text-white ml-4'
+                }`}
+              >
+                {msg.text}
+              </div>
+            ))}
+            {chatLoading && (
+              <div className="bg-slate-700 text-slate-400 text-xs rounded-xl p-3 animate-pulse">
+                助教思考中...
+              </div>
+            )}
+            <div ref={chatBottomRef} />
+          </div>
+
+          {/* 輸入框固定在底部 */}
+          <div className="flex-shrink-0 p-4 border-t border-slate-700">
             <div className="flex gap-2">
               <input
-                className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-blue-500"
+                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
                 placeholder="輸入課程相關問題..."
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAskQuestion()}
+                onKeyDown={(e) => {
+                // 如果正在使用輸入法組字/選字中，不觸發傳送
+                if (e.nativeEvent.isComposing) return;
+                
+                if (e.key === 'Enter') {
+                  handleAskQuestion();
+                }
+                }}
                 disabled={chatLoading}
               />
               <button
                 onClick={handleAskQuestion}
                 disabled={chatLoading || !chatInput.trim()}
-                className="bg-blue-500 hover:bg-blue-400 disabled:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold transition"
+                className="bg-blue-500 hover:bg-blue-400 disabled:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold text-white transition"
               >
                 送出
               </button>
             </div>
           </div>
-        </div>
-      </main>
+        </aside>
+      </div>
     </div>
   );
 }
