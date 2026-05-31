@@ -363,9 +363,19 @@ def test_generate_questions(body: QuestionsRequest):
             )
 
         prompt = f"""
-            請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
+            1.請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
+            2.請精準推算出該段話在影片中的「總秒數位置」（必須是純整數數字，例如：如果教授在 12 分 25 秒講到這個觀念，請轉換為 745 存入 source_timestamp）。
             JSON格式：
-            {{"questions": [{{"question_text": "題目文字", "options": ["A. ...", "B. ...", "C. ...", "D. ..."], "answer": "A", "explanation": "簡單清楚的解釋", "related_knowledge_point": 使用提供的知識點 id }}]}}
+            {{"questions": [
+                    {{
+                        "question_text": "題目文字內容",
+                        "options": ["A. 選項A內容", "B. 選項B內容", "C. 選項C內容", "D. 選項D內容"],
+                        "answer": "A",
+                        "explanation": "對四個選項進行對錯的精簡專業解釋",
+                        "related_knowledge_point": "使用提供的知識點 id，若無則填 null",
+                        "source_timestamp": 745
+                    }}
+                ]}}            
             使用繁體中文。每題固定 4 個選項，且 answer 只能是 A、B、C 或 D。
             課程逐字稿：{transcript}
             知識點列表：{knowledge_points}
