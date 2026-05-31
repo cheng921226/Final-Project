@@ -4,6 +4,11 @@ import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
 const STUDENT_ID = 2; // 暫時寫死，登入功能完成後替換
+const COMPLETION_THRESHOLD = 0.8; // 80% 算完成
+
+// =====================================================================
+// 工具函式
+// =====================================================================
 
 function convertToD3Tree(node) {
   if (!node) return null;
@@ -22,6 +27,26 @@ function timeToSeconds(timeStr) {
   return 0;
 }
 
+// 區間合併演算法
+function mergeSegments(segments) {
+  if (segments.length === 0) return [];
+  const sorted = [...segments].sort((a, b) => a.start - b.start);
+  const merged = [{ ...sorted[0] }];
+  for (let i = 1; i < sorted.length; i++) {
+    const last = merged[merged.length - 1];
+    if (sorted[i].start <= last.end) {
+      last.end = Math.max(last.end, sorted[i].end);
+    } else {
+      merged.push({ ...sorted[i] });
+    }
+  }
+  return merged;
+}
+
+function calcWatchedSeconds(mergedSegments) {
+  return mergedSegments.reduce((acc, seg) => acc + (seg.end - seg.start), 0);
+}
+
 async function logEvent(lectureId, eventType, eventData) {
   try {
     await fetch(`${API_URL}/learning_events`, {
@@ -36,6 +61,27 @@ async function logEvent(lectureId, eventType, eventData) {
     });
   } catch (e) {}
 }
+
+async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
+  const completed = totalDuration > 0 && watchedSeconds / totalDuration >= COMPLETION_THRESHOLD;
+  try {
+    await fetch(`${API_URL}/video_progresses`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_id: STUDENT_ID,
+        lecture_id: parseInt(lectureId),
+        last_position: Math.floor(lastPosition),
+        watched_seconds: Math.floor(watchedSeconds),
+        completed,
+      }),
+    });
+  } catch (e) {}
+}
+
+// =====================================================================
+// 主元件
+// =====================================================================
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
@@ -52,12 +98,12 @@ function LectureDetail() {
   const playerReadyRef = useRef(false);
 
   // 學習事件追蹤
-  const lastPositionRef = useRef(0);
   const pauseCountRef = useRef(0);
-  const watchedSegmentsRef = useRef([]);
   const segmentStartRef = useRef(0);
   const totalDurationRef = useRef(0);
+  const watchedSegmentsRef = useRef([]); // 原始片段，合併前
   const trackingIntervalRef = useRef(null);
+  const saveIntervalRef = useRef(null);
 
   // 聊天室
   const [chatMessages, setChatMessages] = useState([
@@ -124,6 +170,13 @@ function LectureDetail() {
   useEffect(() => {
     if (!videoId) return;
 
+    function getCurrentProgress() {
+      const merged = mergeSegments(watchedSegmentsRef.current);
+      const watchedSeconds = calcWatchedSeconds(merged);
+      const lastPosition = playerRef.current?.getCurrentTime?.() || 0;
+      return { watchedSeconds, lastPosition };
+    }
+
     function initPlayer() {
       if (!window.YT || !window.YT.Player) return;
       if (playerRef.current) {
@@ -135,18 +188,44 @@ function LectureDetail() {
         videoId: videoId,
         playerVars: { rel: 0, modestbranding: 1 },
         events: {
-          onReady: (event) => {
+          onReady: async (event) => {
             playerReadyRef.current = true;
             totalDurationRef.current = event.target.getDuration();
 
+            // 抓上次進度，自動續播
+            try {
+              const res = await fetch(
+                `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
+              );
+              if (res.ok) {
+                const data = await res.json();
+                if (data?.last_position > 0) {
+                  event.target.seekTo(data.last_position, true);
+                }
+              }
+            } catch (e) {}
+
+            // 每 2 秒記錄當前播放位置（用於追蹤播放區段）
             trackingIntervalRef.current = setInterval(() => {
               if (!playerRef.current || !playerReadyRef.current) return;
               const state = playerRef.current.getPlayerState();
               if (state === window.YT.PlayerState.PLAYING) {
-                lastPositionRef.current = playerRef.current.getCurrentTime();
+                const currentTime = playerRef.current.getCurrentTime();
+                // 把連續播放的每 2 秒記錄成一個小片段
+                watchedSegmentsRef.current.push({
+                  start: Math.max(0, currentTime - 2),
+                  end: currentTime,
+                });
               }
             }, 2000);
+
+            // 每 30 秒自動存一次進度
+            saveIntervalRef.current = setInterval(() => {
+              const { watchedSeconds, lastPosition } = getCurrentProgress();
+              saveProgress(lectureId, lastPosition, watchedSeconds, totalDurationRef.current);
+            }, 30000);
           },
+
           onStateChange: (event) => {
             const state = event.data;
             const currentTime = playerRef.current?.getCurrentTime() || 0;
@@ -156,29 +235,43 @@ function LectureDetail() {
             }
 
             if (state === window.YT.PlayerState.PAUSED) {
+              // 記錄這段播放區間
+              if (segmentStartRef.current < currentTime) {
+                watchedSegmentsRef.current.push({
+                  start: segmentStartRef.current,
+                  end: currentTime,
+                });
+              }
+
               pauseCountRef.current += 1;
               logEvent(lectureId, 'pause', {
                 timestamp: Math.floor(currentTime),
                 pause_count: pauseCountRef.current,
               });
-              if (segmentStartRef.current < currentTime) {
-                watchedSegmentsRef.current.push({
-                  start: Math.floor(segmentStartRef.current),
-                  end: Math.floor(currentTime),
-                });
-              }
+
+              // 暫停時存一次進度
+              const merged = mergeSegments(watchedSegmentsRef.current);
+              const watchedSeconds = calcWatchedSeconds(merged);
+              saveProgress(lectureId, currentTime, watchedSeconds, totalDurationRef.current);
             }
 
             if (state === window.YT.PlayerState.ENDED) {
-              const duration = totalDurationRef.current || 1;
-              const watchedSeconds = watchedSegmentsRef.current.reduce(
-                (acc, seg) => acc + (seg.end - seg.start), 0
-              );
+              // 影片結束，存最終進度
+              if (segmentStartRef.current < currentTime) {
+                watchedSegmentsRef.current.push({
+                  start: segmentStartRef.current,
+                  end: currentTime,
+                });
+              }
+              const merged = mergeSegments(watchedSegmentsRef.current);
+              const watchedSeconds = calcWatchedSeconds(merged);
+              saveProgress(lectureId, currentTime, watchedSeconds, totalDurationRef.current);
               logEvent(lectureId, 'watch_progress', {
                 last_position: Math.floor(currentTime),
-                watched_seconds: watchedSeconds,
-                total_duration: Math.floor(duration),
-                completed: watchedSeconds / duration >= 0.9,
+                watched_seconds: Math.floor(watchedSeconds),
+                total_duration: Math.floor(totalDurationRef.current),
+                completed: watchedSeconds / totalDurationRef.current >= COMPLETION_THRESHOLD,
+                merged_segments: merged,
               });
             }
           },
@@ -197,22 +290,20 @@ function LectureDetail() {
         document.head.appendChild(tag);
       }
     }
+    const segments = watchedSegmentsRef.current;
 
     return () => {
       if (playerRef.current && playerReadyRef.current) {
         const currentTime = playerRef.current.getCurrentTime() || 0;
-        const duration = totalDurationRef.current || 1;
-        const watchedSeconds = watchedSegmentsRef.current.reduce(
-          (acc, seg) => acc + (seg.end - seg.start), 0
-        );
-        logEvent(lectureId, 'watch_progress', {
-          last_position: Math.floor(currentTime),
-          watched_seconds: watchedSeconds,
-          total_duration: Math.floor(duration),
-          completed: watchedSeconds / duration >= 0.9,
-        });
+        if (segmentStartRef.current < currentTime) {
+          segments.push({ start: segmentStartRef.current, end: currentTime });
+        }
+        const merged = mergeSegments(segments);
+        const watchedSeconds = calcWatchedSeconds(merged);
+        saveProgress(lectureId, currentTime, watchedSeconds, totalDurationRef.current);
       }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
+      if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
     };
   }, [videoId, lectureId]);
 
@@ -226,13 +317,24 @@ function LectureDetail() {
     if (!playerRef.current || !playerReadyRef.current) return;
     const seconds = timeToSeconds(startTime);
     const currentTime = playerRef.current.getCurrentTime() || 0;
+
+    // 跳轉前先把目前這段記錄起來
+    if (segmentStartRef.current < currentTime) {
+      watchedSegmentsRef.current.push({
+        start: segmentStartRef.current,
+        end: currentTime,
+      });
+    }
+
     logEvent(lectureId, 'seek', {
       from: Math.floor(currentTime),
       to: seconds,
       triggered_by: 'knowledge_point',
     });
+
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
+    segmentStartRef.current = seconds;
   }
 
   // AI 助教提問
@@ -244,13 +346,11 @@ function LectureDetail() {
       ? Math.floor(playerRef.current.getCurrentTime())
       : 0;
 
-    // 記錄提問事件
     logEvent(lectureId, 'question_asked', {
       timestamp: currentTime,
       question,
     });
 
-    // 加入學生訊息
     const newMessages = [...chatMessages, { role: 'user', text: question }];
     setChatMessages(newMessages);
     setChatInput('');
@@ -264,15 +364,13 @@ function LectureDetail() {
           lecture_id: parseInt(lectureId),
           question,
           video_timestamp: currentTime,
-          chat_history: chatMessages.slice(-6), // 只傳最近 6 則
+          chat_history: chatMessages.slice(-6),
         }),
       });
 
       if (!res.ok) throw new Error('AI 助教回應失敗');
       const data = await res.json();
-      const answer = data.answer || '（助教無法回應，請稍後再試）';
-
-      setChatMessages(prev => [...prev, { role: 'assistant', text: answer }]);
+      setChatMessages(prev => [...prev, { role: 'assistant', text: data.answer || '（助教無法回應）' }]);
     } catch (err) {
       setChatMessages(prev => [
         ...prev,
@@ -297,7 +395,6 @@ function LectureDetail() {
       </header>
 
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* 左側主區 */}
         <div className="lg:col-span-3 space-y-4">
           {/* 影片 */}
           <div className="aspect-video bg-black rounded-2xl shadow-xl overflow-hidden border-4 border-white">
