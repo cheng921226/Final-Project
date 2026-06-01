@@ -299,7 +299,7 @@ def test_generate_knowledge_points(body: KnowledgePointsRequest):
             )
 
         prompt = f"""
-            請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
+            請根據以下課程逐字稿，產生適合學生複習用的知識點，盡量不要超過8-10個知識點，但如果太多重點也可以超過。
             JSON格式：
             {{ "knowledge_points": [ {{ "title": "知識點標題", "description": "知識點說明", "start_time": null, "end_time": null }} ] }}
             使用繁體中文。如果沒有時間資訊請填 null。
