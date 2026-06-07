@@ -1,6 +1,7 @@
 from database.supabase import supabase_admin
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
+from .security import get_current_user
 
 router = APIRouter()
 
@@ -32,8 +33,9 @@ def create_user(body: UserCreate):
 
 # 取得個人資料
 @router.get("/me")
-def me():
-    return []
+def me(user=Depends(get_current_user)):
+    res = supabase_admin.table("users").select("name, email, role").eq("auth_id", user.id).single().execute()
+    return res.data
 
 
 # 取得所有老師清單
