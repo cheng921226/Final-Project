@@ -34,7 +34,13 @@ def create_user(body: UserCreate):
 # 取得個人資料
 @router.get("/me")
 def me(user=Depends(get_current_user)):
-    res = supabase_admin.table("users").select("name, email, role").eq("auth_id", user.id).single().execute()
+    res = (
+        supabase_admin.table("users")
+        .select("name, email, role")
+        .eq("auth_id", user.id)
+        .single()
+        .execute()
+    )
     return res.data
 
 
