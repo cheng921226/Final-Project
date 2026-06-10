@@ -58,7 +58,7 @@ async function logEvent(lectureId, eventType, eventData) {
         event_data: eventData,
       }),
     });
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
@@ -75,7 +75,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
         completed,
       }),
     });
-  } catch (e) {}
+  } catch (e) { }
 }
 
 // =====================================================================
@@ -124,7 +124,7 @@ function LectureDetail() {
             try {
               const vid = new URL(raw).searchParams.get('v');
               if (vid) setVideoId(vid);
-            } catch (e) {}
+            } catch (e) { }
           }
         }
 
@@ -204,7 +204,7 @@ function LectureDetail() {
                   prevWatchedSecondsRef.current = data.watched_seconds;
                 }
               }
-            } catch (e) {}
+            } catch (e) { }
 
             // 每 2 秒記錄播放片段
             trackingIntervalRef.current = setInterval(() => {
@@ -366,9 +366,6 @@ function LectureDetail() {
             <p className="text-slate-400 text-xs">小節 {lectureId}</p>
           </div>
         </div>
-        <div className="bg-slate-100 px-4 py-1.5 rounded-full text-sm font-medium text-slate-600">
-          使用者：Jun-Cheng
-        </div>
       </header>
 
       {/* 三欄主體 */}
@@ -391,16 +388,14 @@ function LectureDetail() {
                   key={i}
                   type="button"
                   onClick={() => seekToKnowledgePoint(p.start_time, i)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all group ${
-                    activeKp === i
+                  className={`w-full text-left p-3 rounded-xl border transition-all group ${activeKp === i
                       ? 'border-blue-400 bg-blue-50'
                       : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className={`text-xs font-bold leading-tight ${
-                      activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
-                    }`}>
+                    <span className={`text-xs font-bold leading-tight ${activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
+                      }`}>
                       {p.title}
                     </span>
                     {p.start_time && (
@@ -436,11 +431,10 @@ function LectureDetail() {
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.key
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
+                    }`}
                 >
                   {tab.label}
                 </button>
@@ -500,11 +494,10 @@ function LectureDetail() {
             {chatMessages.map((msg, i) => (
               <div
                 key={i}
-                className={`text-xs leading-relaxed rounded-xl p-3 ${
-                  msg.role === 'assistant'
+                className={`text-xs leading-relaxed rounded-xl p-3 ${msg.role === 'assistant'
                     ? 'bg-slate-700 text-slate-100'
                     : 'bg-blue-600 text-white ml-4'
-                }`}
+                  }`}
               >
                 {msg.text}
               </div>

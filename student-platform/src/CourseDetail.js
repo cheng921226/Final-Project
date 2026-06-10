@@ -87,9 +87,6 @@ function CourseDetail() {
           <h1 className="text-2xl font-bold text-slate-800 mt-1">課程小節</h1>
           <p className="text-slate-500 text-sm">選擇你要學習的小節</p>
         </div>
-        <div className="bg-white px-4 py-2 rounded-full shadow-sm text-sm font-medium">
-          使用者：Jun-Cheng
-        </div>
       </header>
 
       <main className="max-w-4xl mx-auto">
