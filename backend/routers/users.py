@@ -36,7 +36,7 @@ def create_user(body: UserCreate):
 def me(user=Depends(get_current_user)):
     res = (
         supabase_admin.table("users")
-        .select("name, email, role")
+        .select("*")
         .eq("auth_id", user.id)
         .single()
         .execute()
