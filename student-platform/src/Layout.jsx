@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Outlet, Link } from "react-router-dom";
 
+const API_URL = 'http://127.0.0.1:8000';
+
 export default function Layout() {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -12,7 +14,7 @@ export default function Layout() {
             return;
         }
 
-        fetch("http://127.0.0.1:8000/me", {
+        fetch(`${API_URL}/name`, {
             headers: {
                 Authorization: `Bearer ${token}`,
             },
