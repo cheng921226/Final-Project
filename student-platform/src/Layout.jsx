@@ -43,7 +43,9 @@ export default function Layout() {
         <div>
             {/* Navbar */}
             <nav className="flex justify-between p-4 shadow bg-white">
-                <Link to="/" className="font-bold">logo</Link>
+                <Link to="/" className="font-bold">
+                    <img src="/logo192.png" alt="Logo" className="h-8" />
+                </Link>
 
                 <div className="flex gap-4">
                     {loading ? (
