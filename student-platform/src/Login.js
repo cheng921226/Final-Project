@@ -71,7 +71,7 @@ export default function Login() {
                     登入
                 </button>
 
-                <div className="text-center mt-4">
+                {/* <div className="text-center mt-4">
                     <span className="text-gray-600">
                         沒有帳號？
                     </span>{" "}
@@ -81,7 +81,7 @@ export default function Login() {
                     >
                         立即註冊
                     </Link>
-                </div>
+                </div> */}
             </div>
         </div>
     );
