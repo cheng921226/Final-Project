@@ -5,6 +5,7 @@ const API_URL = 'http://127.0.0.1:8000';
 
 function Home() {
   const [courses, setCourses] = useState([]);
+  const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -49,6 +50,36 @@ function Home() {
     fetchCourses();
   }, []);
 
+  const searchCourses = async () => {
+    try {
+      setLoading(true);
+
+      const res = await fetch(
+        `${API_URL}/courses?keyword=${keyword}`
+      );
+
+      if (!res.ok) {
+        throw new Error("搜尋失敗");
+      }
+
+      const data = await res.json();
+
+      setCourses(
+        data.map(item => ({
+          id: item.id?.toString() ?? item.course_name ?? item.title ?? 'unknown',
+          title: item.course_name ?? item.title ?? '未命名課程',
+          teacher: item.teacher ?? item.teacher_name ?? '未知講師',
+          status: item.status ?? '未設定狀態',
+        }))
+      );
+
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 p-8">
       {/* 搜尋區 */}
@@ -67,12 +98,20 @@ function Home() {
           </div>
         </div>
         <div className="relative">
-          <input 
-            type="text" 
-            placeholder="搜尋課程內容或 AI 知識點..." 
+          <input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") searchCourses();
+            }}
+            placeholder="搜尋課程內容或 AI 知識點..."
             className="w-full p-4 rounded-2xl shadow-lg border-none focus:ring-2 focus:ring-blue-500"
           />
-          <button className="absolute right-4 top-3 bg-blue-600 text-white px-4 py-1.5 rounded-xl">搜尋</button>
+          <button
+            onClick={searchCourses}
+            className="absolute right-4 top-3 bg-blue-600 text-white px-4 py-1.5 rounded-xl">搜尋
+          </button>
         </div>
       </section>
 
