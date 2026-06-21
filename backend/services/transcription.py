@@ -2,6 +2,7 @@ import os
 import tempfile
 from functools import lru_cache
 from typing import Any
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 from database.supabase import supabase_admin
 
@@ -79,16 +80,22 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
 
     target_dir = output_dir or tempfile.mkdtemp(prefix="youtube_audio_")
     output_template = os.path.join(target_dir, "%(id)s.%(ext)s")
+    clean_url = normalize_youtube_url(url)
     ydl_opts = {
         "format": "bestaudio/best",
         "noplaylist": True,
         "outtmpl": output_template,
         "quiet": True,
         "no_warnings": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "http_chunk_size": 10 * 1024 * 1024,
+        "continuedl": True,
     }
 
     with YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
+        info = ydl.extract_info(clean_url, download=True)
         file_path = ydl.prepare_filename(info)
 
     return {
@@ -97,6 +104,20 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
         "webpage_url": info.get("webpage_url") or url,
         "duration": info.get("duration"),
     }
+
+
+def normalize_youtube_url(url: str) -> str:
+    parsed = urlparse(url)
+    if "youtube.com" not in parsed.netloc:
+        return url
+
+    video_id = parse_qs(parsed.query).get("v", [None])[0]
+    if not video_id:
+        return url
+
+    return urlunparse(
+        (parsed.scheme, parsed.netloc, parsed.path, "", urlencode({"v": video_id}), "")
+    )
 
 
 def save_transcript_segments(
