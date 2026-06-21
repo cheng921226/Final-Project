@@ -389,8 +389,8 @@ function LectureDetail() {
                   type="button"
                   onClick={() => seekToKnowledgePoint(p.start_time, i)}
                   className={`w-full text-left p-3 rounded-xl border transition-all group ${activeKp === i
-                      ? 'border-blue-400 bg-blue-50'
-                      : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
                     }`}
                 >
                   <div className="flex items-start justify-between gap-1 mb-1">
@@ -432,8 +432,8 @@ function LectureDetail() {
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
                   className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
                     }`}
                 >
                   {tab.label}
@@ -495,8 +495,8 @@ function LectureDetail() {
               <div
                 key={i}
                 className={`text-xs leading-relaxed rounded-xl p-3 ${msg.role === 'assistant'
-                    ? 'bg-slate-700 text-slate-100'
-                    : 'bg-blue-600 text-white ml-4'
+                  ? 'bg-slate-700 text-slate-100'
+                  : 'bg-blue-600 text-white ml-4'
                   }`}
               >
                 {msg.text}

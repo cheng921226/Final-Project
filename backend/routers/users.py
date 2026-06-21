@@ -31,9 +31,22 @@ def create_user(body: UserCreate):
     return res.data[0]
 
 
+# 取得用戶 ID
+@router.get("/id")
+def get_user_id(user=Depends(get_current_user)):
+    res = (
+        supabase_admin.table("users")
+        .select("id")
+        .eq("auth_id", user.id)
+        .single()
+        .execute()
+    )
+    return res.data
+
+
 # 取得用戶名
 @router.get("/name")
-def name(user=Depends(get_current_user)):
+def get_user_name(user=Depends(get_current_user)):
     res = (
         supabase_admin.table("users")
         .select("name")
@@ -43,9 +56,10 @@ def name(user=Depends(get_current_user)):
     )
     return res.data
 
+
 # 取得個人資料
-@router.get("/me")
-def me(user=Depends(get_current_user)):
+@router.get("/info")
+def get_user_info(user=Depends(get_current_user)):
     res = (
         supabase_admin.table("users")
         .select("*")

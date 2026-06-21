@@ -129,7 +129,9 @@ def run_youtube_ai_pipeline(lecture_id: int, payload: YoutubePipelineRequest):
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"AI pipeline failed: {exc}") from exc
+        raise HTTPException(
+            status_code=500, detail=f"AI pipeline failed: {exc}"
+        ) from exc
     finally:
         if download_dir:
             shutil.rmtree(download_dir, ignore_errors=True)
