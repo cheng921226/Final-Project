@@ -58,7 +58,7 @@ async function logEvent(lectureId, eventType, eventData) {
         event_data: eventData,
       }),
     });
-  } catch (e) { }
+  } catch (e) {}
 }
 
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
@@ -75,7 +75,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
         completed,
       }),
     });
-  } catch (e) { }
+  } catch (e) {}
 }
 
 // =====================================================================
@@ -92,15 +92,19 @@ function LectureDetail() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
-  const treeContainerRef = useRef(null);
 
+  // 進度顯示用 state
+  const [watchedPercent, setWatchedPercent] = useState(0);
+  const [isCompleted, setIsCompleted] = useState(false);
+
+  const treeContainerRef = useRef(null);
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const pauseCountRef = useRef(0);
   const segmentStartRef = useRef(0);
   const totalDurationRef = useRef(0);
-  const watchedSegmentsRef = useRef([]);  // 本次session的片段
-  const prevWatchedSecondsRef = useRef(0); // 資料庫裡的累積舊值
+  const watchedSegmentsRef = useRef([]);
+  const prevWatchedSecondsRef = useRef(0); // 資料庫累積舊值
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
 
@@ -111,6 +115,15 @@ function LectureDetail() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
+  // 更新進度顯示
+  function updateProgressDisplay(totalWatched, totalDuration) {
+    if (!totalDuration) return;
+    const percent = Math.min(Math.round((totalWatched / totalDuration) * 100), 100);
+    setWatchedPercent(percent);
+    setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
+  }
+
+  // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
@@ -124,7 +137,7 @@ function LectureDetail() {
             try {
               const vid = new URL(raw).searchParams.get('v');
               if (vid) setVideoId(vid);
-            } catch (e) { }
+            } catch (e) {}
           }
         }
 
@@ -154,6 +167,21 @@ function LectureDetail() {
             setMindmap(convertToD3Tree(mmData[0].mindmap_json.mind_map));
           }
         }
+
+        // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
+        const progressRes = await fetch(
+          `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
+        );
+        if (progressRes.ok) {
+          const progressData = await progressRes.json();
+          if (progressData?.watched_seconds > 0) {
+            prevWatchedSecondsRef.current = progressData.watched_seconds;
+          }
+          if (progressData?.completed) {
+            setIsCompleted(true);
+            setWatchedPercent(100);
+          }
+        }
       } catch (err) {
         setError(err.message || '取得資料失敗');
       } finally {
@@ -163,14 +191,13 @@ function LectureDetail() {
     fetchData();
   }, [lectureId]);
 
+  // 初始化 YouTube IFrame API
   useEffect(() => {
     if (!videoId) return;
 
-    // 計算本次 session 新增的秒數 + 舊的累積值
     function getTotalWatched() {
       const merged = mergeSegments(watchedSegmentsRef.current);
-      const thisSession = calcWatchedSeconds(merged);
-      return prevWatchedSecondsRef.current + thisSession;
+      return prevWatchedSecondsRef.current + calcWatchedSeconds(merged);
     }
 
     function initPlayer() {
@@ -188,23 +215,21 @@ function LectureDetail() {
             playerReadyRef.current = true;
             totalDurationRef.current = event.target.getDuration();
 
-            // 抓上次進度
+            // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
             try {
               const res = await fetch(
                 `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
               );
               if (res.ok) {
                 const data = await res.json();
-                // 續播到上次位置
                 if (data?.last_position > 0) {
                   event.target.seekTo(data.last_position, true);
                 }
-                // 繼承資料庫的累積觀看秒數
-                if (data?.watched_seconds > 0) {
-                  prevWatchedSecondsRef.current = data.watched_seconds;
-                }
               }
-            } catch (e) { }
+            } catch (e) {}
+
+            // 初始顯示進度
+            updateProgressDisplay(prevWatchedSecondsRef.current, totalDurationRef.current);
 
             // 每 2 秒記錄播放片段
             trackingIntervalRef.current = setInterval(() => {
@@ -216,13 +241,17 @@ function LectureDetail() {
                   start: Math.max(0, currentTime - 2),
                   end: currentTime,
                 });
+                // 每 2 秒更新進度顯示
+                updateProgressDisplay(getTotalWatched(), totalDurationRef.current);
               }
             }, 2000);
 
-            // 每 30 秒自動存一次進度
+            // 每 30 秒自動存一次
             saveIntervalRef.current = setInterval(() => {
               const lastPosition = playerRef.current?.getCurrentTime?.() || 0;
-              saveProgress(lectureId, lastPosition, getTotalWatched(), totalDurationRef.current);
+              const totalWatched = getTotalWatched();
+              saveProgress(lectureId, lastPosition, totalWatched, totalDurationRef.current);
+              updateProgressDisplay(totalWatched, totalDurationRef.current);
             }, 30000);
           },
 
@@ -246,8 +275,9 @@ function LectureDetail() {
                 timestamp: Math.floor(currentTime),
                 pause_count: pauseCountRef.current,
               });
-              // 暫停時存進度（舊值 + 本次）
-              saveProgress(lectureId, currentTime, getTotalWatched(), totalDurationRef.current);
+              const totalWatched = getTotalWatched();
+              saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+              updateProgressDisplay(totalWatched, totalDurationRef.current);
             }
 
             if (state === window.YT.PlayerState.ENDED) {
@@ -259,6 +289,7 @@ function LectureDetail() {
               }
               const totalWatched = getTotalWatched();
               saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+              updateProgressDisplay(totalWatched, totalDurationRef.current);
               logEvent(lectureId, 'watch_progress', {
                 last_position: Math.floor(currentTime),
                 watched_seconds: Math.floor(totalWatched),
@@ -322,15 +353,17 @@ function LectureDetail() {
     setActiveKp(index);
   }
 
-  async function handleAskQuestion() {
-    if (!chatInput.trim() || chatLoading) return;
-    const question = chatInput.trim();
+  // questionOverride：若有傳入，代表是「快速提問」按鈕觸發，不從輸入框拿文字
+  async function handleAskQuestion(questionOverride) {
+    const question = (questionOverride ?? chatInput).trim();
+    if (!question || chatLoading) return;
+
     const currentTime = playerRef.current?.getCurrentTime
       ? Math.floor(playerRef.current.getCurrentTime()) : 0;
 
     logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
     setChatMessages(prev => [...prev, { role: 'user', text: question }]);
-    setChatInput('');
+    if (!questionOverride) setChatInput('');
     setChatLoading(true);
 
     try {
@@ -354,6 +387,18 @@ function LectureDetail() {
     }
   }
 
+  // 即時發問：自動帶入目前影片時間點，請助教講解現在教的內容
+  function handleQuickAskCurrentMoment() {
+    if (chatLoading) return;
+    const currentTime = playerRef.current?.getCurrentTime
+      ? Math.floor(playerRef.current.getCurrentTime()) : 0;
+    const minutes = Math.floor(currentTime / 60);
+    const seconds = currentTime % 60;
+    const timestampStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+    const question = `請講解一下現在影片播放到 ${timestampStr} 這段在教什麼內容？`;
+    handleAskQuestion(question);
+  }
+
   return (
     <div className="h-screen overflow-hidden flex flex-col bg-slate-100">
 
@@ -364,6 +409,24 @@ function LectureDetail() {
           <div>
             <h1 className="text-lg font-bold text-slate-800">AI 輔助學習系統</h1>
             <p className="text-slate-400 text-xs">小節 {lectureId}</p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* 觀看進度 */}
+          <div className="flex items-center gap-2">
+            <span className={`text-xs font-semibold ${isCompleted ? 'text-green-600' : 'text-slate-500'}`}>
+              {isCompleted ? '✓ 已完成' : `已觀看 ${watchedPercent}%`}
+            </span>
+            <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : 'bg-blue-400'}`}
+                style={{ width: `${watchedPercent}%` }}
+              />
+            </div>
+          </div>
+          <div className="bg-slate-100 px-4 py-1.5 rounded-full text-sm font-medium text-slate-600">
+            使用者：Jun-Cheng
           </div>
         </div>
       </header>
@@ -388,14 +451,16 @@ function LectureDetail() {
                   key={i}
                   type="button"
                   onClick={() => seekToKnowledgePoint(p.start_time, i)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all group ${activeKp === i
-                    ? 'border-blue-400 bg-blue-50'
-                    : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
-                    }`}
+                  className={`w-full text-left p-3 rounded-xl border transition-all group ${
+                    activeKp === i
+                      ? 'border-blue-400 bg-blue-50'
+                      : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className={`text-xs font-bold leading-tight ${activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
-                      }`}>
+                    <span className={`text-xs font-bold leading-tight ${
+                      activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
+                    }`}>
                       {p.title}
                     </span>
                     {p.start_time && (
@@ -431,10 +496,11 @@ function LectureDetail() {
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-slate-500 hover:text-slate-700'
-                    }`}
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.key
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
                 >
                   {tab.label}
                 </button>
@@ -494,10 +560,11 @@ function LectureDetail() {
             {chatMessages.map((msg, i) => (
               <div
                 key={i}
-                className={`text-xs leading-relaxed rounded-xl p-3 ${msg.role === 'assistant'
-                  ? 'bg-slate-700 text-slate-100'
-                  : 'bg-blue-600 text-white ml-4'
-                  }`}
+                className={`text-xs leading-relaxed rounded-xl p-3 ${
+                  msg.role === 'assistant'
+                    ? 'bg-slate-700 text-slate-100'
+                    : 'bg-blue-600 text-white ml-4'
+                }`}
               >
                 {msg.text}
               </div>
@@ -509,7 +576,14 @@ function LectureDetail() {
             )}
             <div ref={chatBottomRef} />
           </div>
-          <div className="flex-shrink-0 p-4 border-t border-slate-700">
+          <div className="flex-shrink-0 p-4 border-t border-slate-700 space-y-2">
+            <button
+              onClick={handleQuickAskCurrentMoment}
+              disabled={chatLoading}
+              className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5"
+            >
+              📍 這段在教什麼？
+            </button>
             <div className="flex gap-2">
               <input
                 className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
@@ -520,7 +594,7 @@ function LectureDetail() {
                 disabled={chatLoading}
               />
               <button
-                onClick={handleAskQuestion}
+                onClick={() => handleAskQuestion()}
                 disabled={chatLoading || !chatInput.trim()}
                 className="bg-blue-500 hover:bg-blue-400 disabled:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold text-white transition"
               >
