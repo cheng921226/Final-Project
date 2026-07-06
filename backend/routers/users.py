@@ -30,6 +30,7 @@ def create_user(body: UserCreate):
         raise HTTPException(status_code=500, detail="新增使用者失敗")
     return res.data[0]
 
+
 # 內部取 id 函式
 def get_student_id_from_auth(user):
     res = (
@@ -79,6 +80,7 @@ def get_user_role(user=Depends(get_current_user)):
         .execute()
     )
     return res.data
+
 
 # 取得個人資料
 @router.get("/info")

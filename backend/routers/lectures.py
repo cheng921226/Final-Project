@@ -8,6 +8,7 @@ from typing import Any
 from services.transcription import save_transcript_segments, transcribe_media
 from .security import get_current_user
 from .users import get_student_id_from_auth
+
 router = APIRouter()
 
 # =====================================================================
@@ -144,14 +145,8 @@ class LearningEventCreate(BaseModel):
 
 
 @router.post("/learning_events")
-def create_learning_event(body: LearningEventCreate,user=Depends(get_current_user)):
-    res = (
-    supabase.table("users")
-    .select("id")
-    .eq("auth_id", user.id)
-    .single()
-    .execute()
-)
+def create_learning_event(body: LearningEventCreate, user=Depends(get_current_user)):
+    res = supabase.table("users").select("id").eq("auth_id", user.id).single().execute()
 
     student_id = res.data["id"]
     res = (
@@ -172,8 +167,7 @@ def create_learning_event(body: LearningEventCreate,user=Depends(get_current_use
 
 
 @router.get("/learning_events/{lecture_id}")
-def get_learning_events(lecture_id: int, user=Depends(get_current_user)
-):
+def get_learning_events(lecture_id: int, user=Depends(get_current_user)):
     student_id = get_student_id_from_auth(user)
     res = (
         supabase.table("learning_events")

@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
-from routers.users import get_user_id,get_user_role
+from routers.users import get_user_id, get_user_role
 from .security import get_current_user
 
 router = APIRouter()
@@ -147,7 +147,14 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
         user_role = res.data["role"]
 
         supabase_admin.table("chat_messages").insert(
-            {"student_id": student_id, "lecture_id": body.lecture_id,"role": user_role, "question": body.question, "answer": result_json.get("answer", ""),"video_timestamp": body.video_timestamp}
+            {
+                "student_id": student_id,
+                "lecture_id": body.lecture_id,
+                "role": user_role,
+                "question": body.question,
+                "answer": result_json.get("answer", ""),
+                "video_timestamp": body.video_timestamp,
+            }
         ).execute()
 
         return {
