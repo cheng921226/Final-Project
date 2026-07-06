@@ -1,11 +1,13 @@
 import json
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from google import genai
 from pydantic import BaseModel
 
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
+from routers.users import get_user_id,get_user_role
+from .security import get_current_user
 
 router = APIRouter()
 
@@ -27,7 +29,7 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/ai/chat")
-def ai_chat(body: ChatRequest):
+def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
     try:
         # 撈逐字稿
         transcript_raw = get_lecture_transcript(body.lecture_id)
@@ -132,6 +134,21 @@ def ai_chat(body: ChatRequest):
             result_json = json.loads(ai_response.text)
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="AI 回應格式錯誤")
+
+        res = (
+            supabase_admin.table("users")
+            .select("id, role")
+            .eq("auth_id", user.id)
+            .single()
+            .execute()
+        )
+
+        student_id = res.data["id"]
+        user_role = res.data["role"]
+
+        supabase_admin.table("chat_messages").insert(
+            {"student_id": student_id, "lecture_id": body.lecture_id,"role": user_role, "question": body.question, "answer": result_json.get("answer", ""),"video_timestamp": body.video_timestamp}
+        ).execute()
 
         return {
             "status": "success",

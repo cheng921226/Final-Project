@@ -2,11 +2,12 @@ import os
 import tempfile
 
 from database.supabase import supabase
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Depends
 from pydantic import BaseModel
 from typing import Any
 from services.transcription import save_transcript_segments, transcribe_media
-
+from .security import get_current_user
+from .users import get_student_id_from_auth
 router = APIRouter()
 
 # =====================================================================
@@ -137,19 +138,27 @@ def get_lecture_mindmap(lecture_id: int):
 
 
 class LearningEventCreate(BaseModel):
-    student_id: int
     lecture_id: int
     event_type: str
     event_data: dict[str, Any] = {}
 
 
 @router.post("/learning_events")
-def create_learning_event(body: LearningEventCreate):
+def create_learning_event(body: LearningEventCreate,user=Depends(get_current_user)):
+    res = (
+    supabase.table("users")
+    .select("id")
+    .eq("auth_id", user.id)
+    .single()
+    .execute()
+)
+
+    student_id = res.data["id"]
     res = (
         supabase.table("learning_events")
         .insert(
             {
-                "student_id": body.student_id,
+                "student_id": student_id,
                 "lecture_id": body.lecture_id,
                 "event_type": body.event_type,
                 "event_data": body.event_data,
@@ -163,11 +172,16 @@ def create_learning_event(body: LearningEventCreate):
 
 
 @router.get("/learning_events/{lecture_id}")
-def get_learning_events(lecture_id: int, student_id: int | None = None):
-    query = supabase.table("learning_events").select("*").eq("lecture_id", lecture_id)
-    if student_id:
-        query = query.eq("student_id", student_id)
-    res = query.execute()
+def get_learning_events(lecture_id: int, user=Depends(get_current_user)
+):
+    student_id = get_student_id_from_auth(user)
+    res = (
+        supabase.table("learning_events")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
     return res.data
 
 
@@ -177,7 +191,6 @@ def get_learning_events(lecture_id: int, student_id: int | None = None):
 
 
 class VideoProgressCreate(BaseModel):
-    student_id: int
     lecture_id: int
     last_position: int = 0
     watched_seconds: int = 0
@@ -185,12 +198,13 @@ class VideoProgressCreate(BaseModel):
 
 
 @router.post("/video_progresses")
-def upsert_video_progress(body: VideoProgressCreate):
+def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
     # 先查有沒有已存在的紀錄
     existing = (
         supabase.table("video_progresses")
         .select("id")
-        .eq("student_id", body.student_id)
+        .eq("student_id", student_id)
         .eq("lecture_id", body.lecture_id)
         .execute()
     )
@@ -206,7 +220,7 @@ def upsert_video_progress(body: VideoProgressCreate):
                     "completed": body.completed,
                 }
             )
-            .eq("student_id", body.student_id)
+            .eq("student_id", student_id)
             .eq("lecture_id", body.lecture_id)
             .execute()
         )
@@ -216,7 +230,7 @@ def upsert_video_progress(body: VideoProgressCreate):
             supabase.table("video_progresses")
             .insert(
                 {
-                    "student_id": body.student_id,
+                    "student_id": student_id,
                     "lecture_id": body.lecture_id,
                     "last_position": body.last_position,
                     "watched_seconds": body.watched_seconds,

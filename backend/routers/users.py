@@ -30,6 +30,17 @@ def create_user(body: UserCreate):
         raise HTTPException(status_code=500, detail="新增使用者失敗")
     return res.data[0]
 
+# 內部取 id 函式
+def get_student_id_from_auth(user):
+    res = (
+        supabase_admin.table("users")
+        .select("id")
+        .eq("auth_id", user.id)
+        .single()
+        .execute()
+    )
+    return res.data["id"]
+
 
 # 取得用戶 ID
 @router.get("/id")
@@ -56,6 +67,18 @@ def get_user_name(user=Depends(get_current_user)):
     )
     return res.data
 
+
+# 取得用戶身分
+@router.get("/role")
+def get_user_role(user=Depends(get_current_user)):
+    res = (
+        supabase_admin.table("users")
+        .select("role")
+        .eq("auth_id", user.id)
+        .single()
+        .execute()
+    )
+    return res.data
 
 # 取得個人資料
 @router.get("/info")

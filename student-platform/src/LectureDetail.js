@@ -3,7 +3,8 @@ import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
 const API_URL = 'http://127.0.0.1:8000';
-const STUDENT_ID = 2;
+const STUDENT_ID = 4;
+const token = localStorage.getItem("access_token");
 const COMPLETION_THRESHOLD = 0.8;
 
 // =====================================================================
@@ -50,9 +51,11 @@ async function logEvent(lectureId, eventType, eventData) {
   try {
     await fetch(`${API_URL}/learning_events`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
-        student_id: STUDENT_ID,
         lecture_id: parseInt(lectureId),
         event_type: eventType,
         event_data: eventData,
@@ -66,9 +69,11 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
   try {
     await fetch(`${API_URL}/video_progresses`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
-        student_id: STUDENT_ID,
         lecture_id: parseInt(lectureId),
         last_position: Math.floor(lastPosition),
         watched_seconds: Math.floor(watchedSeconds),
@@ -369,7 +374,10 @@ function LectureDetail() {
     try {
       const res = await fetch(`${API_URL}/ai/chat`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           lecture_id: parseInt(lectureId),
           question,
