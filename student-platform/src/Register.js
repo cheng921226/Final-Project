@@ -33,7 +33,7 @@ export default function Register() {
 
             if (!res.ok) {
                 const err = await res.json();
-                throw new Error("註冊失敗" || err.detail);
+                throw new Error(err.detail || "註冊失敗");
             }
 
             const data = await res.json();
