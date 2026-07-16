@@ -181,16 +181,17 @@ class SummaryRequest(BaseModel):
 # 生成摘要
 @router.post("/lectures/test-summary")
 def generate_summary(body: SummaryRequest):
-    existing = (
+    existing_response = (
         supabase_admin.table("summaries")
         .select("*")
         .eq("lecture_id", body.lecture_id)
         .maybe_single()
         .execute()
     )
+    existing_data = getattr(existing_response, "data", None)
 
-    if existing.data:
-        return {"status": "cached", "data": existing.data}
+    if existing_data:
+        return {"status": "cached", "data": existing_data}
 
     try:
         transcript = get_lecture_transcript(body.lecture_id)
@@ -234,16 +235,17 @@ class MindMapRequest(BaseModel):
 # 生成心智圖
 @router.post("/lectures/test-mindmap")
 def generate_mindmap(body: MindMapRequest):
-    existing = (
+    existing_response = (
         supabase_admin.table("mindmaps")
         .select("*")
         .eq("lecture_id", body.lecture_id)
         .maybe_single()
         .execute()
     )
+    existing_data = getattr(existing_response, "data", None)
 
-    if existing.data:
-        return {"status": "cached", "data": existing.data}
+    if existing_data:
+        return {"status": "cached", "data": existing_data}
 
     try:
         transcript = get_lecture_transcript(body.lecture_id)
@@ -253,13 +255,24 @@ def generate_mindmap(body: MindMapRequest):
             )
 
         prompt = f"""
-            請根據以下課程逐字稿，產生最多 3 層的課程心智圖。
-            JSON格式：
-            {{ "mind_map": {{ "title": "主題名稱", "description": "整體說明", "start_time": null, "end_time": null, "children": [ {{ "title": "概念一", "description": "概念說明", "start_time": null, "end_time": null, "children": [] }} ] }} }}
-            所有節點都必須包含：title、description、start_time、end_time、children。
-            沒有子節點時 children 填 []。使用繁體中文。沒有時間資訊請填 null。
-            課程逐字稿：
-            {transcript}
+        請根據以下課程逐字稿，產生一份適合用 Markmap 渲染的「Markdown 格式課程心智圖」。
+        心智圖只需要呈現知識架構，不需要影片時間點。
+        請只輸出 JSON。
+
+        JSON 格式：
+        {{"markdown": "# 課程總主題\\n## 核心概念一\\n- 概念說明\\n## 核心概念二\\n- 概念說明"}}
+
+        規則：
+        1. 階層設計：
+        - 第一層（根節點）：使用一個 `#` （例如：# 課程總主題）
+        - 第二層（主觀念）：使用兩個 `##` （例如：## 主要概念一）
+        - 第三層（子細節）：使用 `-` 無序清單（例如：- 觀念詳細說明）
+        2. 不要使用任何 Markdown 程式碼區塊標記（如 ```markdown）。
+        3. 內容必須簡潔，每個節點字數控制在 15 字以內。
+        4. 使用繁體中文。
+
+        課程逐字稿：
+        {transcript}
         """
 
         ai_response = gemini_client.models.generate_content(
@@ -304,16 +317,17 @@ class KnowledgePointsRequest(BaseModel):
 # 生成知識點
 @router.post("/lectures/test-knowledge_points")
 def generate_knowledge_points(body: KnowledgePointsRequest):
-    existing = (
+    existing_response = (
         supabase_admin.table("knowledge_points")
         .select("*")
         .eq("lecture_id", body.lecture_id)
         .maybe_single()
         .execute()
     )
+    existing_data = getattr(existing_response, "data", None)
 
-    if existing.data:
-        return {"status": "cached", "data": existing.data}
+    if existing_data:
+        return {"status": "cached", "data": existing_data}
 
     try:
         transcript = get_lecture_transcript(body.lecture_id)
@@ -366,16 +380,17 @@ class QuestionsRequest(BaseModel):
 # 生成題目
 @router.post("/lectures/test-questions")
 def generate_questions(body: QuestionsRequest):
-    existing = (
+    existing_response = (
         supabase_admin.table("questions")
         .select("*")
         .eq("lecture_id", body.lecture_id)
         .maybe_single()
         .execute()
     )
+    existing_data = getattr(existing_response, "data", None)
 
-    if existing.data:
-        return {"status": "cached", "data": existing.data}
+    if existing_data:
+        return {"status": "cached", "data": existing_data}
 
     try:
         transcript = get_lecture_transcript(body.lecture_id)

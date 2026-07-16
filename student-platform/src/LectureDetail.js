@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import Tree from 'react-d3-tree';
+import { Transformer } from 'markmap-lib';
+import { Markmap } from 'markmap-view';
 
 const API_URL = 'http://127.0.0.1:8000';
 const STUDENT_ID = 4;
@@ -11,13 +12,19 @@ const COMPLETION_THRESHOLD = 0.8;
 // 工具函式
 // =====================================================================
 
-function convertToD3Tree(node) {
-  if (!node) return null;
-  return {
-    name: node.title,
-    attributes: node.description ? { description: node.description } : undefined,
-    children: node.children?.length > 0 ? node.children.map(convertToD3Tree) : undefined,
-  };
+function convertLegacyMindmapToMarkdown(node, depth = 1) {
+  if (!node) return '';
+  const heading = depth <= 2
+    ? `${'#'.repeat(depth)} ${node.title || '未命名節點'}`
+    : `${'  '.repeat(depth - 3)}- ${node.title || '未命名節點'}`;
+  const description = node.description
+    ? `\n${'  '.repeat(Math.max(depth - 2, 0))}- ${node.description}`
+    : '';
+  const children = (node.children || [])
+    .map(child => convertLegacyMindmapToMarkdown(child, depth + 1))
+    .filter(Boolean)
+    .join('\n');
+  return [heading + description, children].filter(Boolean).join('\n');
 }
 
 function timeToSeconds(timeStr) {
@@ -92,7 +99,7 @@ function LectureDetail() {
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
-  const [mindmap, setMindmap] = useState(null);
+  const [mindmapMarkdown, setMindmapMarkdown] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
@@ -102,7 +109,7 @@ function LectureDetail() {
   const [watchedPercent, setWatchedPercent] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
 
-  const treeContainerRef = useRef(null);
+  const mindmapSvgRef = useRef(null);
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const pauseCountRef = useRef(0);
@@ -168,8 +175,13 @@ function LectureDetail() {
         const mmRes = await fetch(`${API_URL}/lectures/${lectureId}/mindmaps`);
         if (mmRes.ok) {
           const mmData = await mmRes.json();
-          if (mmData?.[0]?.mindmap_json?.mind_map) {
-            setMindmap(convertToD3Tree(mmData[0].mindmap_json.mind_map));
+          const mindmapJson = mmData?.[0]?.mindmap_json;
+          if (mindmapJson?.markdown) {
+            setMindmapMarkdown(mindmapJson.markdown);
+          } else if (mindmapJson?.mind_map) {
+            setMindmapMarkdown(convertLegacyMindmapToMarkdown(mindmapJson.mind_map));
+          } else {
+            setMindmapMarkdown('');
           }
         }
 
@@ -195,6 +207,28 @@ function LectureDetail() {
     }
     fetchData();
   }, [lectureId]);
+
+  // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。
+  useEffect(() => {
+    if (activeTab !== 'mindmap' || !mindmapMarkdown || !mindmapSvgRef.current) return;
+
+    const transformer = new Transformer();
+    const { root } = transformer.transform(mindmapMarkdown);
+    const markmap = Markmap.create(
+      mindmapSvgRef.current,
+      {
+        autoFit: true,
+        duration: 300,
+        initialExpandLevel: 3,
+        maxWidth: 260,
+        paddingX: 16,
+      },
+      root
+    );
+
+    markmap.fit();
+    return () => markmap.destroy?.();
+  }, [activeTab, mindmapMarkdown]);
 
   // 初始化 YouTube IFrame API
   useEffect(() => {
@@ -523,32 +557,9 @@ function LectureDetail() {
               {activeTab === 'mindmap' && (
                 loading ? (
                   <p className="text-slate-400 text-sm">正在載入心智圖...</p>
-                ) : mindmap ? (
-                  <div ref={treeContainerRef} style={{ width: '100%', height: '380px' }}>
-                    <Tree
-                      data={mindmap}
-                      orientation="horizontal"
-                      pathFunc="step"
-                      translate={{ x: 120, y: 190 }}
-                      nodeSize={{ x: 200, y: 60 }}
-                      separation={{ siblings: 1.2, nonSiblings: 1.5 }}
-                      renderCustomNodeElement={({ nodeDatum }) => (
-                        <g>
-                          <rect
-                            x="-60" y="-18" width="120" height="36" rx="8"
-                            fill={nodeDatum.children ? '#dbeafe' : '#f1f5f9'}
-                            stroke={nodeDatum.children ? '#3b82f6' : '#cbd5e1'}
-                            strokeWidth="1.5"
-                          />
-                          <text
-                            textAnchor="middle" dominantBaseline="middle"
-                            style={{ fontSize: '12px', fill: '#1e3a5f', fontWeight: nodeDatum.children ? 'bold' : 'normal' }}
-                          >
-                            {nodeDatum.name}
-                          </text>
-                        </g>
-                      )}
-                    />
+                ) : mindmapMarkdown ? (
+                  <div className="w-full h-[420px] overflow-hidden rounded-xl border border-slate-100 bg-slate-50">
+                    <svg ref={mindmapSvgRef} className="w-full h-full" />
                   </div>
                 ) : (
                   <p className="text-slate-400 text-sm">無心智圖資料</p>
