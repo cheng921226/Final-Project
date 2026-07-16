@@ -107,6 +107,7 @@ function LectureDetail() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
+  const [userName, setUserName] = useState(token ? '' : '尚未登入');
 
   // 進度顯示用 state
   const [watchedPercent, setWatchedPercent] = useState(0);
@@ -137,6 +138,24 @@ function LectureDetail() {
     setWatchedPercent(percent);
     setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
   }
+
+  // 依登入 token 取得目前使用者名稱。
+  useEffect(() => {
+    if (!token) {
+      setUserName('尚未登入');
+      return;
+    }
+
+    fetch(`${API_URL}/name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('無法取得使用者名稱');
+        return res.json();
+      })
+      .then(data => setUserName(data?.name || data?.email || '使用者'))
+      .catch(() => setUserName('尚未登入'));
+  }, [token]);
 
   // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
@@ -474,7 +493,7 @@ function LectureDetail() {
             </div>
           </div>
           <div className="bg-slate-100 px-4 py-1.5 rounded-full text-sm font-medium text-slate-600">
-            使用者：Jun-Cheng
+            使用者：{userName || '載入中...'}
           </div>
         </div>
       </header>
