@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
-const STUDENT_ID = 2; // 暫時寫死，登入功能完成後替換
 
 function CourseDetail() {
   const { id } = useParams();
@@ -21,12 +20,17 @@ function CourseDetail() {
         setLectures(lectureList);
 
         // 撈每個小節的觀看進度
+        const token = localStorage.getItem('access_token');
+        if (!token) {
+          setProgressMap({});
+          return;
+        }
         const progressResults = await Promise.all(
           lectureList.map(async (lecture) => {
             try {
-              const pRes = await fetch(
-                `${API_URL}/video_progresses/${lecture.id}?student_id=${STUDENT_ID}`
-              );
+              const pRes = await fetch(`${API_URL}/video_progresses/${lecture.id}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
               if (!pRes.ok) return { id: lecture.id, data: null };
               const pData = await pRes.json();
               return { id: lecture.id, data: pData };

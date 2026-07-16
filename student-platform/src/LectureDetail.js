@@ -4,8 +4,6 @@ import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
 
 const API_URL = 'http://127.0.0.1:8000';
-const STUDENT_ID = 4;
-const token = localStorage.getItem("access_token");
 const COMPLETION_THRESHOLD = 0.8;
 
 // =====================================================================
@@ -55,6 +53,8 @@ function calcWatchedSeconds(mergedSegments) {
 }
 
 async function logEvent(lectureId, eventType, eventData) {
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
   try {
     await fetch(`${API_URL}/learning_events`, {
       method: 'POST',
@@ -72,6 +72,8 @@ async function logEvent(lectureId, eventType, eventData) {
 }
 
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
+  const token = localStorage.getItem('access_token');
+  if (!token) return;
   const completed = totalDuration > 0 && watchedSeconds / totalDuration >= COMPLETION_THRESHOLD;
   try {
     await fetch(`${API_URL}/video_progresses`, {
@@ -96,6 +98,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
+  const token = localStorage.getItem('access_token');
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
@@ -186,10 +189,12 @@ function LectureDetail() {
         }
 
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
-        const progressRes = await fetch(
-          `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
-        );
-        if (progressRes.ok) {
+        const progressRes = token
+          ? await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : null;
+        if (progressRes?.ok) {
           const progressData = await progressRes.json();
           if (progressData?.watched_seconds > 0) {
             prevWatchedSecondsRef.current = progressData.watched_seconds;
@@ -206,7 +211,7 @@ function LectureDetail() {
       }
     }
     fetchData();
-  }, [lectureId]);
+  }, [lectureId, token]);
 
   // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。
   useEffect(() => {
@@ -256,9 +261,10 @@ function LectureDetail() {
 
             // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
             try {
-              const res = await fetch(
-                `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
-              );
+              if (!token) return;
+              const res = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
               if (res.ok) {
                 const data = await res.json();
                 if (data?.last_position > 0) {
@@ -368,7 +374,7 @@ function LectureDetail() {
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
     };
-  }, [videoId, lectureId]);
+  }, [videoId, lectureId, token]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });

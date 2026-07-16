@@ -2,7 +2,7 @@ import os
 import tempfile
 
 from database.supabase import supabase
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, Depends
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 from pydantic import BaseModel
 from typing import Any
 from services.transcription import save_transcript_segments, transcribe_media
@@ -240,13 +240,14 @@ def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_us
 
 
 @router.get("/video_progresses/{lecture_id}")
-def get_video_progress(lecture_id: int, student_id: int = Query(...)):
+def get_video_progress(lecture_id: int, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
     res = (
         supabase.table("video_progresses")
         .select("*")
         .eq("lecture_id", lecture_id)
         .eq("student_id", student_id)
-        .single()
+        .maybe_single()
         .execute()
     )
     return res.data
