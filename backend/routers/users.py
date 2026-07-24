@@ -94,6 +94,49 @@ def get_user_info(user=Depends(get_current_user)):
     )
     return res.data
 
+# 取得我的課程
+@router.get("/my-courses")
+def get_my_courses(user=Depends(get_current_user)):
+
+    db_user = (
+        supabase_admin
+        .table("users")
+        .select("id")
+        .eq("auth_id", user.id)
+        .single()
+        .execute()
+    )
+
+    if not db_user.data:
+        return []
+
+    student_id = db_user.data["id"]
+
+    student_courses = (
+        supabase_admin
+        .table("student_courses")
+        .select("course_id")
+        .eq("student_id", student_id)
+        .execute()
+    )
+
+    course_ids = [
+        item["course_id"]
+        for item in student_courses.data
+    ]
+
+    if not course_ids:
+        return []
+
+    courses = (
+        supabase_admin
+        .table("courses")
+        .select("*")
+        .in_("id", course_ids)
+        .execute()
+    )
+
+    return courses.data
 
 # 取得所有老師清單
 @router.get("/teachers")

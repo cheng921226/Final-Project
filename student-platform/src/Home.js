@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
 
-function Home() {
+function Home({ token }) {
   const [courses, setCourses] = useState([]);
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(true);
@@ -47,8 +47,74 @@ function Home() {
         setLoading(false);
       }
     }
+
+    /* 勿刪 */
+    async function fetchMyCourses() {
+      console.log("token:", token);
+      try {
+        const response = await fetch(`${API_URL}/my-courses`, {
+          headers: {
+            Authorization: `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("my courses:", data);
+
+        const teacherIds = Array.from(
+          new Set(data.map(item => item.teacher_id).filter(Boolean))
+        );
+
+        const teacherMap = {};
+
+        await Promise.all(teacherIds.map(async teacherId => {
+          try {
+            const teacherRes = await fetch(`${API_URL}/teachers/${teacherId}`);
+
+            if (!teacherRes.ok) return;
+
+            const teacherData = await teacherRes.json();
+
+            if (teacherData?.id) {
+              teacherMap[teacherData.id] =
+                teacherData.name ??
+                teacherData.email ??
+                `講師 ${teacherData.id}`;
+            }
+
+          } catch (e) {
+            // ignore individual teacher fetch errors
+          }
+        }));
+
+        setCourses(data.map(item => ({
+          id: item.id?.toString() ?? item.course_name ?? item.title ?? 'unknown',
+          title: item.course_name ?? item.title ?? '未命名課程',
+          teacher:
+            item.teacher ??
+            item.teacher_name ??
+            teacherMap[item.teacher_id] ??
+            (item.teacher_id ? `講師 ${item.teacher_id}` : '未知講師'),
+          status: item.status ?? '未設定狀態',
+        })));
+
+      } catch (err) {
+        setError(err.message || '取得課程失敗');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // if (token && token.length > 0) {
+    //   fetchMyCourses();
+    // } else {
     fetchCourses();
-  }, []);
+    // }
+  }, [token]);
 
   const searchCourses = async () => {
     try {
@@ -108,7 +174,9 @@ function Home() {
 
       {/* 課程列表區 */}
       <section className="max-w-6xl mx-auto">
-        <h2 className="text-xl font-bold mb-6">我的課程</h2>
+        <h2 className="text-xl font-bold mb-6">
+          {token ? "我的課程" : "所有課程"}
+        </h2>
         {loading ? (
           <p className="text-slate-500">正在載入課程資料...</p>
         ) : error ? (

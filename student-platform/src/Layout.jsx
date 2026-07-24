@@ -3,10 +3,9 @@ import { Outlet, Link } from "react-router-dom";
 
 const API_URL = 'http://127.0.0.1:8000';
 
-export default function Layout() {
+export default function Layout({ token, setToken }) {
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [token, setToken] = useState(localStorage.getItem("access_token"));
 
     useEffect(() => {
         if (!token) {
@@ -37,8 +36,8 @@ export default function Layout() {
 
     function logout() {
         localStorage.removeItem("access_token");
+        setToken(null);
         setUser(null);
-        window.location.href = "/";
     }
 
     return (

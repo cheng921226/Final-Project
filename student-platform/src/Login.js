@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 
 const API_URL = "http://127.0.0.1:8000";
 
-export default function Login() {
+export default function Login({ setToken }) {
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [error, setError] = useState(null);
@@ -31,7 +31,7 @@ export default function Login() {
             const data = await res.json();
 
             localStorage.setItem("access_token", data.access_token);
-            window.location.href = "/";
+            setToken(data.access_token);
             navigate("/");
         } catch (err) {
             setError(err.message);
