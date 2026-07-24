@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
@@ -91,10 +91,15 @@ function LectureDetail() {
   const [mindmap, setMindmap] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('summary'); // 'summary' 或 'mindmap'
-  const treeContainerRef = useRef(null);
+  const [activeTab, setActiveTab] = useState('summary');
+  const [activeKp, setActiveKp] = useState(null);
+  const [userName, setUserName] = useState(token ? '' : '尚未登入');
 
-  // YouTube IFrame API
+  // 進度顯示用 state
+  const [watchedPercent, setWatchedPercent] = useState(0);
+  const [isCompleted, setIsCompleted] = useState(false);
+
+  const mindmapSvgRef = useRef(null);
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
 
@@ -105,6 +110,9 @@ function LectureDetail() {
   const watchedSegmentsRef = useRef([]); // 原始片段，合併前
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
+  const questionsRef = useRef([]);
+  const activeQuestionRef = useRef(null);
+  const shownQuestionIdsRef = useRef(new Set());
 
   // 聊天室
   const [chatMessages, setChatMessages] = useState([
@@ -114,12 +122,39 @@ function LectureDetail() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
-  // 載入課程資料
+  // 更新進度顯示
+  function updateProgressDisplay(totalWatched, totalDuration) {
+    if (!totalDuration) return;
+    const percent = Math.min(Math.round((totalWatched / totalDuration) * 100), 100);
+    setWatchedPercent(percent);
+    setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
+  }
+
+  // 依登入 token 取得目前使用者名稱。
+  useEffect(() => {
+    if (!token) {
+      setUserName('尚未登入');
+      return;
+    }
+
+    fetch(`${API_URL}/name`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('無法取得使用者名稱');
+        return res.json();
+      })
+      .then(data => setUserName(data?.name || data?.email || '使用者'))
+      .catch(() => setUserName('尚未登入'));
+  }, [token]);
+
+  // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
+        let pendingQuestions = [];
         const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
@@ -154,10 +189,48 @@ function LectureDetail() {
         const mmRes = await fetch(`${API_URL}/lectures/${lectureId}/mindmaps`);
         if (mmRes.ok) {
           const mmData = await mmRes.json();
-          if (mmData?.[0]?.mindmap_json?.mind_map) {
-            setMindmap(convertToD3Tree(mmData[0].mindmap_json.mind_map));
+          const mindmapJson = mmData?.[0]?.mindmap_json;
+          if (mindmapJson?.markdown) {
+            setMindmapMarkdown(mindmapJson.markdown);
+          } else if (mindmapJson?.mind_map) {
+            setMindmapMarkdown(convertLegacyMindmapToMarkdown(mindmapJson.mind_map));
+          } else {
+            setMindmapMarkdown('');
           }
         }
+
+        // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
+        const progressRes = token
+          ? await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : null;
+        if (progressRes?.ok) {
+          const progressData = await progressRes.json();
+          if (progressData?.watched_seconds > 0) {
+            prevWatchedSecondsRef.current = progressData.watched_seconds;
+          }
+          if (progressData?.completed) {
+            setIsCompleted(true);
+            setWatchedPercent(100);
+          }
+        }
+
+        const attemptsRes = token
+          ? await fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : null;
+        if (attemptsRes?.ok) {
+          const attempts = await attemptsRes.json();
+          shownQuestionIdsRef.current = new Set(
+            (attempts || []).map(attempt => attempt.question_id)
+          );
+        } else {
+          shownQuestionIdsRef.current = new Set();
+        }
+
+        setQuestions(pendingQuestions);
       } catch (err) {
         setError(err.message || '取得資料失敗');
       } finally {
@@ -193,11 +266,12 @@ function LectureDetail() {
             playerReadyRef.current = true;
             totalDurationRef.current = event.target.getDuration();
 
-            // 抓上次進度，自動續播
+            // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
             try {
-              const res = await fetch(
-                `${API_URL}/video_progresses/${lectureId}?student_id=${STUDENT_ID}`
-              );
+              if (!token) return;
+              const res = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
               if (res.ok) {
                 const data = await res.json();
                 if (data?.last_position > 0) {
@@ -217,6 +291,8 @@ function LectureDetail() {
                   start: Math.max(0, currentTime - 2),
                   end: currentTime,
                 });
+                // 每 2 秒更新進度顯示
+                updateProgressDisplay(getTotalWatched(), totalDurationRef.current);
               }
             }, 2000);
 
@@ -233,6 +309,7 @@ function LectureDetail() {
 
             if (state === window.YT.PlayerState.PLAYING) {
               segmentStartRef.current = currentTime;
+              maybeShowTimedQuestion(currentTime);
             }
 
             if (state === window.YT.PlayerState.PAUSED) {
@@ -306,7 +383,7 @@ function LectureDetail() {
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
     };
-  }, [videoId, lectureId]);
+  }, [videoId, lectureId, token]);
 
   // 聊天室自動捲到底部
   useEffect(() => {
@@ -335,6 +412,7 @@ function LectureDetail() {
 
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
+    maybeShowTimedQuestion(seconds);
     segmentStartRef.current = seconds;
   }
 
@@ -380,6 +458,18 @@ function LectureDetail() {
     } finally {
       setChatLoading(false);
     }
+  }
+
+  // 即時發問：自動帶入目前影片時間點，請助教講解現在教的內容
+  function handleQuickAskCurrentMoment() {
+    if (chatLoading) return;
+    const currentTime = playerRef.current?.getCurrentTime
+      ? Math.floor(playerRef.current.getCurrentTime()) : 0;
+    const minutes = Math.floor(currentTime / 60);
+    const seconds = currentTime % 60;
+    const timestampStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
+    const question = `請講解一下現在影片播放到 ${timestampStr} 這段在教什麼內容？`;
+    handleAskQuestion(question);
   }
 
   return (
@@ -536,8 +626,8 @@ function LectureDetail() {
               </button>
             </div>
           </div>
-        </div>
-      </main>
+        </aside>
+      </div>
     </div>
   );
 }

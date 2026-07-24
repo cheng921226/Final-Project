@@ -55,6 +55,23 @@ def format_time_value(value: Any) -> str | None:
     return f"{minutes}:{seconds:02d}"
 
 
+def time_to_seconds(value: Any) -> float | None:
+    if value in (None, "", "null"):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    parts = str(value).split(":")
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if len(numbers) == 2:
+        return numbers[0] * 60 + numbers[1]
+    if len(numbers) == 3:
+        return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    return numbers[0] if numbers else None
+
+
 def get_lecture_title(lecture_id: int) -> str:
     response = (
         supabase_admin.table("lectures")
@@ -230,6 +247,33 @@ def normalize_knowledge_point_id(value: Any) -> int | None:
         return None
 
 
+def normalize_source_timestamp(value: Any) -> int | None:
+    if value in (None, "", "null"):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def infer_knowledge_point_id(
+    source_timestamp: Any, knowledge_points: list[dict[str, Any]]
+) -> int | None:
+    timestamp = normalize_source_timestamp(source_timestamp)
+    if timestamp is None:
+        return None
+    for kp in knowledge_points:
+        start = time_to_seconds(kp.get("start_time"))
+        end = time_to_seconds(kp.get("end_time"))
+        if start is None:
+            continue
+        if end is None:
+            end = start
+        if start <= timestamp <= end:
+            return normalize_knowledge_point_id(kp.get("id"))
+    return None
+
+
 def generate_questions(
     lecture_id: int,
     transcript_text: str,
@@ -245,10 +289,13 @@ def generate_questions(
 請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
 每題固定 4 個選項，answer 只能是 A、B、C 或 D。
 related_knowledge_point 請使用知識點列表中的 id；如果無法對應請填 null。
+每一題都必須對應影片中的一個出題時間點。
+source_timestamp 必須是純整數秒數，代表影片播放到該秒數時要跳出題目。
+請根據逐字稿段落時間與知識點內容推估 source_timestamp，不可以填 null。
 請只輸出 JSON。
 
 JSON 格式：
-{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null}}]}}
+{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125}}]}}
 
 課程逐字稿：
 {transcript_text}
@@ -270,11 +317,13 @@ JSON 格式：
             "lecture_id": lecture_id,
             "knowledge_point_id": normalize_knowledge_point_id(
                 q.get("related_knowledge_point")
-            ),
+            )
+            or infer_knowledge_point_id(q.get("source_timestamp"), knowledge_points),
             "question_text": q.get("question_text"),
             "options_json": q.get("options"),
             "answer": q.get("answer"),
             "explanation": q.get("explanation"),
+            "source_timestamp": normalize_source_timestamp(q.get("source_timestamp")),
         }
         for q in questions
         if q.get("question_text") and q.get("options") and q.get("answer")
