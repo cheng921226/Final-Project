@@ -14,6 +14,57 @@ router = APIRouter()
 gemini_client = genai.Client()
 
 
+def normalize_source_timestamp(value):
+    if value in (None, "", "null"):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def normalize_knowledge_point_id(value):
+    if value in (None, "", "null"):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def time_to_seconds(value):
+    if value in (None, "", "null"):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    parts = str(value).split(":")
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if len(numbers) == 2:
+        return numbers[0] * 60 + numbers[1]
+    if len(numbers) == 3:
+        return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    return numbers[0] if numbers else None
+
+
+def infer_knowledge_point_id(source_timestamp, knowledge_points):
+    timestamp = normalize_source_timestamp(source_timestamp)
+    if timestamp is None:
+        return None
+    for kp in knowledge_points or []:
+        start = time_to_seconds(kp.get("start_time"))
+        end = time_to_seconds(kp.get("end_time"))
+        if start is None:
+            continue
+        if end is None:
+            end = start
+        if start <= timestamp <= end:
+            return kp.get("id")
+    return None
+
+
 # =====================================================================
 # 🤖 AI 助教對話
 # =====================================================================
@@ -402,7 +453,10 @@ def generate_questions(body: QuestionsRequest):
 
         prompt = f"""
             1.請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
-            2.請精準推算出該段話在影片中的「總秒數位置」（必須是純整數數字，例如：如果教授在 12 分 25 秒講到這個觀念，請轉換為 745 存入 source_timestamp）。
+            2.每一題都必須對應影片中的一個出題時間點。
+            3.source_timestamp 必須是純整數秒數，代表影片播放到該秒數時要跳出題目。
+            4.請根據逐字稿段落時間與知識點 start_time / end_time 推估，不可以填 null。
+              例如：如果教授在 12 分 25 秒講到這個觀念，請轉換為 745 存入 source_timestamp。
             JSON格式：
             {{"questions": [
                     {{
@@ -431,14 +485,19 @@ def generate_questions(body: QuestionsRequest):
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
         for q in result_json["questions"]:
+            source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
+            knowledge_point_id = normalize_knowledge_point_id(
+                q.get("related_knowledge_point")
+            ) or infer_knowledge_point_id(source_timestamp, knowledge_points)
             supabase_admin.table("questions").insert(
                 {
                     "lecture_id": body.lecture_id,
-                    "knowledge_point_id": q["related_knowledge_point"],
+                    "knowledge_point_id": knowledge_point_id,
                     "question_text": q["question_text"],
                     "options_json": q["options"],
                     "answer": q["answer"],
                     "explanation": q["explanation"],
+                    "source_timestamp": source_timestamp,
                 }
             ).execute()
 

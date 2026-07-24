@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
@@ -108,6 +108,11 @@ function LectureDetail() {
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
   const [userName, setUserName] = useState(token ? '' : '尚未登入');
+  const [questions, setQuestions] = useState([]);
+  const [activeQuestion, setActiveQuestion] = useState(null);
+  const [selectedAnswer, setSelectedAnswer] = useState('');
+  const [questionFeedback, setQuestionFeedback] = useState(null);
+  const [questionSubmitting, setQuestionSubmitting] = useState(false);
 
   // 進度顯示用 state
   const [watchedPercent, setWatchedPercent] = useState(0);
@@ -123,6 +128,9 @@ function LectureDetail() {
   const prevWatchedSecondsRef = useRef(0); // 資料庫累積舊值
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
+  const questionsRef = useRef([]);
+  const activeQuestionRef = useRef(null);
+  const shownQuestionIdsRef = useRef(new Set());
 
   const [chatMessages, setChatMessages] = useState([
     { role: 'assistant', text: '你好！我是你的 AI 學習夥伴 😊 有任何課程問題都可以問我！' }
@@ -138,6 +146,32 @@ function LectureDetail() {
     setWatchedPercent(percent);
     setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
   }
+
+  const maybeShowTimedQuestion = useCallback((currentTime) => {
+    if (activeQuestionRef.current) return;
+
+    const nextQuestion = questionsRef.current.find(question => {
+      const triggerTime = Number(question.source_timestamp);
+      return (
+        Number.isFinite(triggerTime) &&
+        currentTime >= triggerTime &&
+        !shownQuestionIdsRef.current.has(question.id)
+      );
+    });
+
+    if (!nextQuestion) return;
+
+    shownQuestionIdsRef.current.add(nextQuestion.id);
+    activeQuestionRef.current = nextQuestion;
+    setActiveQuestion(nextQuestion);
+    setSelectedAnswer('');
+    setQuestionFeedback(null);
+    playerRef.current?.pauseVideo?.();
+    logEvent(lectureId, 'question_popup', {
+      question_id: nextQuestion.id,
+      timestamp: Math.floor(currentTime),
+    });
+  }, [lectureId]);
 
   // 依登入 token 取得目前使用者名稱。
   useEffect(() => {
@@ -157,12 +191,24 @@ function LectureDetail() {
       .catch(() => setUserName('尚未登入'));
   }, [token]);
 
+  useEffect(() => {
+    questionsRef.current = questions;
+    if (!playerRef.current || !playerReadyRef.current) return;
+    const currentTime = playerRef.current.getCurrentTime?.() || 0;
+    maybeShowTimedQuestion(currentTime);
+  }, [questions, maybeShowTimedQuestion]);
+
+  useEffect(() => {
+    activeQuestionRef.current = activeQuestion;
+  }, [activeQuestion]);
+
   // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
+        let pendingQuestions = [];
         const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
@@ -207,6 +253,16 @@ function LectureDetail() {
           }
         }
 
+        const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`);
+        if (questionRes.ok) {
+          const questionData = await questionRes.json();
+          if (Array.isArray(questionData)) {
+            pendingQuestions = questionData
+              .filter(q => q.source_timestamp !== null && q.source_timestamp !== undefined)
+              .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
+          }
+        }
+
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
         const progressRes = token
           ? await fetch(`${API_URL}/video_progresses/${lectureId}`, {
@@ -223,6 +279,22 @@ function LectureDetail() {
             setWatchedPercent(100);
           }
         }
+
+        const attemptsRes = token
+          ? await fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, {
+              headers: { Authorization: `Bearer ${token}` },
+            })
+          : null;
+        if (attemptsRes?.ok) {
+          const attempts = await attemptsRes.json();
+          shownQuestionIdsRef.current = new Set(
+            (attempts || []).map(attempt => attempt.question_id)
+          );
+        } else {
+          shownQuestionIdsRef.current = new Set();
+        }
+
+        setQuestions(pendingQuestions);
       } catch (err) {
         setError(err.message || '取得資料失敗');
       } finally {
@@ -279,18 +351,19 @@ function LectureDetail() {
             totalDurationRef.current = event.target.getDuration();
 
             // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
-            try {
-              if (!token) return;
-              const res = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (res.ok) {
-                const data = await res.json();
-                if (data?.last_position > 0) {
-                  event.target.seekTo(data.last_position, true);
+            if (token) {
+              try {
+                const res = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  if (data?.last_position > 0) {
+                    event.target.seekTo(data.last_position, true);
+                  }
                 }
-              }
-            } catch (e) {}
+              } catch (e) {}
+            }
 
             // 初始顯示進度
             updateProgressDisplay(prevWatchedSecondsRef.current, totalDurationRef.current);
@@ -307,6 +380,7 @@ function LectureDetail() {
                 });
                 // 每 2 秒更新進度顯示
                 updateProgressDisplay(getTotalWatched(), totalDurationRef.current);
+                maybeShowTimedQuestion(currentTime);
               }
             }, 2000);
 
@@ -325,6 +399,7 @@ function LectureDetail() {
 
             if (state === window.YT.PlayerState.PLAYING) {
               segmentStartRef.current = currentTime;
+              maybeShowTimedQuestion(currentTime);
             }
 
             if (state === window.YT.PlayerState.PAUSED) {
@@ -393,7 +468,7 @@ function LectureDetail() {
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
     };
-  }, [videoId, lectureId, token]);
+  }, [videoId, lectureId, token, maybeShowTimedQuestion]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -413,6 +488,7 @@ function LectureDetail() {
     });
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
+    maybeShowTimedQuestion(seconds);
     segmentStartRef.current = seconds;
     setActiveKp(index);
   }
@@ -464,6 +540,78 @@ function LectureDetail() {
     const timestampStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
     const question = `請講解一下現在影片播放到 ${timestampStr} 這段在教什麼內容？`;
     handleAskQuestion(question);
+  }
+
+  function getQuestionOptions(question) {
+    const options = question?.options_json;
+    if (Array.isArray(options)) return options;
+    if (typeof options === 'string') {
+      try {
+        const parsed = JSON.parse(options);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  async function submitQuestionAnswer() {
+    if (!activeQuestion || !selectedAnswer || questionSubmitting) return;
+    if (!token) {
+      setQuestionFeedback({
+        is_correct: false,
+        error: '請先登入，系統才能儲存作答紀錄。',
+      });
+      return;
+    }
+    setQuestionSubmitting(true);
+
+    const currentTime = playerRef.current?.getCurrentTime
+      ? playerRef.current.getCurrentTime()
+      : activeQuestion.source_timestamp;
+
+    try {
+      const res = await fetch(`${API_URL}/questions/${activeQuestion.id}/attempt`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          lecture_id: parseInt(lectureId),
+          selected_answer: selectedAnswer,
+          video_time: currentTime,
+        }),
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || '作答紀錄儲存失敗');
+      }
+      const data = await res.json();
+      setQuestionFeedback(data);
+      logEvent(lectureId, 'question_answered', {
+        question_id: activeQuestion.id,
+        selected_answer: selectedAnswer,
+        is_correct: data.is_correct,
+        timestamp: Math.floor(currentTime),
+      });
+    } catch (err) {
+      setQuestionFeedback({
+        is_correct: false,
+        error: err.message || '作答失敗，請稍後再試',
+      });
+    } finally {
+      setQuestionSubmitting(false);
+    }
+  }
+
+  function continueAfterQuestion() {
+    activeQuestionRef.current = null;
+    setActiveQuestion(null);
+    setSelectedAnswer('');
+    setQuestionFeedback(null);
+    playerRef.current?.playVideo?.();
   }
 
   return (
@@ -648,6 +796,96 @@ function LectureDetail() {
           </div>
         </aside>
       </div>
+
+      {activeQuestion && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center px-4">
+          <div className="w-full max-w-xl bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-100">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold text-blue-500 mb-1">隨堂小測驗</p>
+                  <h3 className="text-lg font-bold text-slate-800">影片時間到，先回答這題</h3>
+                </div>
+                <span className="text-xs font-mono text-slate-400">
+                  {Math.floor(Number(activeQuestion.source_timestamp) || 0)} 秒
+                </span>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <p className="text-sm font-semibold text-slate-800 leading-relaxed">
+                {activeQuestion.question_text}
+              </p>
+
+              <div className="space-y-2">
+                {getQuestionOptions(activeQuestion).map((option, index) => {
+                  const optionKey = option.trim().charAt(0).toUpperCase() || String.fromCharCode(65 + index);
+                  const isSelected = selectedAnswer === optionKey;
+                  return (
+                    <button
+                      key={`${activeQuestion.id}-${optionKey}`}
+                      type="button"
+                      disabled={!!questionFeedback}
+                      onClick={() => setSelectedAnswer(optionKey)}
+                      className={`w-full text-left rounded-xl border px-4 py-3 text-sm transition ${
+                        isSelected
+                          ? 'border-blue-400 bg-blue-50 text-blue-700'
+                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                      } ${questionFeedback ? 'cursor-default' : ''}`}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {questionFeedback && (
+                <div className={`rounded-xl px-4 py-3 text-sm ${
+                  questionFeedback.error
+                    ? 'bg-red-50 text-red-700 border border-red-100'
+                    : questionFeedback.is_correct
+                      ? 'bg-green-50 text-green-700 border border-green-100'
+                      : 'bg-amber-50 text-amber-700 border border-amber-100'
+                }`}>
+                  {questionFeedback.error ? (
+                    <p className="font-semibold">{questionFeedback.error}</p>
+                  ) : (
+                    <>
+                      <p className="font-bold mb-1">
+                        {questionFeedback.is_correct ? '答對了！' : `答錯了，正確答案是 ${questionFeedback.correct_answer}`}
+                      </p>
+                      {questionFeedback.explanation && (
+                        <p className="leading-relaxed">{questionFeedback.explanation}</p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              {!questionFeedback ? (
+                <button
+                  type="button"
+                  onClick={submitQuestionAnswer}
+                  disabled={!selectedAnswer || questionSubmitting}
+                  className="px-5 py-2 rounded-xl bg-blue-500 text-white text-sm font-bold disabled:bg-slate-300 hover:bg-blue-400 transition"
+                >
+                  {questionSubmitting ? '送出中...' : '提交答案'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={continueAfterQuestion}
+                  className="px-5 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold hover:bg-slate-700 transition"
+                >
+                  繼續播放
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
