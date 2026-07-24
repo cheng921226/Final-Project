@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import Tree from 'react-d3-tree';
 
@@ -85,6 +85,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
+  const token = localStorage.getItem('token');
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
@@ -100,8 +101,10 @@ function LectureDetail() {
   const [isCompleted, setIsCompleted] = useState(false);
 
   const mindmapSvgRef = useRef(null);
+  const treeContainerRef = useRef(null);
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
+  const prevWatchedSecondsRef = useRef(0);
 
   // 學習事件追蹤
   const pauseCountRef = useRef(0);
@@ -130,6 +133,11 @@ function LectureDetail() {
     setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
   }
 
+  function getTotalWatched() {
+    return prevWatchedSecondsRef.current
+      + calcWatchedSeconds(mergeSegments(watchedSegmentsRef.current));
+  }
+
   // 依登入 token 取得目前使用者名稱。
   useEffect(() => {
     if (!token) {
@@ -154,7 +162,6 @@ function LectureDetail() {
       setLoading(true);
       setError(null);
       try {
-        let pendingQuestions = [];
         const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
@@ -190,13 +197,9 @@ function LectureDetail() {
         if (mmRes.ok) {
           const mmData = await mmRes.json();
           const mindmapJson = mmData?.[0]?.mindmap_json;
-          if (mindmapJson?.markdown) {
-            setMindmapMarkdown(mindmapJson.markdown);
-          } else if (mindmapJson?.mind_map) {
-            setMindmapMarkdown(convertLegacyMindmapToMarkdown(mindmapJson.mind_map));
-          } else {
-            setMindmapMarkdown('');
-          }
+          setMindmap(
+            mindmapJson?.mind_map ? convertToD3Tree(mindmapJson.mind_map) : null
+          );
         }
 
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
@@ -229,8 +232,6 @@ function LectureDetail() {
         } else {
           shownQuestionIdsRef.current = new Set();
         }
-
-        setQuestions(pendingQuestions);
       } catch (err) {
         setError(err.message || '取得資料失敗');
       } finally {
@@ -309,7 +310,6 @@ function LectureDetail() {
 
             if (state === window.YT.PlayerState.PLAYING) {
               segmentStartRef.current = currentTime;
-              maybeShowTimedQuestion(currentTime);
             }
 
             if (state === window.YT.PlayerState.PAUSED) {
@@ -412,7 +412,6 @@ function LectureDetail() {
 
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
-    maybeShowTimedQuestion(seconds);
     segmentStartRef.current = seconds;
   }
 
@@ -626,8 +625,8 @@ function LectureDetail() {
               </button>
             </div>
           </div>
-        </aside>
-      </div>
+        </div>
+      </main>
     </div>
   );
 }
