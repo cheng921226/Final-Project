@@ -242,15 +242,20 @@ def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_us
 @router.get("/video_progresses/{lecture_id}")
 def get_video_progress(lecture_id: int, user=Depends(get_current_user)):
     student_id = get_student_id_from_auth(user)
+    # Use a limited list query instead of maybe_single(). In some
+    # supabase-py/PostgREST versions, maybe_single().execute() returns None
+    # when no row exists, which would make a new student's empty progress
+    # state raise AttributeError and incorrectly become HTTP 500.
     res = (
         supabase.table("video_progresses")
         .select("*")
         .eq("lecture_id", lecture_id)
         .eq("student_id", student_id)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    return res.data
+    rows = res.data or []
+    return rows[0] if rows else None
 
 
 # =====================================================================
