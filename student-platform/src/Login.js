@@ -39,36 +39,37 @@ export default function Login({ setToken }) {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-            <div className="bg-white w-full max-w-sm p-8 rounded-xl shadow-lg">
-                <h1 className="text-2xl font-bold text-center mb-6">
-                    登入
-                </h1>
+        <div className="auth-page">
+            <div className="auth-card">
+                <div className="auth-icon">L</div>
+                <h1>歡迎回來</h1>
+                <p className="intro">登入後繼續你的學習旅程。</p>
 
-                <input
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Email"
+                <label className="field">
+                    <span>電子信箱</span>
+                    <input placeholder="name@example.com" autoComplete="email"
                     onChange={(e) => setEmail(e.target.value)}
-                />
+                    />
+                </label>
 
-                <input
-                    type="password"
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Password"
+                <label className="field">
+                    <span>密碼</span>
+                    <input type="password" placeholder="輸入你的密碼" autoComplete="current-password"
                     onChange={(e) => setPassword(e.target.value)}
-                />
+                    />
+                </label>
 
                 {error && (
-                    <p className="text-red-500 text-sm mb-3">
+                    <p className="auth-error">
                         {error}
                     </p>
                 )}
 
                 <button
                     onClick={handleLogin}
-                    className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-lg transition"
+                    className="auth-submit"
                 >
-                    登入
+                    登入學習空間
                 </button>
 
                 {/* <div className="text-center mt-4">

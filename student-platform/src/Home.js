@@ -147,14 +147,15 @@ function Home({ token }) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8">
-      {/* 搜尋區 */}
-      <section className="max-w-4xl mx-auto mb-12">
-        <div className="text-center sm:text-left mb-6">
-          <h1 className="text-4xl font-extrabold text-slate-800 mb-2">今天想學什麼？</h1>
-          <p className="text-slate-500">快速搜尋課程與 AI 知識點。</p>
+    <div className="page-wrap">
+      <section>
+        <div>
+          <p className="eyebrow">Learn at your pace</p>
+          <h1 className="hero-title">今天，想把哪個知識<br/><em>真正學會？</em></h1>
+          <p className="hero-copy">從課程影片、重點摘要到即時 AI 問答，讓每一次學習都更專注、更有方向。</p>
         </div>
-        <div className="relative">
+        <div className="search-panel">
+          <span className="search-icon" aria-hidden="true">⌕</span>
           <input
             type="text"
             value={keyword}
@@ -162,38 +163,35 @@ function Home({ token }) {
             onKeyDown={(e) => {
               if (e.key === "Enter") searchCourses();
             }}
-            placeholder="搜尋課程內容或 AI 知識點..."
-            className="w-full p-4 rounded-2xl shadow-lg border-none focus:ring-2 focus:ring-blue-500"
+            placeholder="搜尋課程名稱、講師或知識點"
+            aria-label="搜尋課程"
           />
           <button
-            onClick={searchCourses}
-            className="absolute right-4 top-3 bg-blue-600 text-white px-4 py-1.5 rounded-xl">搜尋
+            onClick={searchCourses}>搜尋
           </button>
         </div>
       </section>
 
-      {/* 課程列表區 */}
-      <section className="max-w-6xl mx-auto">
-        <h2 className="text-xl font-bold mb-6">
-          {token ? "我的課程" : "所有課程"}
-        </h2>
+      <section>
+        <div className="section-heading">
+          <h2>{token ? "我的學習空間" : "探索所有課程"}</h2>
+          <span>{courses.length > 0 ? `${courses.length} 門課程` : '找到適合你的學習內容'}</span>
+        </div>
         {loading ? (
           <p className="text-slate-500">正在載入課程資料...</p>
         ) : error ? (
           <p className="text-red-500">{error}</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="course-grid">
             {courses.map(course => (
               <Link to={`/course/${course.id}`} key={course.id}>
-                <div className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-xl transition-all border border-slate-100 group">
-                  <div className="aspect-video bg-slate-200 rounded-xl mb-4 group-hover:bg-blue-100 transition-colors flex items-center justify-center text-slate-400">
-                    影片封面圖
+                <div className="course-card">
+                  <div className="course-cover"><span>AI 輔助課程</span></div>
+                  <div className="course-card-body">
+                    <h3>{course.title}</h3>
+                    <p className="course-meta">{course.teacher}</p>
+                    <span className="status-pill">{course.status}</span>
                   </div>
-                  <h3 className="font-bold text-lg text-slate-800">{course.title}</h3>
-                  <p className="text-slate-500 text-sm mb-3">{course.teacher}</p>
-                  <span className={`text-xs px-2 py-1 rounded-full ${course.status === 'AI 分析完成' ? 'bg-green-100 text-green-600' : 'bg-orange-100 text-orange-600'}`}>
-                    {course.status}
-                  </span>
                 </div>
               </Link>
             ))}

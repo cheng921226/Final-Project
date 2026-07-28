@@ -41,25 +41,26 @@ export default function Layout({ token, setToken }) {
     }
 
     return (
-        <div>
-            {/* Navbar */}
-            <nav className="flex justify-between p-4 shadow bg-white">
-                <Link to="/" className="font-bold">
-                    <img src="/logo192.png" alt="Logo" className="h-8" />
+        <div className="app-shell">
+            <nav className="topbar">
+                <Link to="/" className="brand" aria-label="Learnly 首頁">
+                    <span className="brand-mark" aria-hidden="true" />
+                    <span>Learnly<small>AI learning studio</small></span>
                 </Link>
 
-                <div className="flex gap-4">
+                <div className="nav-user">
                     {loading ? (
-                        <span>Loading...</span>
+                        <span>載入中...</span>
                     ) : user ? (
                         <>
+                            <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>
                             <span>{user.name || user.email}</span>
-                            <button onClick={logout} className="text-red-500">
+                            <button onClick={logout} className="ghost-button">
                                 登出
                             </button>
                         </>
                     ) : (
-                        <Link to="/login" className="text-blue-600">
+                        <Link to="/login" className="primary-link">
                             登入
                         </Link>
                     )}

@@ -45,52 +45,42 @@ export default function Register() {
     }
 
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-100">
-            <div className="bg-white w-full max-w-sm p-8 rounded-xl shadow-lg">
-                <h1 className="text-2xl font-bold text-center mb-6">
-                    註冊
-                </h1>
+        <div className="auth-page">
+            <div className="auth-card">
+                <div className="auth-icon">L</div>
+                <h1>建立學習帳號</h1>
+                <p className="intro">一個帳號，保存你的課程與學習進度。</p>
 
-                <input
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Name"
+                <label className="field"><span>姓名</span><input placeholder="你的名字"
                     onChange={(e) => setName(e.target.value)}
-                />
+                /></label>
 
-                <input
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Email"
+                <label className="field"><span>電子信箱</span><input placeholder="name@example.com" autoComplete="email"
                     onChange={(e) => setEmail(e.target.value)}
-                />
+                /></label>
 
-                <input
-                    type="password"
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Password"
+                <label className="field"><span>密碼</span><input type="password" placeholder="設定密碼" autoComplete="new-password"
                     onChange={(e) => setPassword(e.target.value)}
-                />
+                /></label>
 
-                <input
-                    type="password"
-                    className="w-full border rounded-lg p-3 mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="Confirm Password"
+                <label className="field"><span>確認密碼</span><input type="password" placeholder="再輸入一次密碼" autoComplete="new-password"
                     onChange={(e) => setConfirmPassword(e.target.value)}
-                />
+                /></label>
 
                 {error && (
-                    <p className="text-red-500 text-sm mb-3">
+                    <p className="auth-error">
                         {error}
                     </p>
                 )}
 
                 <button
                     onClick={handleRegister}
-                    className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-3 rounded-lg transition"
+                    className="auth-submit"
                 >
                     註冊
                 </button>
 
-                <div className="text-center mt-4">
+                <div className="auth-foot">
                     <span className="text-gray-600">
                         已有帳號？
                     </span>{" "}

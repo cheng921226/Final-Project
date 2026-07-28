@@ -84,41 +84,36 @@ function CourseDetail() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8">
-      <header className="max-w-4xl mx-auto mb-8 flex justify-between items-center">
-        <div>
-          <Link to="/" className="text-blue-500 text-sm hover:underline">← 返回課程列表</Link>
-          <h1 className="text-2xl font-bold text-slate-800 mt-1">課程小節</h1>
-          <p className="text-slate-500 text-sm">選擇你要學習的小節</p>
-        </div>
+    <div className="detail-wrap">
+      <header className="detail-heading">
+        <Link to="/" className="back-link">← 返回所有課程</Link>
+        <h1>課程學習地圖</h1>
+        <p>按照自己的步調學習，每一小節都會自動保存觀看進度。</p>
       </header>
 
-      <main className="max-w-4xl mx-auto">
+      <main>
         {loading ? (
-          <p className="text-slate-500">正在載入小節列表...</p>
+          <div className="empty-card">正在整理課程內容...</div>
         ) : error ? (
-          <p className="text-red-500">{error}</p>
+          <div className="empty-card">暫時無法取得課程內容：{error}</div>
         ) : lectures.length === 0 ? (
-          <p className="text-slate-500">尚無小節資料</p>
+          <div className="empty-card">這門課程目前還沒有小節內容。</div>
         ) : (
-          <div className="grid gap-4">
+          <div className="lecture-list">
             {lectures.map((lecture, index) => {
               const progress = getProgressDisplay(lecture);
               return (
                 <Link to={`/course/${id}/lecture/${lecture.id}`} key={lecture.id}>
-                  <div className="bg-white p-5 rounded-2xl shadow-sm hover:shadow-md border border-slate-100 hover:border-blue-300 transition-all group">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        {/* 編號 */}
-                        <span className="w-10 h-10 rounded-full bg-blue-100 text-blue-600 font-bold flex items-center justify-center text-sm flex-shrink-0">
+                  <div className="lecture-card">
+                      <div className="lecture-info">
+                        <span className="lecture-number">
                           {index + 1}
                         </span>
                         <div>
                           <div className="flex items-center gap-2">
-                            <h3 className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors">
+                            <h3 className="lecture-title">
                               {lecture.course_name ?? lecture.title ?? `第 ${index + 1} 小節`}
                             </h3>
-                            {/* 完成勾勾 */}
                             {progress?.completed && (
                               <span className="flex items-center justify-center w-5 h-5 bg-green-100 rounded-full flex-shrink-0" title="已完成">
                                 <svg className="w-3 h-3 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -127,31 +122,28 @@ function CourseDetail() {
                               </span>
                             )}
                           </div>
-                          <p className="text-slate-500 text-sm">{lecture.status ?? ''}</p>
+                          <p className="lecture-subtitle">{lecture.status || `第 ${index + 1} 個學習單元`}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-4 flex-shrink-0">
-                        {/* 進度顯示 */}
+                      <div className="lecture-state">
                         {progress ? (
-                          <div className="flex flex-col items-end gap-1">
-                            <span className={`text-xs font-semibold ${progress.completed ? 'text-green-600' : 'text-slate-500'}`}>
+                          <div>
+                            <div className="progress-copy">
                               {progress.completed ? '已完成' : `${progress.percent}%`}
-                            </span>
-                            {/* 進度條 */}
-                            <div className="w-24 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                            </div>
+                            <div className="progress-track">
                               <div
-                                className={`h-full rounded-full transition-all ${progress.completed ? 'bg-green-500' : 'bg-blue-400'}`}
+                                className={`progress-fill ${progress.completed ? 'done' : ''}`}
                                 style={{ width: `${progress.percent}%` }}
                               />
                             </div>
                           </div>
                         ) : (
-                          <span className="text-xs text-slate-300">尚未觀看</span>
+                          <span className="progress-copy">尚未觀看</span>
                         )}
-                        <span className="text-slate-300 group-hover:text-blue-400 transition-colors text-lg">→</span>
+                        <span className="card-arrow">→</span>
                       </div>
-                    </div>
                   </div>
                 </Link>
               );

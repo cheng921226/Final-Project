@@ -615,10 +615,10 @@ function LectureDetail() {
   }
 
   return (
-    <div className="h-screen overflow-hidden flex flex-col bg-slate-100">
+    <div className="learning-shell h-screen overflow-hidden flex flex-col bg-[#f4f5fa]">
 
       {/* Header */}
-      <header className="flex-shrink-0 bg-white border-b border-slate-200 px-6 py-3 flex justify-between items-center">
+      <header className="learning-header flex-shrink-0 bg-white/90 backdrop-blur border-b border-slate-200 px-6 py-3 flex justify-between items-center">
         <div className="flex items-center gap-4">
           <Link to={`/course/${id}`} className="text-blue-500 text-sm hover:underline">← 返回</Link>
           <div>
@@ -633,24 +633,24 @@ function LectureDetail() {
             <span className={`text-xs font-semibold ${isCompleted ? 'text-green-600' : 'text-slate-500'}`}>
               {isCompleted ? '✓ 已完成' : `已觀看 ${watchedPercent}%`}
             </span>
-            <div className="w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+            <div className="learning-progress-bar w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden">
               <div
                 className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : 'bg-blue-400'}`}
                 style={{ width: `${watchedPercent}%` }}
               />
             </div>
           </div>
-          <div className="bg-slate-100 px-4 py-1.5 rounded-full text-sm font-medium text-slate-600">
+          <div className="learning-user bg-[#eeefff] px-4 py-1.5 rounded-full text-sm font-medium text-[#5555bd]">
             使用者：{userName || '載入中...'}
           </div>
         </div>
       </header>
 
       {/* 三欄主體 */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="learning-body flex flex-1 overflow-hidden">
 
         {/* 左側：知識點清單 */}
-        <aside className="w-56 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
+        <aside className="knowledge-aside w-60 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
           <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100">
             <h2 className="font-bold text-slate-700 text-sm">📚 知識點</h2>
             <p className="text-xs text-slate-400 mt-0.5">點擊跳至影片時間點</p>
@@ -690,8 +690,8 @@ function LectureDetail() {
         </aside>
 
         {/* 中間：影片 + Tab 面板 */}
-        <main className="flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
-          <div className="flex-shrink-0 aspect-video bg-black rounded-2xl shadow-lg overflow-hidden">
+        <main className="learning-main flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
+          <div className="flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
             {videoId ? (
               <div id="yt-player" style={{ width: '100%', height: '100%' }} />
             ) : (
@@ -743,7 +743,7 @@ function LectureDetail() {
         </main>
 
         {/* 右側：AI 助教 */}
-        <aside className="w-80 flex-shrink-0 bg-slate-900 flex flex-col">
+        <aside className="assistant-aside w-80 flex-shrink-0 bg-[#1f2740] flex flex-col">
           <div className="flex-shrink-0 px-5 py-4 border-b border-slate-700">
             <h2 className="font-bold text-white text-sm">💬 AI 課程助教</h2>
             <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
