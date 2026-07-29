@@ -8,6 +8,7 @@ from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
 from .security import get_current_user
+from .users import get_chat_context
 
 router = APIRouter()
 
@@ -74,14 +75,30 @@ class ChatRequest(BaseModel):
     lecture_id: int
     question: str
     video_timestamp: int = 0  # 學生提問時的影片秒數
-    chat_history: list[
-        dict
-    ] = []  # 前端傳來的對話歷史 [{"role": "user/assistant", "text": "..."}]
-
 
 @router.post("/ai/chat")
 def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
     try:
+        res = (
+            supabase_admin.table("users")
+            .select("id, role")
+            .eq("auth_id", user.id)
+            .single()
+            .execute()
+        )
+
+        if not res.data:
+            raise HTTPException(status_code=404, detail="找不到使用者")
+
+        student_id = res.data["id"]
+        user_role = res.data["role"]
+
+        history = get_chat_context(
+            lecture_id=body.lecture_id,
+            student_id=student_id,
+            limit=6
+        )
+
         # 撈逐字稿
         transcript_raw = get_lecture_transcript(body.lecture_id)
         if not transcript_raw:
@@ -135,9 +152,9 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
 
         # 格式化對話歷史
         history_text = ""
-        for msg in body.chat_history[-6:]:  # 只取最近 6 則，避免 prompt 太長
-            role = "學生" if msg.get("role") == "user" else "助教"
-            history_text += f"{role}：{msg.get('text', '')}\n"
+        for msg in history:
+            role = "學生" if msg["role"] == "user" else "助教"
+            history_text += f"{role}：{msg['content']}\n"
 
         # Prompt
         prompt = f"""
@@ -185,17 +202,6 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
             result_json = json.loads(ai_response.text)
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="AI 回應格式錯誤")
-
-        res = (
-            supabase_admin.table("users")
-            .select("id, role")
-            .eq("auth_id", user.id)
-            .single()
-            .execute()
-        )
-
-        student_id = res.data["id"]
-        user_role = res.data["role"]
 
         supabase_admin.table("chat_messages").insert(
             {

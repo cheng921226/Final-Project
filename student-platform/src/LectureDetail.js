@@ -68,7 +68,7 @@ async function logEvent(lectureId, eventType, eventData) {
         event_data: eventData,
       }),
     });
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
@@ -89,7 +89,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
         completed,
       }),
     });
-  } catch (e) {}
+  } catch (e) { }
 }
 
 // =====================================================================
@@ -137,9 +137,8 @@ function LectureDetail() {
   const activeQuestionRef = useRef(null);
   const shownQuestionIdsRef = useRef(new Set());
 
-  const [chatMessages, setChatMessages] = useState([
-    { role: 'assistant', text: '你好！我是你的 AI 學習夥伴 😊 有任何課程問題都可以問我！' }
-  ]);
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInitialized, setChatInitialized] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
@@ -224,7 +223,7 @@ function LectureDetail() {
             try {
               const vid = new URL(raw).searchParams.get('v');
               if (vid) setVideoId(vid);
-            } catch (e) {}
+            } catch (e) { }
           }
         }
 
@@ -273,8 +272,8 @@ function LectureDetail() {
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
         const progressRes = token
           ? await fetch(`${API_URL}/video_progresses/${lectureId}`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
+            headers: { Authorization: `Bearer ${token}` },
+          })
           : null;
         if (progressRes?.ok) {
           const progressData = await progressRes.json();
@@ -289,8 +288,8 @@ function LectureDetail() {
 
         const attemptsRes = token
           ? await fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, {
-              headers: { Authorization: `Bearer ${token}` },
-            })
+            headers: { Authorization: `Bearer ${token}` },
+          })
           : null;
         if (attemptsRes?.ok) {
           const attempts = await attemptsRes.json();
@@ -300,6 +299,36 @@ function LectureDetail() {
         } else {
           shownQuestionIdsRef.current = new Set();
         }
+
+        const chatRes = token
+          ? await fetch(`${API_URL}/lectures/${lectureId}/chats`, {
+            headers: { Authorization: `Bearer ${token}` },
+          })
+          : null;
+
+        if (chatRes?.ok) {
+          const chatData = await chatRes.json();
+
+          const messages = [];
+
+          chatData.messages.forEach(chat => {
+            messages.push({
+              role: "user",
+              text: chat.question,
+            });
+
+            messages.push({
+              role: "assistant",
+              text: chat.answer,
+            });
+          });
+
+          setChatMessages(messages);
+        } else {
+          setChatMessages([]);
+        }
+
+        setChatInitialized(true);
 
         setQuestions(pendingQuestions);
       } catch (err) {
@@ -404,7 +433,7 @@ function LectureDetail() {
                     lastObservedAtRef.current = Date.now();
                   }
                 }
-              } catch (e) {}
+              } catch (e) { }
             }
 
             // 初始顯示進度
@@ -571,7 +600,6 @@ function LectureDetail() {
           lecture_id: parseInt(lectureId),
           question,
           video_timestamp: currentTime,
-          chat_history: chatMessages.slice(-6),
         }),
       });
       if (!res.ok) throw new Error();
@@ -720,16 +748,14 @@ function LectureDetail() {
                   key={i}
                   type="button"
                   onClick={() => seekToKnowledgePoint(p.start_time, i)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all group ${
-                    activeKp === i
-                      ? 'border-blue-400 bg-blue-50'
-                      : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
-                  }`}
+                  className={`w-full text-left p-3 rounded-xl border transition-all group ${activeKp === i
+                    ? 'border-blue-400 bg-blue-50'
+                    : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className={`text-xs font-bold leading-tight ${
-                      activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
-                    }`}>
+                    <span className={`text-xs font-bold leading-tight ${activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
+                      }`}>
                       {p.title}
                     </span>
                     {p.start_time && (
@@ -765,11 +791,10 @@ function LectureDetail() {
                   key={tab.key}
                   type="button"
                   onClick={() => setActiveTab(tab.key)}
-                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${
-                    activeTab === tab.key
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-slate-500 hover:text-slate-700'
-                  }`}
+                  className={`px-6 py-3 text-sm font-medium border-b-2 transition-colors ${activeTab === tab.key
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-slate-500 hover:text-slate-700'
+                    }`}
                 >
                   {tab.label}
                 </button>
@@ -803,18 +828,27 @@ function LectureDetail() {
             <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {chatMessages.map((msg, i) => (
+            {!chatInitialized ? (
+              <div className="text-slate-400 text-xs">
+                載入聊天紀錄中...
+              </div>
+            ) : chatMessages.length === 0 ? (
+              <div
+                className="text-xs leading-relaxed rounded-xl p-3 bg-slate-700 text-slate-100"
+              >
+                你好！我是你的 AI 課程助教 😊 有任何課程問題都可以問我！
+              </div>
+            ) : (chatMessages.map((msg, i) => (
               <div
                 key={i}
-                className={`text-xs leading-relaxed rounded-xl p-3 ${
-                  msg.role === 'assistant'
-                    ? 'bg-slate-700 text-slate-100'
-                    : 'bg-blue-600 text-white ml-4'
-                }`}
+                className={`text-xs leading-relaxed rounded-xl p-3 ${msg.role === 'assistant'
+                  ? 'bg-slate-700 text-slate-100'
+                  : 'bg-blue-600 text-white ml-4'
+                  }`}
               >
                 {msg.text}
               </div>
-            ))}
+            )))}
             {chatLoading && (
               <div className="bg-slate-700 text-slate-400 text-xs rounded-xl p-3 animate-pulse">
                 助教思考中...
@@ -881,11 +915,10 @@ function LectureDetail() {
                       type="button"
                       disabled={!!questionFeedback}
                       onClick={() => setSelectedAnswer(optionKey)}
-                      className={`w-full text-left rounded-xl border px-4 py-3 text-sm transition ${
-                        isSelected
-                          ? 'border-blue-400 bg-blue-50 text-blue-700'
-                          : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
-                      } ${questionFeedback ? 'cursor-default' : ''}`}
+                      className={`w-full text-left rounded-xl border px-4 py-3 text-sm transition ${isSelected
+                        ? 'border-blue-400 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 bg-slate-50 text-slate-700 hover:border-blue-300 hover:bg-blue-50'
+                        } ${questionFeedback ? 'cursor-default' : ''}`}
                     >
                       {option}
                     </button>
@@ -894,13 +927,12 @@ function LectureDetail() {
               </div>
 
               {questionFeedback && (
-                <div className={`rounded-xl px-4 py-3 text-sm ${
-                  questionFeedback.error
-                    ? 'bg-red-50 text-red-700 border border-red-100'
-                    : questionFeedback.is_correct
-                      ? 'bg-green-50 text-green-700 border border-green-100'
-                      : 'bg-amber-50 text-amber-700 border border-amber-100'
-                }`}>
+                <div className={`rounded-xl px-4 py-3 text-sm ${questionFeedback.error
+                  ? 'bg-red-50 text-red-700 border border-red-100'
+                  : questionFeedback.is_correct
+                    ? 'bg-green-50 text-green-700 border border-green-100'
+                    : 'bg-amber-50 text-amber-700 border border-amber-100'
+                  }`}>
                   {questionFeedback.error ? (
                     <p className="font-semibold">{questionFeedback.error}</p>
                   ) : (

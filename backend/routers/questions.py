@@ -88,7 +88,9 @@ def create_question_attempt(
         raise HTTPException(status_code=404, detail="Question not found")
 
     if question.get("lecture_id") != body.lecture_id:
-        raise HTTPException(status_code=400, detail="Question does not belong to lecture")
+        raise HTTPException(
+            status_code=400, detail="Question does not belong to lecture"
+        )
 
     selected_answer = normalize_answer(body.selected_answer)
     correct_answer = normalize_answer(question.get("answer"))
