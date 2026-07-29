@@ -106,6 +106,46 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
     }
 
 
+def get_youtube_metadata(url: str) -> dict[str, Any]:
+    """Read YouTube metadata without downloading the media."""
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError as exc:
+        raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
+
+    clean_url = normalize_youtube_url(url)
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "skip_download": True,
+        "socket_timeout": 20,
+    }
+    with YoutubeDL(options) as ydl:
+        info = ydl.extract_info(clean_url, download=False)
+
+    return {
+        "title": info.get("title"),
+        "webpage_url": info.get("webpage_url") or url,
+        "duration": round(float(info["duration"])) if info.get("duration") else None,
+    }
+
+
+def save_lecture_duration(lecture_id: int, duration: float | int | None) -> int | None:
+    if duration is None:
+        return None
+    duration_seconds = max(0, round(float(duration)))
+    response = (
+        supabase_admin.table("lectures")
+        .update({"duration_seconds": duration_seconds})
+        .eq("id", lecture_id)
+        .execute()
+    )
+    if not response.data:
+        raise RuntimeError("Lecture duration save failed")
+    return duration_seconds
+
+
 def normalize_youtube_url(url: str) -> str:
     parsed = urlparse(url)
     if "youtube.com" not in parsed.netloc:

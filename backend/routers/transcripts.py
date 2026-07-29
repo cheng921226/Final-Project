@@ -7,6 +7,7 @@ from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from services.transcription import (
     download_youtube_audio,
+    save_lecture_duration,
     save_transcript_segments,
     transcribe_media,
 )
@@ -46,6 +47,7 @@ async def transcribe_lecture_media(
             language=language or None,
             word_timestamps=word_timestamps,
         )
+        save_lecture_duration(lecture_id, result.get("duration"))
 
         db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
         if save_to_db:
@@ -75,6 +77,7 @@ def transcribe_lecture_youtube(lecture_id: int, payload: YoutubeTranscribeReques
 
     try:
         youtube_info = download_youtube_audio(payload.url, output_dir=download_dir)
+        save_lecture_duration(lecture_id, youtube_info.get("duration"))
         result = transcribe_media(
             youtube_info["file_path"],
             model_size=payload.model_size,

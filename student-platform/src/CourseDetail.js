@@ -55,32 +55,16 @@ function CourseDetail() {
     fetchLectures();
   }, [id]);
 
-  function getProgressPercent(lecture) {
-    const p = progressMap[lecture.id];
-    if (!p || !p.watched_seconds) return 0;
-    // 用 watched_seconds / last_position 估算，或直接看 completed
-    // 如果有 total_duration 更準，這裡用 watched_seconds 跟 last_position 的比
-    // 但資料庫沒存 total_duration，用 completed 判斷是否 >= 80%
-    return p.watched_seconds;
-  }
-
   function getProgressDisplay(lecture) {
     const p = progressMap[lecture.id];
     if (!p) return null;
 
-    const { watched_seconds, completed, last_position } = p;
+    const { watched_seconds, completed } = p;
+    const duration = Number(lecture.duration_seconds);
+    if (!watched_seconds || !duration) return { percent: 0, completed: !!completed };
 
-    // 用 last_position 當作影片總長的估算基礎
-    // 若已完成直接顯示 100%，否則用 watched_seconds / last_position
-    if (completed) {
-      return { percent: 100, completed: true };
-    }
-
-    if (!watched_seconds || !last_position) return { percent: 0, completed: false };
-
-    // watched_seconds 通常 <= last_position，用這個比值估算進度
-    const percent = Math.min(Math.round((watched_seconds / last_position) * 100), 99);
-    return { percent, completed: false };
+    const percent = Math.min(Math.round((watched_seconds / duration) * 100), 100);
+    return { percent, completed: !!completed };
   }
 
   return (
@@ -130,7 +114,7 @@ function CourseDetail() {
                         {progress ? (
                           <div>
                             <div className="progress-copy">
-                              {progress.completed ? '已完成' : `${progress.percent}%`}
+                              {progress.completed ? `已完成 · ${progress.percent}%` : `${progress.percent}%`}
                             </div>
                             <div className="progress-track">
                               <div

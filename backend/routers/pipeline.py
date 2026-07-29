@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from services.ai_generation import run_ai_generation_pipeline
 from services.transcription import (
     download_youtube_audio,
+    get_youtube_metadata,
+    save_lecture_duration,
     save_transcript_segments,
     transcribe_media,
 )
@@ -58,10 +60,7 @@ def run_youtube_ai_pipeline(lecture_id: int, payload: YoutubePipelineRequest):
         )
 
         if existing_segments:
-            youtube_info = {
-                "title": None,
-                "webpage_url": payload.url,
-            }
+            youtube_info = get_youtube_metadata(payload.url)
             transcript_result = {
                 "language": payload.language,
                 "language_probability": None,
@@ -82,6 +81,7 @@ def run_youtube_ai_pipeline(lecture_id: int, payload: YoutubePipelineRequest):
         else:
             download_dir = tempfile.mkdtemp(prefix="youtube_pipeline_")
             youtube_info = download_youtube_audio(payload.url, output_dir=download_dir)
+            save_lecture_duration(lecture_id, youtube_info.get("duration"))
             transcript_result = transcribe_media(
                 youtube_info["file_path"],
                 model_size=payload.model_size,
@@ -98,6 +98,9 @@ def run_youtube_ai_pipeline(lecture_id: int, payload: YoutubePipelineRequest):
                     raise RuntimeError(
                         f"Transcript database save failed: {db_result.get('db_error')}"
                     )
+
+        if youtube_info.get("duration") is not None:
+            save_lecture_duration(lecture_id, youtube_info["duration"])
 
         ai_steps = run_ai_generation_pipeline(
             lecture_id,

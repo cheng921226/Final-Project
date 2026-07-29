@@ -1,11 +1,16 @@
 import os
 import tempfile
 
-from database.supabase import supabase
+from database.supabase import supabase, supabase_admin
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
 from pydantic import BaseModel
 from typing import Any
-from services.transcription import save_transcript_segments, transcribe_media
+from services.transcription import (
+    get_youtube_metadata,
+    save_lecture_duration,
+    save_transcript_segments,
+    transcribe_media,
+)
 from .security import get_current_user
 from .users import get_student_id_from_auth
 
@@ -69,6 +74,7 @@ class LectureCreate(BaseModel):
     media_url: str
     course_id: int
     status: str = "uploaded"
+    duration_seconds: int | None = None
 
 
 @router.get("/lectures/{lecture_id}")
@@ -79,6 +85,18 @@ def get_selected_lecture(lecture_id: int):
 
 @router.post("/lectures")
 def create_lecture(body: LectureCreate):
+    duration_seconds = body.duration_seconds
+    if duration_seconds is None and (
+        "youtube.com" in body.media_url or "youtu.be" in body.media_url
+    ):
+        try:
+            duration_seconds = get_youtube_metadata(body.media_url).get("duration")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"無法讀取 YouTube 影片長度：{exc}",
+            ) from exc
+
     res = (
         supabase.table("lectures")
         .insert(
@@ -87,6 +105,7 @@ def create_lecture(body: LectureCreate):
                 "media_url": body.media_url,
                 "course_id": body.course_id,
                 "status": body.status,
+                "duration_seconds": duration_seconds,
             }
         )
         .execute()
@@ -284,6 +303,7 @@ async def transcribe_lecture_media(
             language=language or None,
             word_timestamps=word_timestamps,
         )
+        save_lecture_duration(lecture_id, result.get("duration"))
         db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
         if save_to_db:
             db_result = save_transcript_segments(lecture_id, result["segments"])
