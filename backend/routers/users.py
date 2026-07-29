@@ -61,7 +61,7 @@ def get_user_id(user=Depends(get_current_user)):
 def get_user_name(user=Depends(get_current_user)):
     res = (
         supabase_admin.table("users")
-        .select("name")
+        .select("name,email,role")
         .eq("auth_id", user.id)
         .single()
         .execute()

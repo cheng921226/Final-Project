@@ -85,7 +85,7 @@ export default function Layout({ token, setToken }) {
         return () => {
             cancelled = true;
         };
-    }, [token]);
+    }, [token, setToken]);
 
     function logout() {
         clearStoredSession();
@@ -106,6 +106,9 @@ export default function Layout({ token, setToken }) {
                         <span>載入中...</span>
                     ) : user ? (
                         <>
+                            {user.role === 'teacher' && (
+                                <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
+                            )}
                             <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>
                             <span>{user.name || user.email}</span>
                             <button onClick={logout} className="ghost-button">

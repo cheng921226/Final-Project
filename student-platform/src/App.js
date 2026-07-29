@@ -7,6 +7,7 @@ import LectureDetail from './LectureDetail';
 import Login from './Login';
 import Register from './Register';
 import Profile from './Profile';
+import TeacherDashboard from './TeacherDashboard';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="login" element={<Login setToken={setToken} />} />
           <Route path="register" element={<Register />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="teacher" element={<TeacherDashboard />} />
         </Route>
       </Routes>
     </Router>
