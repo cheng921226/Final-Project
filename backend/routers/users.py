@@ -95,42 +95,6 @@ def get_user_info(user=Depends(get_current_user)):
     return res.data
 
 
-# 取得我的課程
-@router.get("/my-courses")
-def get_my_courses(user=Depends(get_current_user)):
-
-    db_user = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-
-    if not db_user.data:
-        return []
-
-    student_id = db_user.data["id"]
-
-    student_courses = (
-        supabase_admin.table("student_courses")
-        .select("course_id")
-        .eq("student_id", student_id)
-        .execute()
-    )
-
-    course_ids = [item["course_id"] for item in student_courses.data]
-
-    if not course_ids:
-        return []
-
-    courses = (
-        supabase_admin.table("courses").select("*").in_("id", course_ids).execute()
-    )
-
-    return courses.data
-
-
 # 取得該課程學生對話
 @router.get("/lectures/{lecture_id}/chats")
 def get_lecture_chats(lecture_id: int, user=Depends(get_current_user)):
@@ -147,30 +111,6 @@ def get_lecture_chats(lecture_id: int, user=Depends(get_current_user)):
 
     student_id = db_user.data["id"]
 
-    lecture = (
-        supabase_admin.table("lectures")
-        .select("course_id")
-        .eq("id", lecture_id)
-        .single()
-        .execute()
-    )
-
-    if not lecture.data:
-        raise HTTPException(404, "找不到課程")
-
-    course_id = lecture.data["course_id"]
-
-    permission = (
-        supabase_admin.table("student_courses")
-        .select("course_id")
-        .eq("student_id", student_id)
-        .eq("course_id", course_id)
-        .execute()
-    )
-
-    if not permission.data:
-        raise HTTPException(403, "您沒有權限查看此課程")
-
     chats = (
         supabase_admin.table("chat_messages")
         .select("question, answer, video_timestamp, created_at")
@@ -181,11 +121,11 @@ def get_lecture_chats(lecture_id: int, user=Depends(get_current_user)):
     )
     return {"lecture_id": lecture_id, "messages": chats.data}
 
+
 # 給 ai 助教的記憶函式
 def get_chat_context(lecture_id: int, student_id: int, limit: int = 10):
     chats = (
-        supabase_admin
-        .table("chat_messages")
+        supabase_admin.table("chat_messages")
         .select("question, answer")
         .eq("lecture_id", lecture_id)
         .eq("student_id", student_id)
@@ -197,14 +137,8 @@ def get_chat_context(lecture_id: int, student_id: int, limit: int = 10):
     messages = []
 
     for chat in reversed(chats.data):
-        messages.append({
-            "role": "user",
-            "content": chat["question"]
-        })
-        messages.append({
-            "role": "assistant",
-            "content": chat["answer"]
-        })
+        messages.append({"role": "user", "content": chat["question"]})
+        messages.append({"role": "assistant", "content": chat["answer"]})
 
     return messages
 

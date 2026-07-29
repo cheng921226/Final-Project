@@ -76,6 +76,7 @@ class ChatRequest(BaseModel):
     question: str
     video_timestamp: int = 0  # 學生提問時的影片秒數
 
+
 @router.post("/ai/chat")
 def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
     try:
@@ -94,9 +95,7 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
         user_role = res.data["role"]
 
         history = get_chat_context(
-            lecture_id=body.lecture_id,
-            student_id=student_id,
-            limit=6
+            lecture_id=body.lecture_id, student_id=student_id, limit=6
         )
 
         # 撈逐字稿
