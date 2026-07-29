@@ -1,6 +1,7 @@
-from database.supabase import supabase_admin
+from database.supabase import SUPABASE_KEY, SUPABASE_URL, supabase_admin
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, EmailStr
+from supabase import create_client
 
 router = APIRouter()
 
@@ -50,6 +51,10 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/login")
 def login(data: LoginRequest):
     try:
@@ -65,6 +70,28 @@ def login(data: LoginRequest):
 
     except Exception as e:
         raise HTTPException(401, detail=str(e))
+
+
+@router.post("/refresh")
+def refresh_session(data: RefreshRequest):
+    try:
+        # Use a request-scoped client because refresh tokens rotate after use.
+        # Sharing auth session state between concurrent FastAPI requests can
+        # otherwise cause one student's session to affect another request.
+        auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        res = auth_client.auth.refresh_session(data.refresh_token)
+
+        if not res.session:
+            raise HTTPException(status_code=401, detail="Session refresh failed")
+
+        return {
+            "access_token": res.session.access_token,
+            "refresh_token": res.session.refresh_token,
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
 @router.post("/logout")

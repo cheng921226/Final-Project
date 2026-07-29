@@ -122,10 +122,15 @@ function LectureDetail() {
   const playerRef = useRef(null);
   const playerReadyRef = useRef(false);
   const pauseCountRef = useRef(0);
+  const suppressNextPauseEventRef = useRef(false);
   const segmentStartRef = useRef(0);
   const totalDurationRef = useRef(0);
   const watchedSegmentsRef = useRef([]);
   const prevWatchedSecondsRef = useRef(0); // 資料庫累積舊值
+  const lastObservedTimeRef = useRef(null);
+  const lastObservedAtRef = useRef(null);
+  const lastPlayerStateRef = useRef(null);
+  const ignoreSeekUntilRef = useRef(0);
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
   const questionsRef = useRef([]);
@@ -166,6 +171,8 @@ function LectureDetail() {
     setActiveQuestion(nextQuestion);
     setSelectedAnswer('');
     setQuestionFeedback(null);
+    // This pause is caused by the timed-question system, not by the student.
+    suppressNextPauseEventRef.current = true;
     playerRef.current?.pauseVideo?.();
     logEvent(lectureId, 'question_popup', {
       question_id: nextQuestion.id,
@@ -330,6 +337,38 @@ function LectureDetail() {
   useEffect(() => {
     if (!videoId) return;
 
+    function observePlaybackPosition(currentTime, currentState) {
+      const now = Date.now();
+      const previousTime = lastObservedTimeRef.current;
+      const previousAt = lastObservedAtRef.current;
+      const previousState = lastPlayerStateRef.current;
+
+      if (
+        previousTime !== null &&
+        previousAt !== null &&
+        now >= ignoreSeekUntilRef.current
+      ) {
+        const elapsedSeconds = (now - previousAt) / 1000;
+        const expectedAdvance =
+          previousState === window.YT.PlayerState.PLAYING ? elapsedSeconds : 0;
+        const expectedTime = previousTime + expectedAdvance;
+
+        // A sizeable discontinuity from the expected playback position means
+        // the student used YouTube's own timeline controls.
+        if (Math.abs(currentTime - expectedTime) >= 3) {
+          logEvent(lectureId, 'seek', {
+            from: Math.floor(expectedTime),
+            to: Math.floor(currentTime),
+            triggered_by: 'player_controls',
+          });
+        }
+      }
+
+      lastObservedTimeRef.current = currentTime;
+      lastObservedAtRef.current = now;
+      lastPlayerStateRef.current = currentState;
+    }
+
     function getTotalWatched() {
       const merged = mergeSegments(watchedSegmentsRef.current);
       return prevWatchedSecondsRef.current + calcWatchedSeconds(merged);
@@ -359,7 +398,10 @@ function LectureDetail() {
                 if (res.ok) {
                   const data = await res.json();
                   if (data?.last_position > 0) {
+                    ignoreSeekUntilRef.current = Date.now() + 3000;
                     event.target.seekTo(data.last_position, true);
+                    lastObservedTimeRef.current = data.last_position;
+                    lastObservedAtRef.current = Date.now();
                   }
                 }
               } catch (e) {}
@@ -374,6 +416,7 @@ function LectureDetail() {
               const state = playerRef.current.getPlayerState();
               if (state === window.YT.PlayerState.PLAYING) {
                 const currentTime = playerRef.current.getCurrentTime();
+                observePlaybackPosition(currentTime, state);
                 watchedSegmentsRef.current.push({
                   start: Math.max(0, currentTime - 2),
                   end: currentTime,
@@ -396,6 +439,7 @@ function LectureDetail() {
           onStateChange: (event) => {
             const state = event.data;
             const currentTime = playerRef.current?.getCurrentTime() || 0;
+            observePlaybackPosition(currentTime, state);
 
             if (state === window.YT.PlayerState.PLAYING) {
               segmentStartRef.current = currentTime;
@@ -409,11 +453,15 @@ function LectureDetail() {
                   end: currentTime,
                 });
               }
-              pauseCountRef.current += 1;
-              logEvent(lectureId, 'pause', {
-                timestamp: Math.floor(currentTime),
-                pause_count: pauseCountRef.current,
-              });
+              if (suppressNextPauseEventRef.current) {
+                suppressNextPauseEventRef.current = false;
+              } else {
+                pauseCountRef.current += 1;
+                logEvent(lectureId, 'pause', {
+                  timestamp: Math.floor(currentTime),
+                  pause_count: pauseCountRef.current,
+                });
+              }
               const totalWatched = getTotalWatched();
               saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
               updateProgressDisplay(totalWatched, totalDurationRef.current);
@@ -486,6 +534,12 @@ function LectureDetail() {
       to: seconds,
       triggered_by: 'knowledge_point',
     });
+    // The knowledge-point action already has its own seek event. Reset the
+    // observation baseline so the player API does not report it a second time.
+    ignoreSeekUntilRef.current = Date.now() + 3000;
+    lastObservedTimeRef.current = seconds;
+    lastObservedAtRef.current = Date.now();
+    lastPlayerStateRef.current = window.YT?.PlayerState?.PLAYING ?? 1;
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
     maybeShowTimedQuestion(seconds);

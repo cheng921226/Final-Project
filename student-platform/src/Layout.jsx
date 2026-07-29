@@ -2,6 +2,39 @@ import { useEffect, useState } from "react";
 import { Outlet, Link } from "react-router-dom";
 
 const API_URL = 'http://127.0.0.1:8000';
+let sessionRefreshPromise = null;
+
+function clearStoredSession() {
+    localStorage.removeItem("access_token");
+    localStorage.removeItem("refresh_token");
+}
+
+async function refreshAccessToken() {
+    const refreshToken = localStorage.getItem("refresh_token");
+    if (!refreshToken) return null;
+
+    // React StrictMode can run effects twice in development. Reuse one refresh
+    // request so a rotating refresh token is never submitted concurrently.
+    if (!sessionRefreshPromise) {
+        sessionRefreshPromise = fetch(`${API_URL}/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refresh_token: refreshToken }),
+        })
+            .then(async res => {
+                if (!res.ok) return null;
+                const data = await res.json();
+                localStorage.setItem("access_token", data.access_token);
+                localStorage.setItem("refresh_token", data.refresh_token);
+                return data.access_token;
+            })
+            .finally(() => {
+                sessionRefreshPromise = null;
+            });
+    }
+
+    return sessionRefreshPromise;
+}
 
 export default function Layout({ token, setToken }) {
     const [user, setUser] = useState(null);
@@ -13,29 +46,49 @@ export default function Layout({ token, setToken }) {
             return;
         }
 
-        fetch(`${API_URL}/name`, {
-            headers: {
-                Authorization: `Bearer ${token}`,
-            },
-        })
-            .then(res => {
+        let cancelled = false;
+
+        async function loadUser() {
+            setLoading(true);
+            let activeToken = token;
+
+            try {
+                let res = await fetch(`${API_URL}/name`, {
+                    headers: { Authorization: `Bearer ${activeToken}` },
+                });
+
+                if (res.status === 401) {
+                    activeToken = await refreshAccessToken();
+                    if (!activeToken) throw new Error("Unauthorized");
+                    if (!cancelled) setToken(activeToken);
+
+                    res = await fetch(`${API_URL}/name`, {
+                        headers: { Authorization: `Bearer ${activeToken}` },
+                    });
+                }
+
                 if (!res.ok) throw new Error("Unauthorized");
-                return res.json();
-            })
-            .then(data => {
-                setUser(data);
-            })
-            .catch(() => {
-                setUser(null);
-                localStorage.removeItem("access_token");
-            })
-            .finally(() => {
-                setLoading(false);
-            });
+                const data = await res.json();
+                if (!cancelled) setUser(data);
+            } catch {
+                clearStoredSession();
+                if (!cancelled) {
+                    setUser(null);
+                    setToken(null);
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        }
+
+        loadUser();
+        return () => {
+            cancelled = true;
+        };
     }, [token]);
 
     function logout() {
-        localStorage.removeItem("access_token");
+        clearStoredSession();
         setToken(null);
         setUser(null);
     }
