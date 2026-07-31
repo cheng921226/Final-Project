@@ -7,6 +7,7 @@ import LectureDetail from './LectureDetail';
 import Login from './Login';
 import Register from './Register';
 import Profile from './Profile';
+import ReviewMode from './ReviewMode';
 import TeacherDashboard from './TeacherDashboard';
 
 export default function App() {
@@ -22,6 +23,7 @@ export default function App() {
           <Route path="login" element={<Login setToken={setToken} />} />
           <Route path="register" element={<Register />} />
           <Route path="profile" element={<Profile />} />
+          <Route path="review" element={<ReviewMode />} />
           <Route path="teacher" element={<TeacherDashboard />} />
         </Route>
       </Routes>

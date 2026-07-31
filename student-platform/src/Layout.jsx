@@ -106,6 +106,9 @@ export default function Layout({ token, setToken }) {
                         <span>載入中...</span>
                     ) : user ? (
                         <>
+                            {user.role === 'student' && (
+                                <Link to="/review" className="review-nav-link">複習模式</Link>
+                            )}
                             {user.role === 'teacher' && (
                                 <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
                             )}

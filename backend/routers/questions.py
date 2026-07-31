@@ -9,6 +9,8 @@ from .users import get_student_id_from_auth
 
 router = APIRouter()
 
+DEMO_ACCOUNT_EMAILS = {"teststudent@example.com"}
+
 
 class QuestionAttemptCreate(BaseModel):
     lecture_id: int
@@ -35,6 +37,30 @@ def public_question(row: dict[str, Any]) -> dict[str, Any]:
         "start_time": row.get("start_time"),
         "end_time": row.get("end_time"),
     }
+
+
+def is_demo_user(user) -> bool:
+    email = (getattr(user, "email", None) or "").lower()
+    if email in DEMO_ACCOUNT_EMAILS:
+        return True
+
+    response = (
+        supabase_admin.table("users")
+        .select("email")
+        .eq("auth_id", user.id)
+        .maybe_single()
+        .execute()
+    )
+    db_email = (response.data or {}).get("email") or ""
+    return db_email.lower() in DEMO_ACCOUNT_EMAILS
+
+
+def require_demo_user(user):
+    if not is_demo_user(user):
+        raise HTTPException(
+            status_code=403,
+            detail="Only demo accounts can reset question attempts",
+        )
 
 
 @router.get("/lectures/{lecture_id}/questions")
@@ -67,6 +93,62 @@ def get_lecture_question_attempts(lecture_id: int, user=Depends(get_current_user
         .execute()
     )
     return response.data or []
+
+
+@router.delete("/lectures/{lecture_id}/question-attempts")
+def reset_lecture_question_attempts(lecture_id: int, user=Depends(get_current_user)):
+    require_demo_user(user)
+    student_id = get_student_id_from_auth(user)
+    response = (
+        supabase_admin.table("question_attempts")
+        .delete()
+        .eq("lecture_id", lecture_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    return {
+        "message": "question attempts reset",
+        "scope": "lecture",
+        "lecture_id": lecture_id,
+        "deleted_count": len(response.data or []),
+    }
+
+
+@router.delete("/courses/{course_id}/question-attempts")
+def reset_course_question_attempts(course_id: int, user=Depends(get_current_user)):
+    require_demo_user(user)
+    student_id = get_student_id_from_auth(user)
+    lectures = (
+        supabase_admin.table("lectures")
+        .select("id")
+        .eq("course_id", course_id)
+        .execute()
+        .data
+        or []
+    )
+    lecture_ids = [lecture["id"] for lecture in lectures if lecture.get("id") is not None]
+    if not lecture_ids:
+        return {
+            "message": "question attempts reset",
+            "scope": "course",
+            "course_id": course_id,
+            "deleted_count": 0,
+        }
+
+    response = (
+        supabase_admin.table("question_attempts")
+        .delete()
+        .in_("lecture_id", lecture_ids)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    return {
+        "message": "question attempts reset",
+        "scope": "course",
+        "course_id": course_id,
+        "lecture_ids": lecture_ids,
+        "deleted_count": len(response.data or []),
+    }
 
 
 @router.post("/questions/{question_id}/attempt")

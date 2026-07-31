@@ -71,6 +71,20 @@ async function logEvent(lectureId, eventType, eventData) {
   } catch (e) { }
 }
 
+async function fetchTimedQuestions(lectureId) {
+  const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`);
+  if (!questionRes.ok) {
+    throw new Error('無法載入題目資料');
+  }
+
+  const questionData = await questionRes.json();
+  if (!Array.isArray(questionData)) return [];
+
+  return questionData
+    .filter(q => q.source_timestamp !== null && q.source_timestamp !== undefined)
+    .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
+}
+
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
   const token = localStorage.getItem('access_token');
   if (!token) return;
@@ -108,11 +122,14 @@ function LectureDetail() {
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
   const [userName, setUserName] = useState(token ? '' : '尚未登入');
+  const [userProfile, setUserProfile] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [activeQuestion, setActiveQuestion] = useState(null);
   const [selectedAnswer, setSelectedAnswer] = useState('');
   const [questionFeedback, setQuestionFeedback] = useState(null);
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
+  const [resettingQuestions, setResettingQuestions] = useState(false);
+  const [resetMessage, setResetMessage] = useState('');
 
   // 進度顯示用 state
   const [watchedPercent, setWatchedPercent] = useState(0);
@@ -151,6 +168,23 @@ function LectureDetail() {
     setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
   }
 
+  const showTimedQuestion = useCallback((question, currentTime) => {
+    if (!question || activeQuestionRef.current) return;
+
+    shownQuestionIdsRef.current.add(question.id);
+    activeQuestionRef.current = question;
+    setActiveQuestion(question);
+    setSelectedAnswer('');
+    setQuestionFeedback(null);
+    // This pause is caused by the timed-question system, not by the student.
+    suppressNextPauseEventRef.current = true;
+    playerRef.current?.pauseVideo?.();
+    logEvent(lectureId, 'question_popup', {
+      question_id: question.id,
+      timestamp: Math.floor(currentTime),
+    });
+  }, [lectureId]);
+
   const maybeShowTimedQuestion = useCallback((currentTime) => {
     if (activeQuestionRef.current) return;
 
@@ -164,25 +198,14 @@ function LectureDetail() {
     });
 
     if (!nextQuestion) return;
-
-    shownQuestionIdsRef.current.add(nextQuestion.id);
-    activeQuestionRef.current = nextQuestion;
-    setActiveQuestion(nextQuestion);
-    setSelectedAnswer('');
-    setQuestionFeedback(null);
-    // This pause is caused by the timed-question system, not by the student.
-    suppressNextPauseEventRef.current = true;
-    playerRef.current?.pauseVideo?.();
-    logEvent(lectureId, 'question_popup', {
-      question_id: nextQuestion.id,
-      timestamp: Math.floor(currentTime),
-    });
-  }, [lectureId]);
+    showTimedQuestion(nextQuestion, currentTime);
+  }, [showTimedQuestion]);
 
   // 依登入 token 取得目前使用者名稱。
   useEffect(() => {
     if (!token) {
       setUserName('尚未登入');
+      setUserProfile(null);
       return;
     }
 
@@ -193,8 +216,14 @@ function LectureDetail() {
         if (!res.ok) throw new Error('無法取得使用者名稱');
         return res.json();
       })
-      .then(data => setUserName(data?.name || data?.email || '使用者'))
-      .catch(() => setUserName('尚未登入'));
+      .then(data => {
+        setUserProfile(data);
+        setUserName(data?.name || data?.email || '使用者');
+      })
+      .catch(() => {
+        setUserProfile(null);
+        setUserName('尚未登入');
+      });
   }, [token]);
 
   useEffect(() => {
@@ -259,15 +288,7 @@ function LectureDetail() {
           }
         }
 
-        const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`);
-        if (questionRes.ok) {
-          const questionData = await questionRes.json();
-          if (Array.isArray(questionData)) {
-            pendingQuestions = questionData
-              .filter(q => q.source_timestamp !== null && q.source_timestamp !== undefined)
-              .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
-          }
-        }
+        pendingQuestions = await fetchTimedQuestions(lectureId);
 
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
         const progressRes = token
@@ -688,6 +709,60 @@ function LectureDetail() {
     }
   }
 
+  async function resetDemoQuestions() {
+    if (!token || resettingQuestions) return;
+    setResettingQuestions(true);
+    setResetMessage('');
+
+    try {
+      const res = await fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || '重置測驗失敗');
+      }
+
+      shownQuestionIdsRef.current = new Set();
+      activeQuestionRef.current = null;
+      setActiveQuestion(null);
+      setSelectedAnswer('');
+      setQuestionFeedback(null);
+      setResetMessage('已重置測驗，題目可以重新跳出。');
+
+      let timedQuestions = questionsRef.current;
+      if (!timedQuestions.length) {
+        timedQuestions = await fetchTimedQuestions(lectureId);
+        questionsRef.current = timedQuestions;
+        setQuestions(timedQuestions);
+      }
+
+      const firstQuestion = timedQuestions.find(question =>
+        Number.isFinite(Number(question.source_timestamp))
+      );
+      if (!firstQuestion) {
+        throw new Error('這個小節目前沒有設定時間點的題目');
+      }
+
+      if (firstQuestion) {
+        const triggerTime = Number(firstQuestion.source_timestamp);
+        if (playerRef.current && playerReadyRef.current) {
+          ignoreSeekUntilRef.current = Date.now() + 3000;
+          lastObservedTimeRef.current = triggerTime;
+          lastObservedAtRef.current = Date.now();
+          lastPlayerStateRef.current = window.YT?.PlayerState?.PAUSED ?? 2;
+          playerRef.current.seekTo(triggerTime, true);
+        }
+        showTimedQuestion(firstQuestion, triggerTime);
+      }
+    } catch (err) {
+      setResetMessage(err.message || '重置測驗失敗');
+    } finally {
+      setResettingQuestions(false);
+    }
+  }
+
   function continueAfterQuestion() {
     activeQuestionRef.current = null;
     setActiveQuestion(null);
@@ -725,6 +800,24 @@ function LectureDetail() {
           <div className="learning-user bg-[#eeefff] px-4 py-1.5 rounded-full text-sm font-medium text-[#5555bd]">
             使用者：{userName || '載入中...'}
           </div>
+          {userProfile?.email === 'teststudent@example.com' && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={resetDemoQuestions}
+                disabled={resettingQuestions}
+                className="bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-amber-100 disabled:opacity-60"
+                title="清除這個 demo 帳號在本小節的作答紀錄"
+              >
+                {resettingQuestions ? '重置中...' : '重置測驗'}
+              </button>
+              {resetMessage && (
+                <span className="max-w-44 truncate text-xs font-medium text-amber-700" title={resetMessage}>
+                  {resetMessage}
+                </span>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
