@@ -3,7 +3,7 @@ import tempfile
 
 from database.supabase import supabase, supabase_admin
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
     get_youtube_metadata,
@@ -150,6 +150,93 @@ def get_lecture_knowledge_points(lecture_id: int):
 def get_lecture_mindmap(lecture_id: int):
     res = supabase.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
+
+
+@router.get("/lectures/{lecture_id}/notes")
+def get_lecture_notes(lecture_id: int, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
+    res = (
+        supabase_admin.table("notes")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .eq("student_id", student_id)
+        .order("updated_at", desc=True)
+        .execute()
+    )
+    return res.data
+
+
+class NoteCreate(BaseModel):
+    title: str | None = None
+    content: str = Field(min_length=1)
+    video_timestamp: int = Field(default=0, ge=0)
+    knowledge_point_id: int | None = None
+
+
+@router.post("/lectures/{lecture_id}/notes")
+def create_lecture_note(
+    lecture_id: int, note: NoteCreate, user=Depends(get_current_user)
+):
+    student_id = get_student_id_from_auth(user)
+    res = (
+        supabase_admin.table("notes")
+        .insert(
+            {
+                "lecture_id": lecture_id,
+                "student_id": student_id,
+                "title": note.title,
+                "content": note.content,
+                "video_timestamp": note.video_timestamp,
+                "knowledge_point_id": note.knowledge_point_id,
+            }
+        )
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=500, detail="新增筆記失敗")
+    return res.data[0]
+
+
+class NoteUpdate(BaseModel):
+    title: str | None = None
+    content: str | None = Field(default=None, min_length=1)
+    video_timestamp: int | None = Field(default=None, ge=0)
+    knowledge_point_id: int | None = None
+
+
+@router.patch("/notes/{note_id}")
+def update_lecture_note(note_id: int, note: NoteUpdate, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
+    update_data = note.model_dump(exclude_unset=True)
+
+    if not update_data:
+        raise HTTPException(status_code=422, detail="請至少提供一個要更新的欄位")
+
+    res = (
+        supabase_admin.table("notes")
+        .update(update_data)
+        .eq("id", note_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="找不到筆記或無權限操作")
+    return res.data[0]
+
+
+@router.delete("/notes/{note_id}")
+def delete_lecture_note(note_id: int, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
+    res = (
+        supabase_admin.table("notes")
+        .delete()
+        .eq("id", note_id)
+        .eq("student_id", student_id)
+        .execute()
+    )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="找不到筆記或無權限操作")
+    return {"message": "deleted"}
 
 
 # =====================================================================

@@ -126,7 +126,9 @@ def reset_course_question_attempts(course_id: int, user=Depends(get_current_user
         .data
         or []
     )
-    lecture_ids = [lecture["id"] for lecture in lectures if lecture.get("id") is not None]
+    lecture_ids = [
+        lecture["id"] for lecture in lectures if lecture.get("id") is not None
+    ]
     if not lecture_ids:
         return {
             "message": "question attempts reset",

@@ -37,7 +37,7 @@ def rows_by_id(rows: list[dict[str, Any]]) -> dict[Any, dict[str, Any]]:
 
 
 def latest_attempts_by_question(
-    attempts: list[dict[str, Any]]
+    attempts: list[dict[str, Any]],
 ) -> dict[Any, dict[str, Any]]:
     latest: dict[Any, dict[str, Any]] = {}
     for attempt in attempts:
@@ -79,7 +79,9 @@ def get_course_review(course_id: int, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Course not found")
 
     lectures = get_course_lectures(course_id)
-    lecture_ids = [lecture["id"] for lecture in lectures if lecture.get("id") is not None]
+    lecture_ids = [
+        lecture["id"] for lecture in lectures if lecture.get("id") is not None
+    ]
 
     return build_review_payload(
         student_id=student_id,
@@ -226,11 +228,11 @@ def build_review_payload(
             continue
         recommended.append(
             {
-                    **kp,
-                    "lecture": lecture_map.get(kp.get("lecture_id")),
-                    "priority": count,
-                    "reason": f"最近作答紀錄中，這個知識點相關題目答錯 {count} 次。",
-                }
+                **kp,
+                "lecture": lecture_map.get(kp.get("lecture_id")),
+                "priority": count,
+                "reason": f"最近作答紀錄中，這個知識點相關題目答錯 {count} 次。",
+            }
         )
 
     if not recommended:

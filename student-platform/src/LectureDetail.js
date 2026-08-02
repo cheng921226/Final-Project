@@ -117,6 +117,13 @@ function LectureDetail() {
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
   const [mindmapMarkdown, setMindmapMarkdown] = useState('');
+  const [notes, setNotes] = useState([]);
+  const [noteTitle, setNoteTitle] = useState('');
+  const [noteContent, setNoteContent] = useState('');
+  const [showNoteInput, setShowNoteInput] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [editTitle, setEditTitle] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
@@ -160,6 +167,18 @@ function LectureDetail() {
   const [chatLoading, setChatLoading] = useState(false);
   const chatBottomRef = useRef(null);
 
+  const getPlayerCurrentTime = useCallback((fallback = 0) => {
+    const player = playerRef.current;
+    if (!player || typeof player.getCurrentTime !== 'function') return fallback;
+
+    try {
+      return player.getCurrentTime() || 0;
+    } catch {
+      // The YouTube player can be destroyed while React is cleaning up an effect.
+      return fallback;
+    }
+  }, []);
+
   // 更新進度顯示
   function updateProgressDisplay(totalWatched, totalDuration) {
     if (!totalDuration) return;
@@ -201,6 +220,133 @@ function LectureDetail() {
     showTimedQuestion(nextQuestion, currentTime);
   }, [showTimedQuestion]);
 
+  // 新增筆記
+  async function createNote() {
+    if (!token) {
+      alert('請先登入');
+      return;
+    }
+
+    if (!noteContent.trim()) {
+      alert('請輸入筆記內容');
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/lectures/${lectureId}/notes`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: noteTitle.trim() || null,
+            content: noteContent.trim(),
+            video_timestamp: Math.floor(getPlayerCurrentTime()),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || '新增筆記失敗');
+      }
+
+      const createdNote = await res.json();
+
+      setNotes(prev => [createdNote, ...prev]);
+      setNoteTitle('');
+      setNoteContent('');
+      setShowNoteInput(false);
+    } catch (err) {
+      alert(err.message || '新增筆記失敗，請稍後再試');
+    }
+  }
+
+  // 修改筆記
+  async function updateNote(noteId, title, content) {
+    if (!token) {
+      alert('請先登入');
+      return;
+    }
+
+    if (!content.trim()) {
+      alert('筆記內容不可為空白');
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/notes/${noteId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: title.trim() || null,
+            content: content.trim(),
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || '修改筆記失敗');
+      }
+
+      const updatedNote = await res.json();
+
+      setNotes(prev =>
+        prev.map(note => note.id === noteId ? updatedNote : note)
+      );
+      setEditingNoteId(null);
+    } catch (err) {
+      alert(err.message || '修改筆記失敗，請稍後再試');
+    }
+  }
+
+  // 刪除筆記
+  async function deleteNote(noteId) {
+    if (!token) {
+      alert('請先登入');
+      return;
+    }
+
+    const confirmed = window.confirm('確定要刪除此筆記嗎？');
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/notes/${noteId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.detail || '刪除筆記失敗');
+      }
+
+      setNotes(prev =>
+        prev.filter(note => note.id !== noteId)
+      );
+
+    } catch (err) {
+      alert(err.message || '刪除筆記失敗，請稍後再試');
+    }
+  }
+
   // 依登入 token 取得目前使用者名稱。
   useEffect(() => {
     if (!token) {
@@ -229,9 +375,9 @@ function LectureDetail() {
   useEffect(() => {
     questionsRef.current = questions;
     if (!playerRef.current || !playerReadyRef.current) return;
-    const currentTime = playerRef.current.getCurrentTime?.() || 0;
+    const currentTime = getPlayerCurrentTime();
     maybeShowTimedQuestion(currentTime);
-  }, [questions, maybeShowTimedQuestion]);
+  }, [questions, maybeShowTimedQuestion, getPlayerCurrentTime]);
 
   useEffect(() => {
     activeQuestionRef.current = activeQuestion;
@@ -383,6 +529,38 @@ function LectureDetail() {
     return () => markmap.destroy?.();
   }, [activeTab, mindmapMarkdown]);
 
+  useEffect(() => {
+    if (!token || !lectureId) return;
+
+    const fetchNotes = async () => {
+      try {
+        const res = await fetch(
+          `${API_URL}/lectures/${lectureId}/notes`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        );
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          console.error('取得筆記失敗：', res.status, errorData);
+          throw new Error(errorData.detail || '取得筆記失敗');
+        }
+
+        const data = await res.json();
+        setNotes(data);
+
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    fetchNotes();
+
+  }, [lectureId, token]);
+
   // 初始化 YouTube IFrame API
   useEffect(() => {
     if (!videoId) return;
@@ -463,9 +641,9 @@ function LectureDetail() {
             // 每 2 秒記錄播放片段
             trackingIntervalRef.current = setInterval(() => {
               if (!playerRef.current || !playerReadyRef.current) return;
-              const state = playerRef.current.getPlayerState();
+              const state = playerRef.current.getPlayerState?.();
               if (state === window.YT.PlayerState.PLAYING) {
-                const currentTime = playerRef.current.getCurrentTime();
+                const currentTime = getPlayerCurrentTime();
                 observePlaybackPosition(currentTime, state);
                 watchedSegmentsRef.current.push({
                   start: Math.max(0, currentTime - 2),
@@ -479,7 +657,7 @@ function LectureDetail() {
 
             // 每 30 秒自動存一次
             saveIntervalRef.current = setInterval(() => {
-              const lastPosition = playerRef.current?.getCurrentTime?.() || 0;
+              const lastPosition = getPlayerCurrentTime();
               const totalWatched = getTotalWatched();
               saveProgress(lectureId, lastPosition, totalWatched, totalDurationRef.current);
               updateProgressDisplay(totalWatched, totalDurationRef.current);
@@ -488,7 +666,7 @@ function LectureDetail() {
 
           onStateChange: (event) => {
             const state = event.data;
-            const currentTime = playerRef.current?.getCurrentTime() || 0;
+            const currentTime = getPlayerCurrentTime();
             observePlaybackPosition(currentTime, state);
 
             if (state === window.YT.PlayerState.PLAYING) {
@@ -555,7 +733,7 @@ function LectureDetail() {
       const segments = watchedSegmentsRef.current;
       const prevWatched = prevWatchedSecondsRef.current;
       if (playerRef.current && playerReadyRef.current) {
-        const currentTime = playerRef.current.getCurrentTime() || 0;
+        const currentTime = getPlayerCurrentTime();
         if (segmentStartRef.current < currentTime) {
           segments.push({ start: segmentStartRef.current, end: currentTime });
         }
@@ -565,8 +743,11 @@ function LectureDetail() {
       }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
+      playerReadyRef.current = false;
+      playerRef.current?.destroy?.();
+      playerRef.current = null;
     };
-  }, [videoId, lectureId, token, maybeShowTimedQuestion]);
+  }, [videoId, lectureId, token, maybeShowTimedQuestion, getPlayerCurrentTime]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -575,7 +756,7 @@ function LectureDetail() {
   function seekToKnowledgePoint(startTime, index) {
     if (!playerRef.current || !playerReadyRef.current) return;
     const seconds = timeToSeconds(startTime);
-    const currentTime = playerRef.current.getCurrentTime() || 0;
+    const currentTime = getPlayerCurrentTime();
     if (segmentStartRef.current < currentTime) {
       watchedSegmentsRef.current.push({ start: segmentStartRef.current, end: currentTime });
     }
@@ -602,8 +783,7 @@ function LectureDetail() {
     const question = (questionOverride ?? chatInput).trim();
     if (!question || chatLoading) return;
 
-    const currentTime = playerRef.current?.getCurrentTime
-      ? Math.floor(playerRef.current.getCurrentTime()) : 0;
+    const currentTime = Math.floor(getPlayerCurrentTime());
 
     logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
     setChatMessages(prev => [...prev, { role: 'user', text: question }]);
@@ -636,8 +816,7 @@ function LectureDetail() {
   // 即時發問：自動帶入目前影片時間點，請助教講解現在教的內容
   function handleQuickAskCurrentMoment() {
     if (chatLoading) return;
-    const currentTime = playerRef.current?.getCurrentTime
-      ? Math.floor(playerRef.current.getCurrentTime()) : 0;
+    const currentTime = Math.floor(getPlayerCurrentTime());
     const minutes = Math.floor(currentTime / 60);
     const seconds = currentTime % 60;
     const timestampStr = `${minutes}:${String(seconds).padStart(2, '0')}`;
@@ -670,9 +849,7 @@ function LectureDetail() {
     }
     setQuestionSubmitting(true);
 
-    const currentTime = playerRef.current?.getCurrentTime
-      ? playerRef.current.getCurrentTime()
-      : activeQuestion.source_timestamp;
+    const currentTime = getPlayerCurrentTime(activeQuestion.source_timestamp);
 
     try {
       const res = await fetch(`${API_URL}/questions/${activeQuestion.id}/attempt`, {
@@ -879,6 +1056,7 @@ function LectureDetail() {
               {[
                 { key: 'summary', label: '✨ AI 摘要' },
                 { key: 'mindmap', label: '🗺️ 心智圖' },
+                { key: 'notes', label: '📝 我的筆記' },
               ].map(tab => (
                 <button
                   key={tab.key}
@@ -909,6 +1087,139 @@ function LectureDetail() {
                 ) : (
                   <p className="text-slate-400 text-sm">無心智圖資料</p>
                 )
+              )}
+              {activeTab === 'notes' && (
+                <div className="space-y-4">
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowNoteInput(!showNoteInput)}
+                      className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-white"
+                    >
+                      {showNoteInput ? '收起' : '+ 新增筆記'}
+                    </button>
+                  </div>
+                  {showNoteInput && (
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+
+                      <input
+                        type="text"
+                        value={noteTitle}
+                        onChange={e => setNoteTitle(e.target.value)}
+                        placeholder="標題（可選）"
+                        className="mb-3 w-full rounded-lg border p-2"
+                      />
+
+                      <textarea
+                        value={noteContent}
+                        onChange={e => setNoteContent(e.target.value)}
+                        placeholder="輸入這堂課的重點..."
+                        rows={4}
+                        className="w-full rounded-lg border p-3"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={createNote}
+                          disabled={!noteContent.trim()}
+                          className="mt-3 rounded-lg bg-blue-500 px-4 py-2 text-white disabled:bg-slate-300"
+                        >
+                          儲存筆記
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {notes.length === 0 ? (
+                    <p className="py-6 text-center text-sm text-slate-400">
+                      目前沒有筆記
+                    </p>
+                  ) : (
+                    notes.map(note => (
+                      <article
+                        key={note.id}
+                        onClick={() => {
+                          if (editingNoteId !== note.id) {
+                            setEditingNoteId(note.id);
+                            setEditTitle(note.title || '');
+                            setEditContent(note.content);
+                          }
+                        }}
+                        className="relative cursor-pointer rounded-xl border border-slate-200 bg-white p-4 hover:bg-slate-50"
+                      >
+                        {editingNoteId === note.id ? (
+                          <div onClick={e => e.stopPropagation()}>
+
+                            <input
+                              value={editTitle}
+                              onChange={e => setEditTitle(e.target.value)}
+                              className="mb-2 w-full rounded border p-2"
+                              placeholder="標題（可選）"
+                            />
+
+                            <textarea
+                              value={editContent}
+                              onChange={e => setEditContent(e.target.value)}
+                              className="w-full rounded border p-2"
+                              rows={4}
+                            />
+
+                            <div className="mt-2 flex justify-end gap-2">
+                              <button
+                                onClick={() => setEditingNoteId(null)}
+                                className="rounded bg-slate-300 px-3 py-1"
+                              >
+                                取消
+                              </button>
+                              <button
+                                onClick={() => updateNote(note.id, editTitle, editContent)}
+                                className="rounded bg-blue-500 px-3 py-1 text-white"
+                              >
+                                儲存
+                              </button>
+                            </div>
+
+                          </div>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteNote(note.id);
+                              }}
+                              className="absolute right-3 top-3 text-slate-400 hover:text-red-500"
+                            >
+                              🗑️
+                            </button>
+                            {note.title && (
+                              <>
+                                <h3 className="text-base font-semibold text-slate-800">
+                                  {note.title}
+                                </h3>
+                                <div className="my-2 border-t border-slate-100" />
+                              </>
+                            )}
+
+                            <p className="whitespace-pre-wrap text-sm">
+                              {note.content}
+                            </p>
+                            <p className="mt-3 text-xs text-slate-400">
+                              影片時間：
+                              {Math.floor(note.video_timestamp / 60)}:
+                              {String(note.video_timestamp % 60).padStart(2, '0')}
+                            </p>
+
+                            <p className="absolute bottom-3 right-4 text-xs text-slate-400">
+                              上次修改時間：
+                              {new Date(note.updated_at).toLocaleString()}
+                            </p>
+                          </>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>
