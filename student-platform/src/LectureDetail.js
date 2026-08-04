@@ -1113,7 +1113,7 @@ function LectureDetail() {
                       <textarea
                         value={noteContent}
                         onChange={e => setNoteContent(e.target.value)}
-                        placeholder="輸入這堂課的重點..."
+                        placeholder="輸入筆記內容..."
                         rows={4}
                         className="w-full rounded-lg border p-3"
                       />
