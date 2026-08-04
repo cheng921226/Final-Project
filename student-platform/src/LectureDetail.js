@@ -753,29 +753,43 @@ function LectureDetail() {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  function seekToKnowledgePoint(startTime, index) {
+  function seekToTime(seconds, triggeredBy) {
     if (!playerRef.current || !playerReadyRef.current) return;
-    const seconds = timeToSeconds(startTime);
+
     const currentTime = getPlayerCurrentTime();
+
     if (segmentStartRef.current < currentTime) {
-      watchedSegmentsRef.current.push({ start: segmentStartRef.current, end: currentTime });
+      watchedSegmentsRef.current.push({
+        start: segmentStartRef.current,
+        end: currentTime,
+      });
     }
+
     logEvent(lectureId, 'seek', {
       from: Math.floor(currentTime),
       to: seconds,
-      triggered_by: 'knowledge_point',
+      triggered_by: triggeredBy,
     });
-    // The knowledge-point action already has its own seek event. Reset the
-    // observation baseline so the player API does not report it a second time.
+
     ignoreSeekUntilRef.current = Date.now() + 3000;
     lastObservedTimeRef.current = seconds;
     lastObservedAtRef.current = Date.now();
     lastPlayerStateRef.current = window.YT?.PlayerState?.PLAYING ?? 1;
+
     playerRef.current.seekTo(seconds, true);
     playerRef.current.playVideo();
     maybeShowTimedQuestion(seconds);
     segmentStartRef.current = seconds;
+  }
+
+  function seekToKnowledgePoint(startTime, index) {
+    const seconds = timeToSeconds(startTime);
+    seekToTime(seconds, 'knowledge_point');
     setActiveKp(index);
+  }
+
+  function seekToNote(videoTimestamp) {
+    seekToTime(videoTimestamp, 'note');
   }
 
   // questionOverride：若有傳入，代表是「快速提問」按鈕觸發，不從輸入框拿文字
@@ -1204,12 +1218,27 @@ function LectureDetail() {
                             <p className="whitespace-pre-wrap text-sm">
                               {note.content}
                             </p>
-                            <p className="mt-3 text-xs text-slate-400">
+                            <button
+                              type="button"
+                              title="跳轉到影片此時間"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                seekToNote(note.video_timestamp);
+                              }}
+                              className="
+                                mt-3 inline-flex items-center gap-1
+                                rounded-md bg-slate-100
+                                px-2 py-1
+                                text-xs text-slate-500
+                                transition
+                                hover:bg-blue-100
+                                hover:text-blue-600
+                              "
+                            >
                               影片時間：
                               {Math.floor(note.video_timestamp / 60)}:
                               {String(note.video_timestamp % 60).padStart(2, '0')}
-                            </p>
-
+                            </button>
                             <p className="absolute bottom-3 right-4 text-xs text-slate-400">
                               上次修改時間：
                               {new Date(note.updated_at).toLocaleString()}
