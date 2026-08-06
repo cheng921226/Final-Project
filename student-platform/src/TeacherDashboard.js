@@ -112,16 +112,6 @@ export default function TeacherDashboard() {
   );
 
   const visibleLectures = selectedLecture ? [selectedLecture] : (course?.lectures || []);
-  const pauseHotspots = selectedLecture
-    ? selectedLecture.pause_hotspots
-    : visibleLectures.flatMap(lecture =>
-        lecture.pause_hotspots.map(item => ({ ...item, lecture: lecture.title }))
-      ).sort((a, b) => b.count - a.count).slice(0, 6);
-  const seekHotspots = selectedLecture
-    ? selectedLecture.seek_hotspots
-    : visibleLectures.flatMap(lecture =>
-        lecture.seek_hotspots.map(item => ({ ...item, lecture: lecture.title }))
-      ).sort((a, b) => b.count - a.count).slice(0, 6);
 
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在整理學習數據...</p></div>;
@@ -238,20 +228,22 @@ export default function TeacherDashboard() {
         </section>
       </section>
 
-      <section className="teacher-grid">
-        <HotspotList
-          title="暫停熱點"
-          subtitle="學生經常停下來思考的位置"
-          items={pauseHotspots}
-          type="pause"
-        />
-        <HotspotList
-          title="跳轉熱點"
-          subtitle="學生拖曳或重看的影片位置"
-          items={seekHotspots}
-          type="seek"
-        />
-      </section>
+      {selectedLecture && (
+        <section className="teacher-grid">
+          <HotspotList
+            title="暫停熱點"
+            subtitle={`${selectedLecture.title}中，學生經常停下來思考的位置`}
+            items={selectedLecture.pause_hotspots}
+            type="pause"
+          />
+          <HotspotList
+            title="跳轉熱點"
+            subtitle={`${selectedLecture.title}中，學生拖曳或重看的影片位置`}
+            items={selectedLecture.seek_hotspots}
+            type="seek"
+          />
+        </section>
+      )}
 
       <section className="teacher-grid teacher-grid-students">
         <section className="teacher-panel">
