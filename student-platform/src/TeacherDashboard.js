@@ -45,7 +45,14 @@ function HotspotList({ title, subtitle, items, type }) {
         <div className="hotspot-list">
           {items.map(item => (
             <div className="hotspot-row" key={`${type}-${item.start}`}>
-              <span className="hotspot-time">{formatDuration(item.start)}–{formatDuration(item.end)}</span>
+              <div className="hotspot-label">
+                <span className="hotspot-time">{formatDuration(item.start)}–{formatDuration(item.end)}</span>
+                <small>
+                  {item.knowledge_points?.length
+                    ? item.knowledge_points.join('、')
+                    : '未設定知識點'}
+                </small>
+              </div>
               <div className="hotspot-track">
                 <div
                   className={`hotspot-fill hotspot-fill-${type}`}
@@ -112,6 +119,11 @@ export default function TeacherDashboard() {
   );
 
   const visibleLectures = selectedLecture ? [selectedLecture] : (course?.lectures || []);
+  const visibleQuestions = selectedLecture
+    ? (course?.questions || []).filter(
+        question => String(question.lecture_id) === String(selectedLecture.id)
+      )
+    : (course?.questions || []);
 
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在整理學習數據...</p></div>;
@@ -276,12 +288,12 @@ export default function TeacherDashboard() {
           <div className="panel-title">
             <div>
               <h3>需關注題目</h3>
-              <p>依正確率由低至高</p>
+              <p>{selectedLecture ? `${selectedLecture.title} · 依正確率由低至高` : '全部小節 · 依正確率由低至高'}</p>
             </div>
           </div>
-          {course.questions.length ? (
+          {visibleQuestions.length ? (
             <div className="question-insight-list">
-              {course.questions.slice(0, 5).map((question, index) => (
+              {visibleQuestions.slice(0, 5).map((question, index) => (
                 <div className="question-insight" key={question.id}>
                   <span>{index + 1}</span>
                   <div><p>{question.text}</p><small>{question.attempts} 次作答</small></div>
@@ -290,7 +302,9 @@ export default function TeacherDashboard() {
               ))}
             </div>
           ) : (
-            <div className="teacher-empty compact">目前還沒有作答紀錄</div>
+            <div className="teacher-empty compact">
+              {selectedLecture ? '這個小節目前還沒有作答紀錄' : '目前還沒有作答紀錄'}
+            </div>
           )}
         </section>
       </section>

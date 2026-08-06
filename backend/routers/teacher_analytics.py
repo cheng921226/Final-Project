@@ -35,7 +35,47 @@ def _event_time(event: dict[str, Any]) -> float | None:
         return None
 
 
-def _hotspots(events: list[dict[str, Any]], event_type: str) -> list[dict[str, Any]]:
+def _timestamp_seconds(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        parts = [float(part) for part in str(value).strip().split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return None
+
+
+def _knowledge_titles_for_range(
+    start: int,
+    end: int,
+    knowledge_points: list[dict[str, Any]],
+) -> list[str]:
+    titles = []
+    for point in knowledge_points:
+        point_start = _timestamp_seconds(point.get("start_time"))
+        point_end = _timestamp_seconds(point.get("end_time"))
+        if point_start is None:
+            continue
+        if point_end is None:
+            point_end = point_start
+        if point_start < end and point_end >= start:
+            title = point.get("title") or "未命名知識點"
+            if title not in titles:
+                titles.append(title)
+    return titles
+
+
+def _hotspots(
+    events: list[dict[str, Any]],
+    event_type: str,
+    knowledge_points: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     buckets: dict[int, int] = defaultdict(int)
     for event in events:
         if event.get("event_type") != event_type:
@@ -46,7 +86,14 @@ def _hotspots(events: list[dict[str, Any]], event_type: str) -> list[dict[str, A
         bucket = int(seconds // 30) * 30
         buckets[bucket] += 1
     return [
-        {"start": start, "end": start + 30, "count": count}
+        {
+            "start": start,
+            "end": start + 30,
+            "count": count,
+            "knowledge_points": _knowledge_titles_for_range(
+                start, start + 30, knowledge_points
+            ),
+        }
         for start, count in sorted(
             buckets.items(), key=lambda item: item[1], reverse=True
         )[:6]
@@ -97,6 +144,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     events = _rows("learning_events", lecture_id=lecture_ids)
     attempts = _rows("question_attempts", lecture_id=lecture_ids)
     questions = _rows("questions", lecture_id=lecture_ids)
+    knowledge_points = _rows("knowledge_points", lecture_id=lecture_ids)
 
     student_map = {row["id"]: row for row in students}
     question_map = {row["id"]: row for row in questions}
@@ -146,6 +194,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             lecture_attempts = [
                 row for row in course_attempts if row.get("lecture_id") == lid
             ]
+            lecture_knowledge_points = [
+                row for row in knowledge_points if row.get("lecture_id") == lid
+            ]
             lecture_correct = sum(
                 bool(row.get("is_correct")) for row in lecture_attempts
             )
@@ -180,8 +231,12 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     "questions_asked": event_counts["question_asked"],
                     "attempts": len(lecture_attempts),
                     "accuracy": _percent(lecture_correct, len(lecture_attempts)),
-                    "pause_hotspots": _hotspots(lecture_events, "pause"),
-                    "seek_hotspots": _hotspots(lecture_events, "seek"),
+                    "pause_hotspots": _hotspots(
+                        lecture_events, "pause", lecture_knowledge_points
+                    ),
+                    "seek_hotspots": _hotspots(
+                        lecture_events, "seek", lecture_knowledge_points
+                    ),
                 }
             )
 
@@ -240,6 +295,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             question_results.append(
                 {
                     "id": question_id,
+                    "lecture_id": question.get("lecture_id"),
                     "text": question.get("question_text") or f"題目 {question_id}",
                     "attempts": len(question_attempts),
                     "accuracy": _percent(correct, len(question_attempts)),
