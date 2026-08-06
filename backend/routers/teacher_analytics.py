@@ -83,9 +83,16 @@ def get_teacher_analytics(user=Depends(get_current_user)):
 
     lectures = _rows("lectures", course_id=course_ids)
     lecture_ids = [lecture["id"] for lecture in lectures]
-    enrollments = _rows("student_courses", course_id=course_ids)
-    student_ids = sorted({row["student_id"] for row in enrollments})
-    students = _rows("users", id=student_ids)
+    # Every student has access to every course, so the analytics population is
+    # the complete set of student accounts rather than an enrollment join.
+    students = (
+        supabase_admin.table("users")
+        .select("id,name,email,role")
+        .eq("role", "student")
+        .order("id")
+        .execute()
+    ).data or []
+    all_student_ids = {row["id"] for row in students}
     progresses = _rows("video_progresses", lecture_id=lecture_ids)
     events = _rows("learning_events", lecture_id=lecture_ids)
     attempts = _rows("question_attempts", lecture_id=lecture_ids)
@@ -99,26 +106,23 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         cid = course["id"]
         course_lectures = [row for row in lectures if row.get("course_id") == cid]
         course_lecture_ids = {row["id"] for row in course_lectures}
-        course_student_ids = {
-            row["student_id"] for row in enrollments if row.get("course_id") == cid
-        }
         course_progresses = [
             row
             for row in progresses
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in course_student_ids
+            and row.get("student_id") in all_student_ids
         ]
         course_events = [
             row
             for row in events
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in course_student_ids
+            and row.get("student_id") in all_student_ids
         ]
         course_attempts = [
             row
             for row in attempts
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in course_student_ids
+            and row.get("student_id") in all_student_ids
         ]
 
         active_students = {
@@ -126,7 +130,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             for row in course_progresses + course_events + course_attempts
             if row.get("student_id") is not None
         }
-        expected_completions = len(course_student_ids) * len(course_lectures)
+        expected_completions = len(all_student_ids) * len(course_lectures)
         completed_count = sum(bool(row.get("completed")) for row in course_progresses)
         correct_count = sum(bool(row.get("is_correct")) for row in course_attempts)
 
@@ -161,7 +165,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     ),
                     "completion_rate": _percent(
                         sum(bool(row.get("completed")) for row in lecture_progresses),
-                        len(course_student_ids),
+                        len(all_student_ids),
                     ),
                     "watched_minutes": round(
                         sum(
@@ -182,7 +186,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             )
 
         student_results = []
-        for student_id in sorted(course_student_ids):
+        for student_id in sorted(all_student_ids):
             student = student_map.get(student_id, {})
             student_progress = [
                 row for row in course_progresses if row.get("student_id") == student_id
@@ -247,7 +251,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 "id": cid,
                 "title": course.get("title") or f"課程 {cid}",
                 "summary": {
-                    "students": len(course_student_ids),
+                    "students": len(all_student_ids),
                     "active_students": len(active_students),
                     "lectures": len(course_lectures),
                     "completion_rate": _percent(completed_count, expected_completions),
