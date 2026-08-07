@@ -124,6 +124,7 @@ function LectureDetail() {
   const [editingNoteId, setEditingNoteId] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [editTitle, setEditTitle] = useState('');
+  const [wasPlayingBeforeNote, setWasPlayingBeforeNote] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
@@ -220,6 +221,29 @@ function LectureDetail() {
     showTimedQuestion(nextQuestion, currentTime);
   }, [showTimedQuestion]);
 
+  // 編輯筆記時影片是否正在撥放
+  function pauseVideoForNote() {
+    const player = playerRef.current;
+
+    if (!player) return;
+
+    const state = player.getPlayerState();
+
+    setWasPlayingBeforeNote(state === window.YT.PlayerState.PLAYING);
+
+    if (state === window.YT.PlayerState.PLAYING) {
+      player.pauseVideo();
+    }
+  }
+
+  function resumeVideoAfterNote() {
+    if (wasPlayingBeforeNote && playerRef.current) {
+      playerRef.current.playVideo();
+    }
+
+    setWasPlayingBeforeNote(false);
+  }
+
   // 新增筆記
   async function createNote() {
     if (!token) {
@@ -260,6 +284,7 @@ function LectureDetail() {
       setNoteTitle('');
       setNoteContent('');
       setShowNoteInput(false);
+      resumeVideoAfterNote();
     } catch (err) {
       alert(err.message || '新增筆記失敗，請稍後再試');
     }
@@ -304,6 +329,7 @@ function LectureDetail() {
         prev.map(note => note.id === noteId ? updatedNote : note)
       );
       setEditingNoteId(null);
+      resumeVideoAfterNote();
     } catch (err) {
       alert(err.message || '修改筆記失敗，請稍後再試');
     }
@@ -1107,7 +1133,21 @@ function LectureDetail() {
                   <div className="flex justify-end">
                     <button
                       type="button"
-                      onClick={() => setShowNoteInput(!showNoteInput)}
+                      onClick={() => {
+                        if (showNoteInput) {
+                          // 收起輸入框
+                          setShowNoteInput(false);
+                          setNoteTitle('');
+                          setNoteContent('');
+
+                          // 恢復影片
+                          resumeVideoAfterNote();
+                        } else {
+                          // 開啟輸入框
+                          pauseVideoForNote();
+                          setShowNoteInput(true);
+                        }
+                      }}
                       className="rounded-lg bg-blue-500 px-4 py-2 text-sm font-semibold text-white"
                     >
                       {showNoteInput ? '收起' : '+ 新增筆記'}
@@ -1154,9 +1194,12 @@ function LectureDetail() {
                         key={note.id}
                         onClick={() => {
                           if (editingNoteId !== note.id) {
+                            pauseVideoForNote();
+
                             setEditingNoteId(note.id);
                             setEditTitle(note.title || '');
                             setEditContent(note.content);
+
                           }
                         }}
                         className="relative cursor-pointer rounded-xl border border-slate-200 bg-white p-4 hover:bg-slate-50"
@@ -1180,7 +1223,10 @@ function LectureDetail() {
 
                             <div className="mt-2 flex justify-end gap-2">
                               <button
-                                onClick={() => setEditingNoteId(null)}
+                                onClick={() => {
+                                  setEditingNoteId(null);
+                                  resumeVideoAfterNote();
+                                }}
                                 className="rounded bg-slate-300 px-3 py-1"
                               >
                                 取消
