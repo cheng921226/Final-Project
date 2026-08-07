@@ -41,22 +41,35 @@ export default function Login({ setToken }) {
 
     return (
         <div className="auth-page">
-            <div className="auth-card">
+            <form
+                className="auth-card"
+                onSubmit={(e) => {
+                    e.preventDefault();
+                    handleLogin();
+                }}
+            >
                 <div className="auth-icon">L</div>
                 <h1>歡迎回來</h1>
                 <p className="intro">登入後繼續你的學習旅程。</p>
 
                 <label className="field">
                     <span>電子信箱</span>
-                    <input placeholder="name@example.com" autoComplete="email"
-                    onChange={(e) => setEmail(e.target.value)}
+                    <input
+                        placeholder="name@example.com"
+                        autoComplete="email"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
                     />
                 </label>
 
                 <label className="field">
                     <span>密碼</span>
-                    <input type="password" placeholder="輸入你的密碼" autoComplete="current-password"
-                    onChange={(e) => setPassword(e.target.value)}
+                    <input
+                        type="password"
+                        placeholder="輸入你的密碼"
+                        autoComplete="current-password"
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
                     />
                 </label>
 
@@ -67,7 +80,7 @@ export default function Login({ setToken }) {
                 )}
 
                 <button
-                    onClick={handleLogin}
+                    type="submit"
                     className="auth-submit"
                 >
                     登入學習空間
@@ -84,7 +97,7 @@ export default function Login({ setToken }) {
                         立即註冊
                     </Link>
                 </div> */}
-            </div>
+            </form>
         </div>
     );
 }
