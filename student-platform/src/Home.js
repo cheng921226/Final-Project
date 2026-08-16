@@ -83,11 +83,6 @@ function Home({ token }) {
   return (
     <div className="page-wrap">
       <section>
-        <div>
-          <p className="eyebrow">Learn at your pace</p>
-          <h1 className="hero-title">今天，想把哪個知識<br /><em>真正學會？</em></h1>
-          <p className="hero-copy">從課程影片、重點摘要到即時 AI 問答，讓每一次學習都更專注、更有方向。</p>
-        </div>
         <div className="search-panel">
           <span className="search-icon" aria-hidden="true">⌕</span>
           <input
