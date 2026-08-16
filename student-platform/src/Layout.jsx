@@ -98,9 +98,8 @@ export default function Layout({ token, setToken }) {
     return (
         <div className="app-shell">
             <nav className="topbar">
-                <Link to="/" className="brand" aria-label="Learnly 首頁">
-                    <span className="brand-mark" aria-hidden="true" />
-                    <span>Learnly<small>AI learning studio</small></span>
+                <Link to="/" className="brand" aria-label="首頁">
+                    <img src="/logo2-nav.png" alt="Learnly" className="brand-logo" />
                 </Link>
 
                 <div className="nav-user">
