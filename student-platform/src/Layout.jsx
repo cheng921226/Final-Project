@@ -99,7 +99,7 @@ export default function Layout({ token, setToken }) {
         <div className="app-shell">
             <nav className="topbar">
                 <Link to="/" className="brand" aria-label="首頁">
-                    <img src="/logo2-nav.png" alt="Learnly" className="brand-logo" />
+                    <img src="/智學網_logo.svg" alt="智學網" className="brand-logo" />
                 </Link>
 
                 <div className="nav-user">
