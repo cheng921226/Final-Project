@@ -9,6 +9,7 @@ import Register from './Register';
 import Profile from './Profile';
 import ReviewMode from './ReviewMode';
 import TeacherDashboard from './TeacherDashboard';
+import QuestionReview from './QuestionReview';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="profile" element={<Profile />} />
           <Route path="review" element={<ReviewMode />} />
           <Route path="teacher" element={<TeacherDashboard />} />
+          <Route path="teacher/questions" element={<QuestionReview />} />
         </Route>
       </Routes>
     </Router>

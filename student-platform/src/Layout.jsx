@@ -111,7 +111,10 @@ export default function Layout({ token, setToken }) {
                                 <Link to="/review" className="review-nav-link">複習模式</Link>
                             )}
                             {user.role === 'teacher' && (
-                                <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
+                                <>
+                                    <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
+                                    <Link to="/teacher/questions" className="teacher-nav-link">審題</Link>
+                                </>
                             )}
                             <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>
                             <span>{user.name || user.email}</span>
