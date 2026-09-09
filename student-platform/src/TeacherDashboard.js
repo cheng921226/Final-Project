@@ -326,7 +326,6 @@ export default function TeacherDashboard() {
           <div id="question-error-results">
           {displayedQuestions.length ? (
             <div className="question-insight-list">
-              <p className="question-error-legend">錯誤率：紅色 ≥80% · 橘色 ≥60% · 黃色 ≥40%</p>
               {displayedQuestions.map((question, index) => (
                 <div className="question-insight" key={question.id}>
                   <span>{index + 1}</span>

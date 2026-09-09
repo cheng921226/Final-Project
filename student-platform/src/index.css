@@ -185,7 +185,6 @@ a { color: inherit; text-decoration: none; }
 .student-cell small { max-width: 150px; margin-top: 2px; overflow: hidden; color: #9aa1b0; text-overflow: ellipsis; }
 .accuracy-chip { display: inline-flex; padding: 5px 8px; border-radius: 8px; background: #eaf8f2; color: #238260; font-weight: 800; }
 .accuracy-chip.needs-help { background: #fff0ec; color: #d86650; }
-.question-error-legend { margin: 0 0 6px; color: #737c90; font-size: 11px; line-height: 1.6; }
 .question-insight-list { display: grid; gap: 6px; }
 .question-insight { display: grid; grid-template-columns: 26px minmax(0, 1fr) 66px; align-items: center; gap: 9px; padding: 11px 8px; border-top: 1px solid #f0f1f5; }
 .question-insight > span { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 8px; background: #f1f2f7; color: #8c94a5; font-size: 9px; font-weight: 800; }
