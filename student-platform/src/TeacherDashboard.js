@@ -30,42 +30,49 @@ function MetricCard({ label, value, note, tone = 'violet' }) {
   );
 }
 
-function HotspotList({ title, subtitle, items, type }) {
+export function HotspotTimeline({ title, subtitle, items = [], type, timelineEnd }) {
+  const sortedItems = [...items].sort((a, b) => a.start - b.start);
+  const [selectedStart, setSelectedStart] = useState(null);
+  const selected = sortedItems.find(item => item.start === selectedStart) || sortedItems[0];
   const max = Math.max(...items.map(item => item.count), 1);
+  const end = Math.max(timelineEnd || 0, ...items.map(item => item.end), 30);
   return (
-    <section className="teacher-panel hotspot-panel">
+    <section className={`teacher-panel hotspot-panel hotspot-panel-${type}`}>
       <div className="panel-title">
-        <div>
-          <h3>{title}</h3>
-          <p>{subtitle}</p>
-        </div>
+        <div><h3>{title}</h3><p>{subtitle}</p></div>
         <span className={`panel-dot panel-dot-${type}`} />
       </div>
-      {items.length ? (
-        <div className="hotspot-list">
-          {items.map(item => (
-            <div className="hotspot-row" key={`${type}-${item.start}`}>
-              <div className="hotspot-label">
-                <span className="hotspot-time">{formatDuration(item.start)}–{formatDuration(item.end)}</span>
-                <small>
-                  {item.knowledge_points?.length
-                    ? item.knowledge_points.join('、')
-                    : '未設定知識點'}
-                </small>
-              </div>
-              <div className="hotspot-track">
-                <div
-                  className={`hotspot-fill hotspot-fill-${type}`}
-                  style={{ width: `${Math.max((item.count / max) * 100, 8)}%` }}
-                />
-              </div>
-              <strong>{item.count} 次</strong>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="teacher-empty compact">目前還沒有足夠的事件資料</div>
-      )}
+      {sortedItems.length ? (
+        <>
+          <div className="hotspot-legend"><span>熱門 {items.length} 個時段 · 每段 30 秒</span><span>柱高代表次數</span></div>
+          <div className="hotspot-chart" role="group" aria-label={`${title}時間軸`}>
+            <div className="hotspot-chart-grid" aria-hidden="true" />
+            {sortedItems.map(item => (
+              <button
+                type="button"
+                key={item.start}
+                className="hotspot-marker"
+                aria-pressed={selected?.start === item.start}
+                aria-label={`${formatDuration(item.start)}–${formatDuration(item.end)}，${item.count} 次，${item.knowledge_points?.join('、') || '未設定知識點'}`}
+                title={`${formatDuration(item.start)}–${formatDuration(item.end)} · ${item.count} 次`}
+                onClick={() => setSelectedStart(item.start)}
+                style={{ left: `${item.start / end * 100}%`, width: `${(item.end - item.start) / end * 100}%` }}
+              >
+                <span className="hotspot-column" style={{ height: `${Math.max(item.count / max * 100, 8)}%` }} />
+              </button>
+            ))}
+          </div>
+          <div className="hotspot-axis" aria-label="影片時間刻度">
+            {[0, 1, 2, 3, 4].map(tick => <span key={tick}>{formatDuration(end * tick / 4)}</span>)}
+          </div>
+          <p className="hotspot-axis-note">影片時間 · 刻度至兩類熱門時段的最晚位置</p>
+          <div className="hotspot-detail" aria-live="polite" aria-atomic="true">
+            <div><span className="hotspot-time">{formatDuration(selected.start)}–{formatDuration(selected.end)}</span><strong>{selected.count} 次</strong></div>
+            <p>{selected.knowledge_points?.length ? selected.knowledge_points.join('、') : '未設定知識點'}</p>
+          </div>
+          <p className="hotspot-hint">點選柱狀熱點查看詳細資訊；空白處不代表沒有事件。</p>
+        </>
+      ) : <div className="teacher-empty compact">目前還沒有足夠的事件資料</div>}
     </section>
   );
 }
@@ -76,6 +83,11 @@ export default function TeacherDashboard() {
   const [lectureId, setLectureId] = useState('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [showAllQuestions, setShowAllQuestions] = useState(false);
+
+  useEffect(() => {
+    setShowAllQuestions(false);
+  }, [courseId, lectureId]);
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -124,6 +136,11 @@ export default function TeacherDashboard() {
         question => String(question.lecture_id) === String(selectedLecture.id)
       )
     : (course?.questions || []);
+
+  const sortedQuestions = [...visibleQuestions].sort((a, b) => a.accuracy - b.accuracy);
+  const displayedQuestions = showAllQuestions
+    ? sortedQuestions
+    : sortedQuestions.filter(question => question.accuracy < 100).slice(0, 5);
 
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在整理學習數據...</p></div>;
@@ -242,13 +259,17 @@ export default function TeacherDashboard() {
 
       {selectedLecture && (
         <section className="teacher-grid">
-          <HotspotList
+          <HotspotTimeline
+            key={`${selectedLecture.id}-pause`}
+            timelineEnd={Math.max(30, ...[...(selectedLecture.pause_hotspots || []), ...(selectedLecture.seek_hotspots || [])].map(item => item.end))}
             title="暫停熱點"
             subtitle={`${selectedLecture.title}中，學生經常停下來思考的位置`}
             items={selectedLecture.pause_hotspots}
             type="pause"
           />
-          <HotspotList
+          <HotspotTimeline
+            key={`${selectedLecture.id}-seek`}
+            timelineEnd={Math.max(30, ...[...(selectedLecture.pause_hotspots || []), ...(selectedLecture.seek_hotspots || [])].map(item => item.end))}
             title="跳轉熱點"
             subtitle={`${selectedLecture.title}中，學生拖曳或重看的影片位置`}
             items={selectedLecture.seek_hotspots}
@@ -287,25 +308,41 @@ export default function TeacherDashboard() {
         <section className="teacher-panel question-panel">
           <div className="panel-title">
             <div>
-              <h3>需關注題目</h3>
-              <p>{selectedLecture ? `${selectedLecture.title} · 依正確率由低至高` : '全部小節 · 依正確率由低至高'}</p>
+              <h3>{showAllQuestions ? '所有題目錯誤率' : '需關注題目'}</h3>
+              <p>{selectedLecture ? `${selectedLecture.title} · 依錯誤率由高至低` : '全部小節 · 依錯誤率由高至低'}</p>
             </div>
           </div>
-          {visibleQuestions.length ? (
+          {visibleQuestions.length > 0 && (
+            <button
+              type="button"
+              className="question-view-toggle"
+              aria-expanded={showAllQuestions}
+              aria-controls="question-error-results"
+              onClick={() => setShowAllQuestions(value => !value)}
+            >
+              {showAllQuestions ? '收合，僅顯示需關注題目' : `顯示所有題目錯誤率（${visibleQuestions.length} 題）`}
+            </button>
+          )}
+          <div id="question-error-results">
+          {displayedQuestions.length ? (
             <div className="question-insight-list">
-              {visibleQuestions.slice(0, 5).map((question, index) => (
+              <p className="question-error-legend">錯誤率：紅色 ≥80% · 橘色 ≥60% · 黃色 ≥40%</p>
+              {displayedQuestions.map((question, index) => (
                 <div className="question-insight" key={question.id}>
                   <span>{index + 1}</span>
                   <div><p>{question.text}</p><small>{question.attempts} 次作答</small></div>
-                  <strong>{question.accuracy}%</strong>
+                  <strong className={`question-error-rate ${100 - question.accuracy >= 80 ? 'error-red' : 100 - question.accuracy >= 60 ? 'error-orange' : 100 - question.accuracy >= 40 ? 'error-yellow' : 'error-neutral'}`}>
+                    <span>錯誤率</span>{100 - question.accuracy}%
+                  </strong>
                 </div>
               ))}
             </div>
           ) : (
             <div className="teacher-empty compact">
-              {selectedLecture ? '這個小節目前還沒有作答紀錄' : '目前還沒有作答紀錄'}
+              {visibleQuestions.length ? '目前所有題目的錯誤率皆為 0%，沒有需關注題目。' : selectedLecture ? '這個小節目前還沒有作答紀錄' : '目前還沒有作答紀錄'}
             </div>
           )}
+          </div>
         </section>
       </section>
     </div>
