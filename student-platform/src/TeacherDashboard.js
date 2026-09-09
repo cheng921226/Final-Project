@@ -84,10 +84,138 @@ export default function TeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showAllQuestions, setShowAllQuestions] = useState(false);
+  const [selectedStudentIds, setSelectedStudentIds] = useState([]);
+  const [showEmailPreview, setShowEmailPreview] = useState(false);
+  const [emailPreview, setEmailPreview] = useState({ subject: '', body: '' });
 
   useEffect(() => {
     setShowAllQuestions(false);
+    setSelectedStudentIds([]);
+    setShowEmailPreview(false);
+    setEmailPreview({ subject: '', body: '' });
   }, [courseId, lectureId]);
+
+  const course = useMemo(
+    () => data?.courses?.find(item => String(item.id) === courseId),
+    [data, courseId]
+  );
+
+  const students = course?.students || [];
+  const selectedStudents = useMemo(
+    () => students.filter(student => selectedStudentIds.includes(student.id)),
+    [students, selectedStudentIds]
+  );
+  const allStudentsSelected = students.length > 0 && students.every(student => selectedStudentIds.includes(student.id));
+  const selectedStudentEmails = selectedStudents
+    .map(student => student.email)
+    .filter(Boolean);
+
+  const handleToggleStudent = studentId => {
+    setSelectedStudentIds(current =>
+      current.includes(studentId)
+        ? current.filter(id => id !== studentId)
+        : [...current, studentId]
+    );
+  };
+
+  const handleToggleAllStudents = () => {
+    if (!students.length) return;
+    setSelectedStudentIds(current => {
+      const ids = students.map(student => student.id);
+      return ids.every(id => current.includes(id)) ? [] : ids;
+    });
+  };
+
+  const [sendingEmails, setSendingEmails] = useState(false);
+
+  const buildEmailDraft = () => {
+    const lectureName = selectedLecture?.title;
+    const courseName = course?.title || '課程';
+    const emailSubject = selectedLecture
+      ? `[${courseName}] 學習提醒：${lectureName}`
+      : `[${courseName}] 學習提醒`;
+
+    const emailBody = lectureName
+      ? [
+        '親愛的同學您好：',
+        '',
+        `這封信是來自「${courseName}」課程的學習提醒。`,
+        '',
+        `目前系統判定您尚未完成「${lectureName}」的學習內容，請登入平台完成該小節內容，以維持學習進度。`,
+        '',
+        '若您已完成相關內容，請忽略此信，或稍後再次確認學習紀錄是否已更新。',
+        '',
+        '如有任何問題，歡迎與授課教師聯繫。',
+        '',
+        '祝學習順利！',
+        'AI輔助線上學習平台',
+      ].join('\n')
+      : [
+        '親愛的同學您好：',
+        '',
+        `這封信是來自「${courseName}」課程的學習提醒。`,
+        '',
+        '目前系統判定您尚未完成本課程的學習內容，請登入平台確認目前進度，並完成尚未完成的學習內容。',
+        '',
+        '若您已完成相關內容，請忽略此信，或稍後再次確認學習紀錄是否已更新。',
+        '',
+        '如有任何問題，歡迎與授課教師聯繫。',
+        '',
+        '祝學習順利！',
+        'AI輔助線上學習平台',
+      ].join('\n');
+
+    return { subject: emailSubject, body: emailBody };
+  };
+
+  const handleOpenEmailPreview = () => {
+    if (!selectedStudentEmails.length) return;
+    setEmailPreview(buildEmailDraft());
+    setShowEmailPreview(true);
+  };
+
+  const handleSendSelectedEmails = async () => {
+    if (!selectedStudentEmails.length) return;
+
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      setError('請先使用老師帳號登入。');
+      return;
+    }
+
+    const subject = emailPreview.subject.trim() || buildEmailDraft().subject;
+    const body = emailPreview.body.trim() || buildEmailDraft().body;
+
+    setSendingEmails(true);
+
+    try {
+      const response = await fetch(`${API_URL}/email/send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          to: selectedStudentEmails,
+          subject,
+          body,
+        }),
+      });
+
+      const responseBody = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(responseBody.detail || '寄信失敗');
+      }
+
+      setShowEmailPreview(false);
+      setEmailPreview({ subject: '', body: '' });
+      window.alert(`已寄送通知信給 ${selectedStudentEmails.length} 位學生`);
+    } catch (err) {
+      window.alert(err.message || '寄信失敗');
+    } finally {
+      setSendingEmails(false);
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('access_token');
@@ -119,10 +247,6 @@ export default function TeacherDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const course = useMemo(
-    () => data?.courses?.find(item => String(item.id) === courseId),
-    [data, courseId]
-  );
   const selectedLecture = useMemo(
     () => lectureId === 'all'
       ? null
@@ -133,8 +257,8 @@ export default function TeacherDashboard() {
   const visibleLectures = selectedLecture ? [selectedLecture] : (course?.lectures || []);
   const visibleQuestions = selectedLecture
     ? (course?.questions || []).filter(
-        question => String(question.lecture_id) === String(selectedLecture.id)
-      )
+      question => String(question.lecture_id) === String(selectedLecture.id)
+    )
     : (course?.questions || []);
 
   const sortedQuestions = [...visibleQuestions].sort((a, b) => a.accuracy - b.accuracy);
@@ -169,6 +293,52 @@ export default function TeacherDashboard() {
 
   return (
     <div className="teacher-page">
+      {showEmailPreview && (
+        <div className="email-preview-backdrop" onClick={() => setShowEmailPreview(false)}>
+          <div className="email-preview" onClick={event => event.stopPropagation()}>
+            <div className="email-preview-header">
+              <div>
+                <p>寄信預覽</p>
+                <h3>{selectedStudentEmails.length} 位學生</h3>
+              </div>
+              <button type="button" className="email-close-button" onClick={() => setShowEmailPreview(false)} aria-label="關閉信件預覽">
+                ×
+              </button>
+            </div>
+
+            <div className="email-preview-body">
+              <label className="email-preview-row">
+                <span>主旨</span>
+                <input
+                  type="text"
+                  value={emailPreview.subject}
+                  onChange={event => setEmailPreview(current => ({ ...current, subject: event.target.value }))}
+                  aria-label="信件主旨"
+                />
+              </label>
+
+              <label className="email-preview-field">
+                <span>信件內容</span>
+                <textarea
+                  value={emailPreview.body}
+                  onChange={event => setEmailPreview(current => ({ ...current, body: event.target.value }))}
+                  aria-label="信件內容"
+                />
+              </label>
+            </div>
+
+            <div className="email-preview-actions">
+              <button type="button" className="email-secondary-button" onClick={() => setShowEmailPreview(false)}>
+                取消
+              </button>
+              <button type="button" className="email-primary-button" onClick={handleSendSelectedEmails} disabled={sendingEmails}>
+                {sendingEmails ? '寄信中...' : '確認寄送'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <header className="teacher-hero">
         <div>
           <p className="eyebrow">Teacher insight center</p>
@@ -285,14 +455,37 @@ export default function TeacherDashboard() {
               <h3>學生學習狀態</h3>
               <p>依課程累積進度與近期活動整理</p>
             </div>
-            <span className="table-count">{course.students.length} 位學生</span>
+            <div className="student-panel-actions">
+              <span className="table-count">{selectedStudentIds.length} / {course.students.length} 已選</span>
+              <button
+                type="button"
+                className="teacher-mail-button"
+                onClick={handleOpenEmailPreview}
+                disabled={!selectedStudentEmails.length || sendingEmails}
+              >
+                {sendingEmails ? '寄信中...' : '寄信給選取學生'}
+              </button>
+            </div>
           </div>
           <div className="teacher-table-wrap">
             <table className="teacher-table">
-              <thead><tr><th>學生</th><th>完成小節</th><th>觀看時間</th><th>答題率</th><th>最近活動</th></tr></thead>
+              <thead><tr><th className="student-checkbox-col"><input
+                type="checkbox"
+                checked={allStudentsSelected}
+                onChange={handleToggleAllStudents}
+                aria-label="全選學生"
+              /></th><th>學生</th><th>完成小節</th><th>觀看時間</th><th>答題率</th><th>最近活動</th></tr></thead>
               <tbody>
                 {course.students.map(student => (
                   <tr key={student.id}>
+                    <td className="student-checkbox-col">
+                      <input
+                        type="checkbox"
+                        checked={selectedStudentIds.includes(student.id)}
+                        onChange={() => handleToggleStudent(student.id)}
+                        aria-label={`選擇 ${student.name}`}
+                      />
+                    </td>
                     <td><div className="student-cell"><span>{student.name.charAt(0)}</span><div><strong>{student.name}</strong><small>{student.email}</small></div></div></td>
                     <td><b>{student.completed_lectures}</b> / {student.total_lectures}</td>
                     <td>{student.watched_minutes} 分鐘</td>
@@ -324,23 +517,23 @@ export default function TeacherDashboard() {
             </button>
           )}
           <div id="question-error-results">
-          {displayedQuestions.length ? (
-            <div className="question-insight-list">
-              {displayedQuestions.map((question, index) => (
-                <div className="question-insight" key={question.id}>
-                  <span>{index + 1}</span>
-                  <div><p>{question.text}</p><small>{question.attempts} 次作答</small></div>
-                  <strong className={`question-error-rate ${100 - question.accuracy >= 80 ? 'error-red' : 100 - question.accuracy >= 60 ? 'error-orange' : 100 - question.accuracy >= 40 ? 'error-yellow' : 'error-neutral'}`}>
-                    <span>錯誤率</span>{100 - question.accuracy}%
-                  </strong>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="teacher-empty compact">
-              {visibleQuestions.length ? '目前所有題目的錯誤率皆為 0%，沒有需關注題目。' : selectedLecture ? '這個小節目前還沒有作答紀錄' : '目前還沒有作答紀錄'}
-            </div>
-          )}
+            {displayedQuestions.length ? (
+              <div className="question-insight-list">
+                {displayedQuestions.map((question, index) => (
+                  <div className="question-insight" key={question.id}>
+                    <span>{index + 1}</span>
+                    <div><p>{question.text}</p><small>{question.attempts} 次作答</small></div>
+                    <strong className={`question-error-rate ${100 - question.accuracy >= 80 ? 'error-red' : 100 - question.accuracy >= 60 ? 'error-orange' : 100 - question.accuracy >= 40 ? 'error-yellow' : 'error-neutral'}`}>
+                      <span>錯誤率</span>{100 - question.accuracy}%
+                    </strong>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="teacher-empty compact">
+                {visibleQuestions.length ? '目前所有題目的錯誤率皆為 0%，沒有需關注題目。' : selectedLecture ? '這個小節目前還沒有作答紀錄' : '目前還沒有作答紀錄'}
+              </div>
+            )}
           </div>
         </section>
       </section>

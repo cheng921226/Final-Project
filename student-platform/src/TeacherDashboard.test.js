@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { HotspotTimeline } from './TeacherDashboard';
 
 jest.mock('react-router-dom', () => ({ Link: 'a' }), { virtual: true });
@@ -29,12 +29,16 @@ test('hides zero-error questions by default and toggles all questions', async ()
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');
   const originalFetch = global.fetch;
-  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => ({ courses: [{
-    id: 1, title: '測試課程', summary: { students: 0, active_students: 0, lectures: 0 },
-    lectures: [], students: [], questions: Array.from({ length: 7 }, (_, i) => ({
-      id: i, text: `測試題目${i}`, accuracy: i === 6 ? 100 : i * 10, attempts: 10,
-    })),
-  }] }) });
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true, json: async () => ({
+      courses: [{
+        id: 1, title: '測試課程', summary: { students: 0, active_students: 0, lectures: 0 },
+        lectures: [], students: [], questions: Array.from({ length: 7 }, (_, i) => ({
+          id: i, text: `測試題目${i}`, accuracy: i === 6 ? 100 : i * 10, attempts: 10,
+        })),
+      }]
+    })
+  });
   try {
     render(<TeacherDashboard />);
     const toggle = await screen.findByRole('button', { name: '顯示所有題目錯誤率（7 題）' });
@@ -48,6 +52,78 @@ test('hides zero-error questions by default and toggles all questions', async ()
     expect(screen.queryByText('測試題目6')).not.toBeInTheDocument();
   } finally {
     global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
+test('selects students and sends the chosen recipients to the email API', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  const fetchMock = jest.fn().mockImplementation(async (url) => {
+    if (String(url).includes('/teacher/analytics')) {
+      return {
+        ok: true,
+        json: async () => ({
+          courses: [{
+            id: 1, title: '測試課程', summary: { students: 2, active_students: 2, lectures: 1 },
+            lectures: [], students: [
+              { id: 1, name: 'Alice', email: 'alice@example.com', completed_lectures: 1, total_lectures: 1, watched_minutes: 20, accuracy: 88, last_active: '2024-01-01T00:00:00Z' },
+              { id: 2, name: 'Bob', email: 'bob@example.com', completed_lectures: 1, total_lectures: 1, watched_minutes: 30, accuracy: 66, last_active: '2024-01-02T00:00:00Z' },
+            ],
+            questions: [],
+          }]
+        }),
+      };
+    }
+
+    return {
+      ok: true,
+      json: async () => ({ message: 'email sent', recipients: ['alice@example.com', 'bob@example.com'] }),
+    };
+  });
+  global.fetch = fetchMock;
+  const alertSpy = jest.spyOn(window, 'alert').mockImplementation(() => { });
+
+  try {
+    render(<TeacherDashboard />);
+    const allCheckbox = await screen.findByRole('checkbox', { name: '全選學生' });
+    expect(allCheckbox).not.toBeChecked();
+    fireEvent.click(allCheckbox);
+    expect(screen.getByRole('checkbox', { name: '選擇 Alice' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '選擇 Bob' })).toBeChecked();
+
+    const mailButton = screen.getByRole('button', { name: /寄信給選取學生/i });
+    expect(mailButton).toBeEnabled();
+    fireEvent.click(mailButton);
+
+    expect(screen.getByText('寄信預覽')).toBeInTheDocument();
+    expect(screen.getByText(/學習提醒/i)).toBeInTheDocument();
+    expect(screen.getByLabelText('信件內容')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /確認寄送/i }));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(([, options]) => options && options.method === 'POST');
+      expect(postCall).toBeTruthy();
+      const requestBody = JSON.parse(postCall[1].body);
+      expect(requestBody.to).toEqual(['alice@example.com', 'bob@example.com']);
+      expect(requestBody.subject).toContain('學習提醒');
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://127.0.0.1:8000/email/send',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({
+          Authorization: 'Bearer test-token',
+          'Content-Type': 'application/json',
+        }),
+      })
+    );
+  } finally {
+    global.fetch = originalFetch;
+    alertSpy.mockRestore();
     localStorage.removeItem('access_token');
   }
 });
