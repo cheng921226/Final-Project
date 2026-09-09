@@ -58,14 +58,7 @@ a { color: inherit; text-decoration: none; }
 .app-shell > main { padding-top: 72px; }
 
 .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; letter-spacing: -.02em; }
-.brand-mark {
-  width: 38px; height: 38px; display: grid; place-items: center;
-  border-radius: 13px; color: white;
-  background: linear-gradient(145deg, var(--primary), #7474eb);
-  box-shadow: 0 8px 20px rgba(91, 91, 214, .25);
-}
-.brand-mark::after { content: 'L'; font-size: 18px; }
-.brand-logo { height: 60px; width: auto; object-fit: contain; }
+.brand-title { color: var(--ink); font-size: 18px; font-weight: 800; letter-spacing: -.025em; }
 .brand small { display: block; color: #939bae; font-size: 9px; letter-spacing: .13em; text-transform: uppercase; }
 
 .nav-user { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 14px; }
