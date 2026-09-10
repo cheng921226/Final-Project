@@ -132,9 +132,6 @@ def create_lecture(body: LectureCreate):
             skip_existing_ai=body.skip_existing_ai,
         )
     except PipelineStepError as exc:
-        supabase_admin.table("lectures").update({"status": "pipeline_failed"}).eq(
-            "id", lecture["id"]
-        ).execute()
         raise HTTPException(
             status_code=500,
             detail={
@@ -144,9 +141,6 @@ def create_lecture(body: LectureCreate):
             },
         ) from exc
     except Exception as exc:
-        supabase_admin.table("lectures").update({"status": "pipeline_failed"}).eq(
-            "id", lecture["id"]
-        ).execute()
         raise HTTPException(
             status_code=500,
             detail={
@@ -156,10 +150,10 @@ def create_lecture(body: LectureCreate):
             },
         ) from exc
 
-    supabase_admin.table("lectures").update({"status": "ready"}).eq(
+    supabase_admin.table("lectures").update({"status": "generated"}).eq(
         "id", lecture["id"]
     ).execute()
-    return {**lecture, "status": "ready", "pipeline": pipeline_result}
+    return {**lecture, "status": "generated", "pipeline": pipeline_result}
 
 
 @router.get("/lectures/{lecture_id}/transcripts")

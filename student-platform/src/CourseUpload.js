@@ -98,7 +98,7 @@ export default function CourseUpload() {
           title: lectureTitle.trim(),
           media_url: youtubeUrl.trim(),
           course_id: targetCourseId,
-          status: 'processing',
+          status: 'uploaded',
           auto_process: true,
           language: 'zh',
           model_size: modelSize,
