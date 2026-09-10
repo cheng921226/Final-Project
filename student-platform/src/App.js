@@ -10,6 +10,9 @@ import Profile from './Profile';
 import ReviewMode from './ReviewMode';
 import TeacherDashboard from './TeacherDashboard';
 import QuestionReview from './QuestionReview';
+import Achievements from './Achievements';
+import CourseUpload from './CourseUpload';
+import CreditSettings from './CreditSettings';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
@@ -25,8 +28,11 @@ export default function App() {
           <Route path="register" element={<Register />} />
           <Route path="profile" element={<Profile />} />
           <Route path="review" element={<ReviewMode />} />
+          <Route path="achievements" element={<Achievements />} />
           <Route path="teacher" element={<TeacherDashboard />} />
+          <Route path="teacher/upload" element={<CourseUpload />} />
           <Route path="teacher/questions" element={<QuestionReview />} />
+          <Route path="teacher/credits" element={<CreditSettings />} />
         </Route>
       </Routes>
     </Router>

@@ -108,12 +108,17 @@ export default function Layout({ token, setToken }) {
                     ) : user ? (
                         <>
                             {user.role === 'student' && (
-                                <Link to="/review" className="review-nav-link">複習模式</Link>
+                                <>
+                                    <Link to="/review" className="review-nav-link">複習模式</Link>
+                                    <Link to="/achievements" className="review-nav-link">學習成就</Link>
+                                </>
                             )}
                             {user.role === 'teacher' && (
                                 <>
                                     <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
                                     <Link to="/teacher/questions" className="teacher-nav-link">審題</Link>
+                                    <Link to="/teacher/upload" className="teacher-nav-link">上傳課程</Link>
+                                    <Link to="/teacher/credits" className="teacher-nav-link">學分設定</Link>
                                 </>
                             )}
                             <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>

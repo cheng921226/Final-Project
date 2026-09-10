@@ -11,6 +11,7 @@ from services.transcription import (
     save_transcript_segments,
     transcribe_media,
 )
+from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
 from .security import get_current_user
 from .users import get_student_id_from_auth
 
@@ -75,6 +76,11 @@ class LectureCreate(BaseModel):
     course_id: int
     status: str = "uploaded"
     duration_seconds: int | None = None
+    auto_process: bool = True
+    language: str | None = "zh"
+    model_size: str = "tiny"
+    skip_existing_transcript: bool = True
+    skip_existing_ai: bool = True
 
 
 @router.get("/lectures/{lecture_id}")
@@ -85,10 +91,9 @@ def get_selected_lecture(lecture_id: int):
 
 @router.post("/lectures")
 def create_lecture(body: LectureCreate):
+    is_youtube = "youtube.com" in body.media_url or "youtu.be" in body.media_url
     duration_seconds = body.duration_seconds
-    if duration_seconds is None and (
-        "youtube.com" in body.media_url or "youtu.be" in body.media_url
-    ):
+    if duration_seconds is None and is_youtube:
         try:
             duration_seconds = get_youtube_metadata(body.media_url).get("duration")
         except Exception as exc:
@@ -112,7 +117,49 @@ def create_lecture(body: LectureCreate):
     )
     if not res.data:
         raise HTTPException(status_code=500, detail="新增小節失敗")
-    return res.data[0]
+
+    lecture = res.data[0]
+    if not body.auto_process or not is_youtube:
+        return lecture
+
+    try:
+        pipeline_result = run_youtube_ai_pipeline(
+            lecture["id"],
+            url=body.media_url,
+            language=body.language,
+            model_size=body.model_size,
+            skip_existing_transcript=body.skip_existing_transcript,
+            skip_existing_ai=body.skip_existing_ai,
+        )
+    except PipelineStepError as exc:
+        supabase_admin.table("lectures").update({"status": "pipeline_failed"}).eq(
+            "id", lecture["id"]
+        ).execute()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": exc.code,
+                "message": str(exc),
+                "lecture": lecture,
+            },
+        ) from exc
+    except Exception as exc:
+        supabase_admin.table("lectures").update({"status": "pipeline_failed"}).eq(
+            "id", lecture["id"]
+        ).execute()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "PIPELINE_FAILED",
+                "message": f"新增小節成功，但自動生成流程失敗：{exc}",
+                "lecture": lecture,
+            },
+        ) from exc
+
+    supabase_admin.table("lectures").update({"status": "ready"}).eq(
+        "id", lecture["id"]
+    ).execute()
+    return {**lecture, "status": "ready", "pipeline": pipeline_result}
 
 
 @router.get("/lectures/{lecture_id}/transcripts")

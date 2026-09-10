@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from routers.achievements import router as achievements_router
 from routers.ai import router as ai_router
 from routers.auth import router as auth_router
 from routers.chat import router as chat_router
@@ -31,6 +32,7 @@ app.add_middleware(
 )
 
 app.include_router(ai_router)
+app.include_router(achievements_router)
 app.include_router(auth_router)
 app.include_router(chat_router)
 app.include_router(email_router)
