@@ -26,11 +26,24 @@ function convertLegacyMindmapToMarkdown(node, depth = 1) {
 }
 
 function timeToSeconds(timeStr) {
-  if (!timeStr) return 0;
-  const parts = timeStr.split(':').map(Number);
+  if (timeStr === null || timeStr === undefined || timeStr === '') return 0;
+  if (typeof timeStr === 'number') return Number.isFinite(timeStr) ? timeStr : 0;
+  const normalized = String(timeStr).trim();
+  if (/^\d+(\.\d+)?$/.test(normalized)) return Number(normalized);
+  const parts = normalized.split(':').map(Number);
   if (parts.length === 2) return parts[0] * 60 + parts[1];
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
   return 0;
+}
+
+function formatVideoTime(value) {
+  const totalSeconds = Math.max(0, Math.floor(timeToSeconds(value)));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return hours > 0
+    ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function mergeSegments(segments) {
@@ -129,10 +142,13 @@ function LectureDetail() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
-  const [userName, setUserName] = useState(token ? '' : '尚未登入');
   const [userProfile, setUserProfile] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [activeQuestion, setActiveQuestion] = useState(null);
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [id, lectureId]);
   const [selectedAnswer, setSelectedAnswer] = useState('');
   const [questionFeedback, setQuestionFeedback] = useState(null);
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
@@ -373,10 +389,9 @@ function LectureDetail() {
     }
   }
 
-  // 依登入 token 取得目前使用者名稱。
+  // 測試學生需要額外的測驗重置入口。
   useEffect(() => {
     if (!token) {
-      setUserName('尚未登入');
       setUserProfile(null);
       return;
     }
@@ -390,11 +405,9 @@ function LectureDetail() {
       })
       .then(data => {
         setUserProfile(data);
-        setUserName(data?.name || data?.email || '使用者');
       })
       .catch(() => {
         setUserProfile(null);
-        setUserName('尚未登入');
       });
   }, [token]);
 
@@ -991,88 +1004,59 @@ function LectureDetail() {
   return (
     <div className="learning-shell h-screen overflow-hidden flex flex-col bg-[#f4f5fa]">
 
-      {/* Header */}
-      <header className="learning-header flex-shrink-0 bg-white/90 backdrop-blur border-b border-slate-200 px-6 py-3 flex justify-between items-center">
-        <div className="flex items-center gap-4">
-          <Link to={`/course/${id}`} className="text-blue-500 text-sm hover:underline">← 返回</Link>
-          <div>
-            <h1 className="text-lg font-bold text-slate-800">AI 輔助學習系統</h1>
-            <p className="text-slate-400 text-xs">小節 {lectureId}</p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4">
-          {/* 觀看進度 */}
-          <div className="flex items-center gap-2">
-            <span className={`text-xs font-semibold ${isCompleted ? 'text-green-600' : 'text-slate-500'}`}>
-              {isCompleted ? '✓ 已完成' : `已觀看 ${watchedPercent}%`}
-            </span>
-            <div className="learning-progress-bar w-28 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-500 ${isCompleted ? 'bg-green-500' : 'bg-blue-400'}`}
-                style={{ width: `${watchedPercent}%` }}
-              />
-            </div>
-          </div>
-          <div className="learning-user bg-[#eeefff] px-4 py-1.5 rounded-full text-sm font-medium text-[#5555bd]">
-            使用者：{userName || '載入中...'}
-          </div>
-          {userProfile?.email === 'teststudent@example.com' && (
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={resetDemoQuestions}
-                disabled={resettingQuestions}
-                className="bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5 rounded-full text-xs font-bold hover:bg-amber-100 disabled:opacity-60"
-                title="清除這個 demo 帳號在本小節的作答紀錄"
-              >
-                {resettingQuestions ? '重置中...' : '重置測驗'}
-              </button>
-              {resetMessage && (
-                <span className="max-w-44 truncate text-xs font-medium text-amber-700" title={resetMessage}>
-                  {resetMessage}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </header>
-
       {/* 三欄主體 */}
       <div className="learning-body flex flex-1 overflow-hidden">
 
         {/* 左側：知識點清單 */}
         <aside className="knowledge-aside w-60 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
-          <div className="flex-shrink-0 px-4 py-3 border-b border-slate-100">
-            <h2 className="font-bold text-slate-700 text-sm">📚 知識點</h2>
-            <p className="text-xs text-slate-400 mt-0.5">點擊跳至影片時間點</p>
+          <div className="knowledge-aside-header flex-shrink-0">
+            <Link to={`/course/${id}`} className="knowledge-back-link">
+              <span aria-hidden="true">←</span>
+              返回課程
+            </Link>
+            <div className="knowledge-heading">
+              <span className="knowledge-heading-icon" aria-hidden="true">知</span>
+              <div>
+                <h2>課程知識點</h2>
+                <p>選擇章節，影片會跳至對應位置</p>
+              </div>
+            </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          <div className="knowledge-list flex-1 overflow-y-auto">
             {loading ? (
-              <p className="text-slate-400 text-xs p-2">載入中...</p>
+              <p className="knowledge-empty">正在整理知識點…</p>
             ) : knowledgePoints.length === 0 ? (
-              <p className="text-slate-400 text-xs p-2">無知識點資料</p>
+              <p className="knowledge-empty">這個小節目前沒有知識點</p>
             ) : (
               knowledgePoints.map((p, i) => (
                 <button
-                  key={i}
+                  key={p.id || i}
                   type="button"
                   onClick={() => seekToKnowledgePoint(p.start_time, i)}
-                  className={`w-full text-left p-3 rounded-xl border transition-all group ${activeKp === i
-                    ? 'border-blue-400 bg-blue-50'
-                    : 'border-slate-100 bg-slate-50 hover:border-blue-300 hover:bg-blue-50'
-                    }`}
+                  aria-pressed={activeKp === i}
+                  className={`knowledge-point-card ${activeKp === i ? 'is-active' : ''}`}
                 >
-                  <div className="flex items-start justify-between gap-1 mb-1">
-                    <span className={`text-xs font-bold leading-tight ${activeKp === i ? 'text-blue-600' : 'text-slate-700 group-hover:text-blue-600'
-                      }`}>
-                      {p.title}
+                  <span className="knowledge-point-index" aria-hidden="true">
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <span className="knowledge-point-content">
+                    <span className="knowledge-point-title">{p.title || `知識點 ${i + 1}`}</span>
+                    <span className="knowledge-point-description">
+                      {p.description || '這個知識點目前沒有補充說明'}
                     </span>
-                    {p.start_time && (
-                      <span className="text-xs text-blue-400 font-mono flex-shrink-0">▶{p.start_time}</span>
+                  </span>
+                  <span className="knowledge-point-meta">
+                    {p.start_time !== null && p.start_time !== undefined && p.start_time !== '' && (
+                      <span className="knowledge-time">
+                        <span className="knowledge-play-icon" aria-hidden="true" />
+                        {formatVideoTime(p.start_time)}
+                      </span>
                     )}
-                  </div>
-                  <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">{p.description}</p>
+                    <span className="knowledge-arrow" aria-hidden="true">›</span>
+                  </span>
+                  {i < knowledgePoints.length - 1 && (
+                    <span className="knowledge-connector" aria-hidden="true" />
+                  )}
                 </button>
               ))
             )}
@@ -1302,6 +1286,40 @@ function LectureDetail() {
 
         {/* 右側：AI 助教 */}
         <aside className="assistant-aside w-80 flex-shrink-0 bg-[#1f2740] flex flex-col">
+          <div className="lecture-progress-card flex-shrink-0">
+            <div className="lecture-progress-summary">
+              <span>小節 {lectureId} 學習進度</span>
+              <strong className={isCompleted ? 'is-complete' : ''}>
+                {isCompleted ? '✓ 已完成' : `${watchedPercent}%`}
+              </strong>
+            </div>
+            <div
+              className="lecture-progress-track"
+              role="progressbar"
+              aria-label="本小節觀看進度"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow={watchedPercent}
+            >
+              <span
+                className={isCompleted ? 'is-complete' : ''}
+                style={{ width: `${watchedPercent}%` }}
+              />
+            </div>
+            {userProfile?.email === 'teststudent@example.com' && (
+              <div className="lecture-demo-tools">
+                <button
+                  type="button"
+                  onClick={resetDemoQuestions}
+                  disabled={resettingQuestions}
+                  title="清除這個 demo 帳號在本小節的作答紀錄"
+                >
+                  {resettingQuestions ? '重置中…' : '重置測驗'}
+                </button>
+                {resetMessage && <span title={resetMessage}>{resetMessage}</span>}
+              </div>
+            )}
+          </div>
           <div className="flex-shrink-0 px-5 py-4 border-b border-slate-700">
             <h2 className="font-bold text-white text-sm">💬 AI 課程助教</h2>
             <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
