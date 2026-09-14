@@ -248,7 +248,7 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
 
 
 # =====================================================================
-# 以下為原本的測試 API
+# AI 內容生成 API
 # =====================================================================
 
 
@@ -257,7 +257,7 @@ class SummaryRequest(BaseModel):
 
 
 # 生成摘要
-@router.post("/lectures/test-summary")
+@router.post("/ai/summary")
 def generate_summary(body: SummaryRequest):
     existing_response = (
         supabase_admin.table("summaries")
@@ -313,7 +313,7 @@ class MindMapRequest(BaseModel):
 
 
 # 生成心智圖
-@router.post("/lectures/test-mindmap")
+@router.post("/ai/mindmap")
 def generate_mindmap(body: MindMapRequest):
     existing_response = (
         supabase_admin.table("mindmaps")
@@ -397,7 +397,7 @@ class KnowledgePointsRequest(BaseModel):
 
 
 # 生成知識點
-@router.post("/lectures/test-knowledge_points")
+@router.post("/ai/knowledge_points")
 def generate_knowledge_points(body: KnowledgePointsRequest):
     existing_response = (
         supabase_admin.table("knowledge_points")
@@ -461,7 +461,7 @@ class QuestionsRequest(BaseModel):
 
 
 # 生成題目
-@router.post("/lectures/test-questions")
+@router.post("/ai/questions")
 def generate_questions(body: QuestionsRequest):
     existing_response = (
         supabase_admin.table("questions")
