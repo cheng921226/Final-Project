@@ -6,20 +6,10 @@ const API_URL = 'http://127.0.0.1:8000';
 function emptyForm(course = {}) {
   return {
     credit_value: course.credit_value ?? 2,
-    partial_credit_enabled: Boolean(course.partial_credit_enabled),
     completion_threshold: course.completion_threshold ?? 100,
     passing_score: course.passing_score ?? 70,
     require_passing_score: Boolean(course.require_passing_score),
     certification_enabled: course.certification_enabled ?? true,
-    rules: course.rules?.length
-      ? course.rules.map((rule, index) => ({
-          label: rule.label || '',
-          required_completion_percentage: rule.required_completion_percentage ?? 100,
-          required_score: rule.required_score ?? '',
-          credits_awarded: rule.credits_awarded ?? 0,
-          sort_order: index,
-        }))
-      : [],
   };
 }
 
@@ -91,38 +81,6 @@ export default function CreditSettings() {
     setForm(prev => ({ ...prev, [field]: value }));
   }
 
-  function updateRule(index, field, value) {
-    setForm(prev => ({
-      ...prev,
-      rules: prev.rules.map((rule, ruleIndex) => (
-        ruleIndex === index ? { ...rule, [field]: value } : rule
-      )),
-    }));
-  }
-
-  function addRule() {
-    setForm(prev => ({
-      ...prev,
-      rules: [
-        ...prev.rules,
-        {
-          label: '',
-          required_completion_percentage: 100,
-          required_score: '',
-          credits_awarded: prev.credit_value || 0,
-          sort_order: prev.rules.length,
-        },
-      ],
-    }));
-  }
-
-  function removeRule(index) {
-    setForm(prev => ({
-      ...prev,
-      rules: prev.rules.filter((_, ruleIndex) => ruleIndex !== index),
-    }));
-  }
-
   async function saveSettings(event) {
     event.preventDefault();
     if (!courseId || saving) return;
@@ -132,18 +90,10 @@ export default function CreditSettings() {
     try {
       const payload = {
         credit_value: toNumber(form.credit_value),
-        partial_credit_enabled: Boolean(form.partial_credit_enabled),
         completion_threshold: toNumber(form.completion_threshold, 100),
         passing_score: form.require_passing_score ? toNumber(form.passing_score, 70) : null,
         require_passing_score: Boolean(form.require_passing_score),
         certification_enabled: Boolean(form.certification_enabled),
-        rules: form.rules.map((rule, index) => ({
-          label: rule.label || null,
-          required_completion_percentage: toNumber(rule.required_completion_percentage, 100),
-          required_score: rule.required_score === '' ? null : toNumber(rule.required_score, 70),
-          credits_awarded: toNumber(rule.credits_awarded),
-          sort_order: index,
-        })),
       };
 
       const res = await fetch(`${API_URL}/teacher/courses/${courseId}/credit-settings`, {
@@ -198,7 +148,7 @@ export default function CreditSettings() {
         <div>
           <p className="eyebrow">Credit rules</p>
           <h1>學分與認證設定</h1>
-          <p>設定每門課的學分數、通過門檻與部分學分規則，學生端會依這裡的規則顯示進度。</p>
+          <p>設定每門課的學分數與通過條件；學生達成全部條件後，會一次取得完整學分。</p>
         </div>
         <div className="teacher-filters">
           <label>
@@ -216,7 +166,7 @@ export default function CreditSettings() {
         <div className="panel-title">
           <div>
             <h3>{selectedCourse?.title || '課程設定'}</h3>
-            <p>沒有自訂規則時，系統會用下方基本規則計算完整學分。</p>
+            <p>學生必須達成下方全部條件，才能通過課程並取得完整學分。</p>
           </div>
         </div>
 
@@ -237,41 +187,7 @@ export default function CreditSettings() {
 
         <div className="settings-switches">
           <label><input type="checkbox" checked={form.require_passing_score} onChange={event => updateField('require_passing_score', event.target.checked)} /> 需要測驗分數達標</label>
-          <label><input type="checkbox" checked={form.partial_credit_enabled} onChange={event => updateField('partial_credit_enabled', event.target.checked)} /> 允許部分學分</label>
           <label><input type="checkbox" checked={form.certification_enabled} onChange={event => updateField('certification_enabled', event.target.checked)} /> 完成後顯示認證</label>
-        </div>
-
-        <div className="rules-block">
-          <div className="panel-title">
-            <div>
-              <h3>自訂學分規則</h3>
-              <p>例如 50% 給 1 學分、100% 給 2 學分。留空時使用基本規則。</p>
-            </div>
-            <button type="button" className="question-secondary-button" onClick={addRule}>新增規則</button>
-          </div>
-          {form.rules.length ? form.rules.map((rule, index) => (
-            <div className="rule-row" key={`${index}-${rule.label}`}>
-              <label className="review-field">
-                <span>名稱</span>
-                <input value={rule.label} placeholder="例如：完整學分" onChange={event => updateRule(index, 'label', event.target.value)} />
-              </label>
-              <label className="review-field">
-                <span>完成度 (%)</span>
-                <input type="number" min="0" max="100" value={rule.required_completion_percentage} onChange={event => updateRule(index, 'required_completion_percentage', event.target.value)} />
-              </label>
-              <label className="review-field">
-                <span>最低分數</span>
-                <input type="number" min="0" max="100" value={rule.required_score} placeholder="可空白" onChange={event => updateRule(index, 'required_score', event.target.value)} />
-              </label>
-              <label className="review-field">
-                <span>給予學分</span>
-                <input type="number" min="0" step="0.5" value={rule.credits_awarded} onChange={event => updateRule(index, 'credits_awarded', event.target.value)} />
-              </label>
-              <button type="button" className="question-delete-button" onClick={() => removeRule(index)}>刪除</button>
-            </div>
-          )) : (
-            <div className="teacher-empty compact">目前沒有自訂規則。</div>
-          )}
         </div>
 
         {message && <p className="question-review-message">{message}</p>}

@@ -72,15 +72,15 @@ export default function Achievements() {
         <div>
           <p className="eyebrow">Learning credits</p>
           <h1>學習成就與學分進度</h1>
-          <p>依照課程完成度、作答狀況與老師設定的規則，整理每門課目前可取得的學分與認證狀態。</p>
+          <p>查看每門課的通過條件；全部達成後，會一次取得完整學分。</p>
         </div>
       </header>
 
       <section className="teacher-metrics">
-        <SummaryCard label="完成課程" value={data.summary.completed_courses} note="已達完整認證條件" />
+        <SummaryCard label="通過課程" value={data.summary.completed_courses} note="已達全部通過條件" />
         <SummaryCard label="累積學習" value={`${data.summary.learning_hours} 小時`} note="依觀看紀錄加總" tone="blue" />
-        <SummaryCard label="取得學分" value={data.summary.earned_credits} note="依課程規則計算" tone="green" />
-        <SummaryCard label="課程認證" value={data.summary.certifications} note="可列入成果紀錄" tone="coral" />
+        <SummaryCard label="取得學分" value={data.summary.earned_credits} note="通過後一次取得" tone="green" />
+        <SummaryCard label="課程認證" value={data.summary.certifications} note="已取得的課程認證" tone="coral" />
       </section>
 
       <section className="achievement-list">
@@ -92,7 +92,11 @@ export default function Achievements() {
                 <h2>{course.title}</h2>
                 <p>{course.completed_lectures} / {course.lecture_count} 個小節完成，測驗表現 {formatQuizAverage(course.quiz_average)}</p>
               </div>
-              <strong>{course.credits_earned} / {course.credits_total} 學分</strong>
+              <strong>
+                {course.credits_total > 0
+                  ? `${course.credits_earned} / ${course.credits_total} 學分`
+                  : '尚未設定學分'}
+              </strong>
             </div>
 
             <div className="achievement-progress">
@@ -107,15 +111,29 @@ export default function Achievements() {
               <span>{course.has_questions ? '已有測驗資料' : '尚無測驗資料'}</span>
             </div>
 
-            {course.next_requirements?.length ? (
-              <div className="achievement-next">
-                <small>下一步</small>
-                <p>{course.next_requirements.join('、')}</p>
+            {course.requirements?.length ? (
+              <div className={`achievement-requirements ${course.course_passed ? 'success' : ''}`}>
+                <small>通過條件</small>
+                <ul>
+                  {course.requirements.map(requirement => (
+                    <li className={requirement.met ? 'is-met' : ''} key={requirement.key}>
+                      <span aria-hidden="true">{requirement.met ? '✓' : '○'}</span>
+                      <div>
+                        <strong>{requirement.label}</strong>
+                        <p>
+                          {requirement.current === null ? '尚無作答' : `${requirement.current}${requirement.unit}`}
+                          {' / '}{requirement.target}{requirement.unit}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+                {course.course_passed && <p className="achievement-passed-note">已達成全部條件並取得完整學分。</p>}
               </div>
             ) : (
-              <div className="achievement-next success">
+              <div className="achievement-next">
                 <small>狀態</small>
-                <p>{course.certification_earned ? '已符合完整認證條件。' : '這門課目前沒有設定學分規則。'}</p>
+                <p>這門課目前尚未設定學分與通過條件。</p>
               </div>
             )}
           </article>

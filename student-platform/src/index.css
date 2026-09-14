@@ -1592,9 +1592,14 @@ a {
   color: #258a67;
 }
 
-.achievement-status.partial_credit {
-  background: #fff9e8;
-  color: #a06812;
+.achievement-status.passed {
+  background: #e8f8f1;
+  color: #258a67;
+}
+
+.achievement-status.unconfigured {
+  background: #f0f1f5;
+  color: #697287;
 }
 
 .achievement-status.in_progress {
@@ -1686,6 +1691,80 @@ a {
   font-weight: 800;
 }
 
+.achievement-requirements {
+  margin-top: 14px;
+  padding: 13px 14px;
+  border: 1px solid #e8eaf2;
+  border-radius: 14px;
+  background: #fafbff;
+}
+
+.achievement-requirements > small {
+  display: block;
+  margin-bottom: 9px;
+  color: #777f91;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.achievement-requirements ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.achievement-requirements li {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 9px;
+}
+
+.achievement-requirements li > span {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eceef4;
+  color: #858c9d;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.achievement-requirements li.is-met > span {
+  background: #ddf5e9;
+  color: #278460;
+}
+
+.achievement-requirements li strong {
+  display: block;
+  color: #4e576b;
+  font-size: 11px;
+}
+
+.achievement-requirements li p {
+  margin: 2px 0 0;
+  color: #8b92a2;
+  font-size: 10px;
+}
+
+.achievement-requirements.success {
+  border-color: #ccebdd;
+  background: #effaf5;
+}
+
+.achievement-passed-note {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px solid #d9eee4;
+  color: #278460;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .settings-form,
 .upload-form,
 .upload-result {
@@ -1724,28 +1803,6 @@ a {
 
 .settings-switches.segmented {
   margin-top: 0;
-}
-
-.rules-block {
-  margin-top: 8px;
-  padding-top: 18px;
-  border-top: 1px solid #eef0f5;
-}
-
-.rule-row {
-  display: grid;
-  grid-template-columns: minmax(150px, 1.2fr) 110px 110px 110px auto;
-  align-items: end;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 12px;
-  border: 1px solid #edf0f5;
-  border-radius: 15px;
-  background: #fafbff;
-}
-
-.rule-row .review-field {
-  margin-bottom: 0;
 }
 
 .inline-action {
@@ -2190,14 +2247,6 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .rule-row {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .rule-row .question-delete-button {
-    grid-column: 1 / -1;
-  }
-
   .review-hero {
     align-items: flex-start;
     flex-direction: column;
@@ -2353,10 +2402,6 @@ a {
 
   .achievement-card-head strong {
     font-size: 18px;
-  }
-
-  .rule-row {
-    grid-template-columns: 1fr;
   }
 
   .question-review-actions {

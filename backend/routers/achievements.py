@@ -10,22 +10,12 @@ from .security import get_current_user
 router = APIRouter()
 
 
-class CreditRulePayload(BaseModel):
-    label: str | None = None
-    required_completion_percentage: float = Field(ge=0, le=100)
-    required_score: float | None = Field(default=None, ge=0, le=100)
-    credits_awarded: float = Field(ge=0)
-    sort_order: int = 0
-
-
 class CourseCreditSettingsPayload(BaseModel):
     credit_value: float = Field(ge=0)
-    partial_credit_enabled: bool = False
     completion_threshold: float = Field(default=100, ge=0, le=100)
     passing_score: float | None = Field(default=None, ge=0, le=100)
     require_passing_score: bool = False
     certification_enabled: bool = True
-    rules: list[CreditRulePayload] = Field(default_factory=list)
 
 
 def user_profile(user) -> dict[str, Any]:
@@ -74,58 +64,11 @@ def course_title(course: dict[str, Any]) -> str:
     return course.get("title") or course.get("course_name") or f"課程 {course.get('id')}"
 
 
-def sorted_rules_for_course(
-    course: dict[str, Any], rules: list[dict[str, Any]]
-) -> list[dict[str, Any]]:
-    course_rules = sorted(
-        rules,
-        key=lambda row: (
-            number(row.get("required_completion_percentage")),
-            number(row.get("credits_awarded")),
-            row.get("sort_order") or 0,
-        ),
-    )
-    if course_rules:
-        return course_rules
-
-    credit_value = number(course.get("credit_value"))
-    if credit_value <= 0:
-        return []
-
-    full_rule = {
-        "label": "完整學分",
-        "required_completion_percentage": number(
-            course.get("completion_threshold"), 100
-        ),
-        "required_score": (
-            number(course.get("passing_score"), 70)
-            if course.get("require_passing_score")
-            else None
-        ),
-        "credits_awarded": credit_value,
-        "sort_order": 100,
-    }
-    if not course.get("partial_credit_enabled"):
-        return [full_rule]
-
-    return [
-        {
-            "label": "部分學分",
-            "required_completion_percentage": 50,
-            "required_score": None,
-            "credits_awarded": round(credit_value / 2, 2),
-            "sort_order": 50,
-        },
-        full_rule,
-    ]
-
-
 def evaluate_course(
     course: dict[str, Any],
     lectures: list[dict[str, Any]],
     progresses: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
-    rules: list[dict[str, Any]],
 ) -> dict[str, Any]:
     lecture_count = len(lectures)
     completed_lectures = sum(1 for row in progresses if row.get("completed"))
@@ -136,43 +79,64 @@ def evaluate_course(
     correct_count = sum(1 for row in attempts if row.get("is_correct"))
     quiz_average = percent(correct_count, attempt_count) if attempt_count else None
 
-    credit_rules = sorted_rules_for_course(course, rules)
-    earned_credits = 0.0
-    achieved_rule = None
-    next_requirements: list[str] = []
-    for rule in credit_rules:
-        required_completion = number(rule.get("required_completion_percentage"))
-        required_score = rule.get("required_score")
-        score_requirement_met = (
-            True
-            if required_score in (None, "", "null")
-            else quiz_average is not None and quiz_average >= number(required_score)
-        )
-        completion_requirement_met = completion_percentage >= required_completion
-
-        if completion_requirement_met and score_requirement_met:
-            if number(rule.get("credits_awarded")) >= earned_credits:
-                earned_credits = number(rule.get("credits_awarded"))
-                achieved_rule = rule
-        elif not achieved_rule:
-            if not completion_requirement_met:
-                next_requirements.append(f"課程完成度達到 {required_completion:g}%")
-            if not score_requirement_met and required_score not in (None, "", "null"):
-                next_requirements.append(f"測驗平均達到 {number(required_score):g} 分")
-
     total_credits = number(course.get("credit_value"))
+    has_credit_settings = total_credits > 0
+    required_completion = number(course.get("completion_threshold"), 100)
+    completion_requirement_met = completion_percentage >= required_completion
+    score_is_required = bool(course.get("require_passing_score"))
+    required_score = number(course.get("passing_score"), 70) if score_is_required else None
+    score_requirement_met = (
+        not score_is_required
+        or (quiz_average is not None and quiz_average >= required_score)
+    )
+    course_passed = bool(
+        has_credit_settings
+        and completion_requirement_met
+        and score_requirement_met
+    )
+    earned_credits = total_credits if course_passed else 0.0
     certification_earned = bool(
         course.get("certification_enabled", True)
-        and total_credits > 0
-        and earned_credits >= total_credits
+        and course_passed
     )
+
+    requirements = [
+        {
+            "key": "completion",
+            "label": "課程完成度",
+            "current": completion_percentage,
+            "target": required_completion,
+            "unit": "%",
+            "met": completion_requirement_met,
+        }
+    ]
+    if score_is_required:
+        requirements.append(
+            {
+                "key": "score",
+                "label": "測驗平均",
+                "current": quiz_average,
+                "target": required_score,
+                "unit": "分",
+                "met": score_requirement_met,
+            }
+        )
+
+    next_requirements = [
+        f"{item['label']}達到 {item['target']:g}{item['unit']}"
+        for item in requirements
+        if not item["met"]
+    ]
 
     if certification_earned:
         status = "certified"
         status_label = "已取得認證"
-    elif earned_credits > 0:
-        status = "partial_credit"
-        status_label = "符合部分學分"
+    elif course_passed:
+        status = "passed"
+        status_label = "已通過"
+    elif not has_credit_settings:
+        status = "unconfigured"
+        status_label = "尚未設定學分"
     elif completion_percentage > 0 or attempt_count > 0:
         status = "in_progress"
         status_label = "進行中"
@@ -192,12 +156,13 @@ def evaluate_course(
         "attempt_count": attempt_count,
         "credits_earned": earned_credits,
         "credits_total": total_credits,
+        "course_passed": course_passed,
         "certification_earned": certification_earned,
         "status": status,
         "status_label": status_label,
-        "achieved_rule": achieved_rule,
-        "next_requirements": [] if certification_earned else next_requirements,
-        "rules": credit_rules,
+        "next_requirements": [] if course_passed else next_requirements,
+        "requirements": requirements if has_credit_settings else [],
+        "rules": [],
     }
 
 
@@ -244,19 +209,9 @@ def get_student_achievements(user=Depends(get_current_user)):
             or []
         )
 
-    rules = (
-        supabase_admin.table("course_credit_rules")
-        .select("*")
-        .order("sort_order")
-        .execute()
-        .data
-        or []
-    )
-
     lectures_by_course = grouped_by(lectures, "course_id")
     progresses_by_lecture = grouped_by(progresses, "lecture_id")
     attempts_by_lecture = grouped_by(attempts, "lecture_id")
-    rules_by_course = grouped_by(rules, "course_id")
     question_lecture_ids = {row.get("lecture_id") for row in questions}
 
     course_results = []
@@ -277,7 +232,6 @@ def get_student_achievements(user=Depends(get_current_user)):
             course_lectures,
             course_progresses,
             course_attempts,
-            rules_by_course.get(course.get("id"), []),
         )
         result["has_questions"] = any(
             lecture.get("id") in question_lecture_ids for lecture in course_lectures
@@ -288,7 +242,7 @@ def get_student_achievements(user=Depends(get_current_user)):
         "student_id": student_id,
         "summary": {
             "completed_courses": sum(
-                1 for course in course_results if course["certification_earned"]
+                1 for course in course_results if course["course_passed"]
             ),
             "learning_hours": round(
                 sum(course["watched_seconds"] for course in course_results) / 3600, 1
@@ -316,27 +270,12 @@ def get_teacher_course_credit_settings(user=Depends(get_current_user)):
         .data
         or []
     )
-    course_ids = [course["id"] for course in courses if course.get("id") is not None]
-    rules = []
-    if course_ids:
-        rules = (
-            supabase_admin.table("course_credit_rules")
-            .select("*")
-            .in_("course_id", course_ids)
-            .order("sort_order")
-            .execute()
-            .data
-            or []
-        )
-
-    rules_by_course = grouped_by(rules, "course_id")
     return {
         "teacher": teacher,
         "courses": [
             {
                 **course,
                 "title": course_title(course),
-                "rules": rules_by_course.get(course.get("id"), []),
             }
             for course in courses
         ],
@@ -350,6 +289,8 @@ def update_course_credit_settings(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
+    if payload.require_passing_score and payload.passing_score is None:
+        raise HTTPException(status_code=422, detail="啟用測驗門檻時必須設定及格分數")
     course_response = (
         supabase_admin.table("courses")
         .select("id, teacher_id")
@@ -365,7 +306,7 @@ def update_course_credit_settings(
 
     course_update = {
         "credit_value": payload.credit_value,
-        "partial_credit_enabled": payload.partial_credit_enabled,
+        "partial_credit_enabled": False,
         "completion_threshold": payload.completion_threshold,
         "passing_score": payload.passing_score,
         "require_passing_score": payload.require_passing_score,
@@ -383,25 +324,8 @@ def update_course_credit_settings(
     supabase_admin.table("course_credit_rules").delete().eq(
         "course_id", course_id
     ).execute()
-    rule_rows = [
-        {
-            "course_id": course_id,
-            "label": rule.label,
-            "required_completion_percentage": rule.required_completion_percentage,
-            "required_score": rule.required_score,
-            "credits_awarded": rule.credits_awarded,
-            "sort_order": index,
-        }
-        for index, rule in enumerate(payload.rules)
-    ]
-    inserted_rules = []
-    if rule_rows:
-        inserted_rules = (
-            supabase_admin.table("course_credit_rules").insert(rule_rows).execute().data
-            or []
-        )
 
     return {
         "course": updated_course[0] if updated_course else course_update,
-        "rules": inserted_rules,
+        "rules": [],
     }
