@@ -56,6 +56,8 @@ def public_question(row: dict[str, Any]) -> dict[str, Any]:
         "options_json": row.get("options_json") or [],
         "explanation": row.get("explanation"),
         "source_timestamp": row.get("source_timestamp"),
+        "question_type": row.get("question_type") or "original",
+        "source_question_id": row.get("source_question_id"),
     }
 
 
@@ -148,20 +150,34 @@ def require_demo_user(user):
 
 @router.get("/lectures/{lecture_id}/questions")
 def get_lecture_questions(lecture_id: int):
-    response = (
-        supabase_admin.table("questions")
-        .select(
-            "id, lecture_id, knowledge_point_id, question_text, options_json, "
-            "explanation, source_timestamp"
+    try:
+        response = (
+            supabase_admin.table("questions")
+            .select(
+                "id, lecture_id, knowledge_point_id, question_text, options_json, "
+                "explanation, source_timestamp, question_type, source_question_id"
+            )
+            .eq("lecture_id", lecture_id)
+            .eq("question_type", "original")
+            .order("source_timestamp")
+            .execute()
         )
-        .eq("lecture_id", lecture_id)
-        .order("source_timestamp")
-        .execute()
-    )
+    except Exception:
+        response = (
+            supabase_admin.table("questions")
+            .select(
+                "id, lecture_id, knowledge_point_id, question_text, options_json, "
+                "explanation, source_timestamp"
+            )
+            .eq("lecture_id", lecture_id)
+            .order("source_timestamp")
+            .execute()
+        )
     return [
         public_question(row)
         for row in response.data or []
         if row.get("source_timestamp") is not None
+        and (row.get("question_type") or "original") == "original"
     ]
 
 
@@ -194,18 +210,33 @@ def get_teacher_question_review(user=Depends(get_current_user)):
     questions = []
     knowledge_points = []
     if lecture_ids:
-        questions = (
-            supabase_admin.table("questions")
-            .select(
-                "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "answer, explanation, source_timestamp"
+        try:
+            questions = (
+                supabase_admin.table("questions")
+                .select(
+                    "id, lecture_id, knowledge_point_id, question_text, options_json, "
+                    "answer, explanation, source_timestamp, question_type, source_question_id"
+                )
+                .in_("lecture_id", lecture_ids)
+                .eq("question_type", "original")
+                .order("source_timestamp")
+                .execute()
+                .data
+                or []
             )
-            .in_("lecture_id", lecture_ids)
-            .order("source_timestamp")
-            .execute()
-            .data
-            or []
-        )
+        except Exception:
+            questions = (
+                supabase_admin.table("questions")
+                .select(
+                    "id, lecture_id, knowledge_point_id, question_text, options_json, "
+                    "answer, explanation, source_timestamp"
+                )
+                .in_("lecture_id", lecture_ids)
+                .order("source_timestamp")
+                .execute()
+                .data
+                or []
+            )
         knowledge_points = (
             supabase_admin.table("knowledge_points")
             .select("id, lecture_id, title, start_time, end_time")
@@ -422,6 +453,8 @@ def create_question_attempt(
         "selected_answer": selected_answer,
         "is_correct": is_correct,
         "video_time": body.video_time,
+        "attempt_type": "initial",
+        "attempt_number": 1,
     }
 
     try:
@@ -429,13 +462,23 @@ def create_question_attempt(
             supabase_admin.table("question_attempts").insert(attempt_row).execute()
         )
     except Exception as exc:
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "Question attempt save failed. Make sure the question_attempts "
-                f"table exists. Original error: {exc}"
-            ),
-        ) from exc
+        fallback_row = {
+            key: value
+            for key, value in attempt_row.items()
+            if key not in {"attempt_type", "attempt_number"}
+        }
+        try:
+            insert_response = (
+                supabase_admin.table("question_attempts").insert(fallback_row).execute()
+            )
+        except Exception as fallback_exc:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Question attempt save failed. Make sure the question_attempts "
+                    f"table exists. Original error: {fallback_exc}"
+                ),
+            ) from fallback_exc
 
     return {
         "question_id": question_id,

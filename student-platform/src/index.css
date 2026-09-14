@@ -2089,6 +2089,44 @@ a {
   gap: 12px;
 }
 
+.assessment-card,
+.retest-panel {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #e3e8f4;
+  border-radius: 16px;
+  background: #f8fbff;
+}
+
+.assessment-card {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+}
+
+.assessment-card>div {
+  display: grid;
+  gap: 5px;
+}
+
+.assessment-card span {
+  color: #7a8497;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.assessment-card strong {
+  color: #30384d;
+  font-size: 24px;
+}
+
+.assessment-card p,
+.assessment-card button,
+.assessment-card small {
+  grid-column: 1 / -1;
+}
+
 .review-question {
   display: grid;
   gap: 10px;
@@ -2140,6 +2178,31 @@ a {
   background: white;
   color: #626c80;
   font-size: 12px;
+}
+
+.retest-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid #eceff5;
+  border-radius: 10px;
+  background: white;
+  color: #626c80;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.retest-options input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+}
+
+.retest-options span {
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .auth-page {

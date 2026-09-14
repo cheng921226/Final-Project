@@ -6,6 +6,9 @@ create table if not exists question_attempts (
   selected_answer text not null,
   is_correct boolean not null,
   video_time double precision,
+  attempt_type text not null default 'initial',
+  attempt_number integer not null default 1,
+  retest_session_id bigint,
   answered_at timestamptz not null default now()
 );
 

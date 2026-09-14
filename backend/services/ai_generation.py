@@ -260,6 +260,11 @@ def normalize_source_timestamp(value: Any) -> int | None:
         return None
 
 
+def normalize_answer(value: Any) -> str:
+    text = str(value or "").strip().upper()
+    return text[0] if text else ""
+
+
 def infer_knowledge_point_id(
     source_timestamp: Any, knowledge_points: list[dict[str, Any]]
 ) -> int | None:
@@ -290,16 +295,23 @@ def generate_questions(
 
     kp_text = format_knowledge_points_for_prompt(knowledge_points)
     prompt = f"""
-請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
+請根據以下課程逐字稿和知識點列表，產生 5 到 10 題正式選擇題。
 每題固定 4 個選項，answer 只能是 A、B、C 或 D。
 related_knowledge_point 請使用知識點列表中的 id；如果無法對應請填 null。
-每一題都必須對應影片中的一個出題時間點。
+每一題正式題目都必須對應影片中的一個出題時間點。
 source_timestamp 必須是純整數秒數，代表影片播放到該秒數時要跳出題目。
 請根據逐字稿段落時間與知識點內容推估 source_timestamp，不可以填 null。
-請只輸出 JSON。
+
+每一題正式題目都必須另外產生 1 到 2 題 retry_questions。
+retry_questions 是補測延伸題，只用於複習模式重新測驗，不會在影片播放時跳出。
+retry_questions 必須測試相同知識概念，但不能只是把原題改幾個字。
+retry_questions 可以使用不同情境、應用方式或例子，難度需與原題接近。
+retry_questions 不需要 source_timestamp，也不可以直接透露原題答案。
+每一題正式題目與 retry_questions 都必須有明確答案與 explanation。
+請只輸出 JSON，且 JSON 格式必須穩定。
 
 JSON 格式：
-{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125}}]}}
+{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"B","explanation":"延伸題解析"}}]}}]}}
 
 課程逐字稿：
 {transcript_text}
@@ -316,29 +328,101 @@ JSON 格式：
     result_json = parse_json_response(ai_response.text)
     questions = result_json.get("questions", [])
 
-    rows = [
-        {
-            "lecture_id": lecture_id,
-            "knowledge_point_id": normalize_knowledge_point_id(
-                q.get("related_knowledge_point")
-            )
-            or infer_knowledge_point_id(q.get("source_timestamp"), knowledge_points),
-            "question_text": q.get("question_text"),
-            "options_json": q.get("options"),
-            "answer": q.get("answer"),
-            "explanation": q.get("explanation"),
-            "source_timestamp": normalize_source_timestamp(q.get("source_timestamp")),
-        }
-        for q in questions
-        if q.get("question_text") and q.get("options") and q.get("answer")
+    source_questions = [
+        q for q in questions if q.get("question_text") and q.get("options") and q.get("answer")
     ]
+    rows = []
+    for q in source_questions:
+        source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
+        rows.append(
+            {
+                "lecture_id": lecture_id,
+                "knowledge_point_id": normalize_knowledge_point_id(
+                    q.get("related_knowledge_point")
+                )
+                or infer_knowledge_point_id(source_timestamp, knowledge_points),
+                "question_text": q.get("question_text"),
+                "options_json": q.get("options"),
+                "answer": normalize_answer(q.get("answer")),
+                "explanation": q.get("explanation"),
+                "source_timestamp": source_timestamp,
+                "question_type": "original",
+                "source_question_id": None,
+            }
+        )
 
     inserted = []
+    extension_status: dict[str, Any] = {"status": "skipped", "inserted": []}
     if rows:
-        response = supabase_admin.table("questions").insert(rows).execute()
-        inserted = response.data or []
+        try:
+            response = supabase_admin.table("questions").insert(rows).execute()
+            inserted = response.data or []
+        except Exception:
+            legacy_rows = [
+                {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"question_type", "source_question_id"}
+                }
+                for row in rows
+            ]
+            response = supabase_admin.table("questions").insert(legacy_rows).execute()
+            inserted = response.data or []
+            extension_status = {
+                "status": "failed",
+                "error": "questions table has no question_type/source_question_id columns; original questions were saved with legacy schema.",
+                "inserted": [],
+            }
 
-    return {"status": "success", "data": {"questions": questions}, "inserted": inserted}
+    if inserted and extension_status.get("status") != "failed":
+        extension_rows = []
+        for original, original_row in zip(source_questions, inserted):
+            source_question_id = original_row.get("id")
+            if not source_question_id:
+                continue
+            retry_questions = original.get("retry_questions") or []
+            for retry in retry_questions:
+                if not (
+                    retry.get("question_text")
+                    and retry.get("options")
+                    and retry.get("answer")
+                ):
+                    continue
+                extension_rows.append(
+                    {
+                        "lecture_id": lecture_id,
+                        "knowledge_point_id": original_row.get("knowledge_point_id"),
+                        "question_text": retry.get("question_text"),
+                        "options_json": retry.get("options"),
+                        "answer": normalize_answer(retry.get("answer")),
+                        "explanation": retry.get("explanation"),
+                        "source_timestamp": None,
+                        "question_type": "extension",
+                        "source_question_id": source_question_id,
+                    }
+                )
+        if extension_rows:
+            try:
+                extension_response = (
+                    supabase_admin.table("questions").insert(extension_rows).execute()
+                )
+                extension_status = {
+                    "status": "success",
+                    "inserted": extension_response.data or [],
+                }
+            except Exception as exc:
+                extension_status = {
+                    "status": "failed",
+                    "error": str(exc),
+                    "inserted": [],
+                }
+
+    return {
+        "status": "success",
+        "data": {"questions": questions},
+        "inserted": inserted,
+        "extensions": extension_status,
+    }
 
 
 def run_ai_generation_pipeline(
