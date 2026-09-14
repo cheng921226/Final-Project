@@ -113,7 +113,7 @@ export default function Layout({ token, setToken }) {
                                     <Link to="/achievements" className="review-nav-link">學習成就</Link>
                                 </>
                             )}
-                            {user.role === 'teacher' && (
+                            {['teacher', 'campus'].includes(user.role) && (
                                 <>
                                     <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
                                     <Link to="/teacher/questions" className="teacher-nav-link">審題</Link>
@@ -123,6 +123,7 @@ export default function Layout({ token, setToken }) {
                             )}
                             <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>
                             <span>{user.name || user.email}</span>
+                            {user.role === 'campus' && <span className="role-label">校園平台端</span>}
                             <button onClick={logout} className="ghost-button">
                                 登出
                             </button>

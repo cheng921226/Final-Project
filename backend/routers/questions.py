@@ -4,6 +4,8 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from roles import has_teacher_access
+
 from .security import get_current_user
 from .users import get_student_id_from_auth
 
@@ -80,8 +82,8 @@ def get_user_profile(user) -> dict[str, Any]:
 
 def require_teacher(user) -> dict[str, Any]:
     profile = get_user_profile(user)
-    if profile.get("role") != "teacher":
-        raise HTTPException(status_code=403, detail="這個帳號沒有老師權限")
+    if not has_teacher_access(profile.get("role")):
+        raise HTTPException(status_code=403, detail="這個帳號沒有教師端權限")
     return profile
 
 

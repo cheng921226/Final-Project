@@ -20,7 +20,7 @@ export default function CourseUpload() {
 
   useEffect(() => {
     if (!token) {
-      setError('請先使用老師帳號登入。');
+      setError('請先使用教師或校園平台端帳號登入。');
       setLoading(false);
       return;
     }
@@ -34,7 +34,9 @@ export default function CourseUpload() {
         ]);
         if (!roleRes.ok) throw new Error('無法確認帳號身分。');
         const role = await roleRes.json();
-        if (role.role !== 'teacher') throw new Error('這個頁面只有老師帳號可以使用。');
+        if (!['teacher', 'campus'].includes(role.role)) {
+          throw new Error('這個頁面只有教師或校園平台端帳號可以使用。');
+        }
         if (!idRes.ok) throw new Error('無法取得老師資料。');
         if (!courseRes.ok) throw new Error('無法取得課程列表。');
 

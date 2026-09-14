@@ -4,6 +4,8 @@ from typing import Any
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 
+from roles import has_teacher_access
+
 from .security import get_current_user
 
 router = APIRouter(prefix="/teacher", tags=["teacher analytics"])
@@ -114,8 +116,8 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         .execute()
     )
     profile = profile_response.data
-    if not profile or profile.get("role") != "teacher":
-        raise HTTPException(status_code=403, detail="Teacher access required")
+    if not profile or not has_teacher_access(profile.get("role")):
+        raise HTTPException(status_code=403, detail="Teacher or campus access required")
 
     courses = (
         supabase_admin.table("courses")

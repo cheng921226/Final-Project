@@ -93,7 +93,7 @@ export default function QuestionReview() {
 
   async function loadReviewData(preferredLectureId = lectureId) {
     if (!token) {
-      setError('請先使用老師帳號登入。');
+      setError('請先使用教師或校園平台端帳號登入。');
       setLoading(false);
       return;
     }

@@ -179,7 +179,7 @@ export default function TeacherDashboard() {
 
     const token = localStorage.getItem('access_token');
     if (!token) {
-      setError('請先使用老師帳號登入。');
+      setError('請先使用教師或校園平台端帳號登入。');
       return;
     }
 
@@ -220,7 +220,7 @@ export default function TeacherDashboard() {
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) {
-      setError('請先使用老師帳號登入。');
+      setError('請先使用教師或校園平台端帳號登入。');
       setLoading(false);
       return;
     }

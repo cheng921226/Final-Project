@@ -123,6 +123,17 @@ a {
   font-weight: 800;
 }
 
+.role-label {
+  padding: 5px 9px;
+  border: 1px solid rgba(91, 91, 214, .18);
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .ghost-button {
   border: 0;
   background: transparent;
