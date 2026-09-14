@@ -15,6 +15,38 @@ router = APIRouter()
 gemini_client = genai.Client()
 
 
+def parse_transcript_rows(rows):
+    """Return timestamped segments and plain text from transcript table rows."""
+    if not rows:
+        return [], ""
+
+    segments = []
+    stored_content = ""
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if not stored_content and isinstance(row.get("content"), str):
+            stored_content = row["content"].strip()
+
+        raw_segments = row.get("segments_json")
+        if isinstance(raw_segments, str):
+            try:
+                raw_segments = json.loads(raw_segments)
+            except json.JSONDecodeError:
+                raw_segments = []
+        if isinstance(raw_segments, list):
+            segments.extend(seg for seg in raw_segments if isinstance(seg, dict))
+        elif "text" in row:
+            segments.append(row)
+
+    segment_text = "\n".join(
+        str(seg.get("text") or "").strip()
+        for seg in segments
+        if str(seg.get("text") or "").strip()
+    )
+    return segments, stored_content or segment_text
+
+
 def normalize_source_timestamp(value):
     if value in (None, "", "null"):
         return None
@@ -99,29 +131,19 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
         )
 
         # 撈逐字稿
-        transcript_raw = get_lecture_transcript(body.lecture_id)
-        if not transcript_raw:
+        transcript_rows = get_lecture_transcript(body.lecture_id)
+        transcript_segments, transcript_text = parse_transcript_rows(transcript_rows)
+        if not transcript_text:
             raise HTTPException(status_code=400, detail="找不到此小節的逐字稿")
 
         # 撈知識點
         knowledge_points_raw = get_lecture_knowledge_points(body.lecture_id)
 
-        # 把逐字稿轉成純文字
-        transcript_text = (
-            "\n".join(
-                [seg.get("text", "") for seg in transcript_raw if isinstance(seg, dict)]
-            )
-            if isinstance(transcript_raw[0], dict)
-            else str(transcript_raw)
-        )
-
         # 抓影片當前時間點前後 60 秒的逐字稿片段（上下文）
         timestamp = body.video_timestamp
         context_segments = []
-        for seg in transcript_raw:
-            if not isinstance(seg, dict):
-                continue
-            start = seg.get("start_time") or seg.get("start") or 0
+        for seg in transcript_segments:
+            start = seg.get("start_time", seg.get("start", 0))
             try:
                 start_sec = float(start)
             except (ValueError, TypeError):
@@ -250,7 +272,8 @@ def generate_summary(body: SummaryRequest):
         return {"status": "cached", "data": existing_data}
 
     try:
-        transcript = get_lecture_transcript(body.lecture_id)
+        transcript_rows = get_lecture_transcript(body.lecture_id)
+        _, transcript = parse_transcript_rows(transcript_rows)
         if not transcript:
             raise HTTPException(
                 status_code=400, detail="Transcript not found for this lecture."
@@ -275,8 +298,9 @@ def generate_summary(body: SummaryRequest):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
-        supabase_admin.table("summaries").insert(
-            {"lecture_id": body.lecture_id, "summary_text": result_json}
+        supabase_admin.table("summaries").upsert(
+            {"lecture_id": body.lecture_id, "summary_text": result_json},
+            on_conflict="lecture_id",
         ).execute()
 
         return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
@@ -304,7 +328,8 @@ def generate_mindmap(body: MindMapRequest):
         return {"status": "cached", "data": existing_data}
 
     try:
-        transcript = get_lecture_transcript(body.lecture_id)
+        transcript_rows = get_lecture_transcript(body.lecture_id)
+        _, transcript = parse_transcript_rows(transcript_rows)
         if not transcript:
             raise HTTPException(
                 status_code=400, detail="Transcript not found for this lecture."
@@ -353,12 +378,13 @@ def generate_mindmap(body: MindMapRequest):
         if not lecture_title.data:
             raise HTTPException(status_code=404, detail="Lecture not found")
 
-        supabase_admin.table("mindmaps").insert(
+        supabase_admin.table("mindmaps").upsert(
             {
                 "lecture_id": body.lecture_id,
                 "title": lecture_title.data["title"],
                 "mindmap_json": result_json,
-            }
+            },
+            on_conflict="lecture_id",
         ).execute()
 
         return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
@@ -386,7 +412,8 @@ def generate_knowledge_points(body: KnowledgePointsRequest):
         return {"status": "cached", "data": existing_data}
 
     try:
-        transcript = get_lecture_transcript(body.lecture_id)
+        transcript_rows = get_lecture_transcript(body.lecture_id)
+        _, transcript = parse_transcript_rows(transcript_rows)
         if not transcript:
             raise HTTPException(
                 status_code=400, detail="Transcript not found for this lecture."
@@ -449,7 +476,8 @@ def generate_questions(body: QuestionsRequest):
         return {"status": "cached", "data": existing_data}
 
     try:
-        transcript = get_lecture_transcript(body.lecture_id)
+        transcript_rows = get_lecture_transcript(body.lecture_id)
+        _, transcript = parse_transcript_rows(transcript_rows)
         knowledge_points = get_lecture_knowledge_points(body.lecture_id)
         if not transcript:
             raise HTTPException(

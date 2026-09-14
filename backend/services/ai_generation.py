@@ -122,7 +122,10 @@ JSON 格式：
 
     response = (
         supabase_admin.table("summaries")
-        .insert({"lecture_id": lecture_id, "summary_text": as_json_text(result_json)})
+        .upsert(
+            {"lecture_id": lecture_id, "summary_text": as_json_text(result_json)},
+            on_conflict="lecture_id",
+        )
         .execute()
     )
     return {"status": "success", "data": result_json, "inserted": response.data or []}
@@ -213,12 +216,13 @@ JSON 格式：
 
     response = (
         supabase_admin.table("mindmaps")
-        .insert(
+        .upsert(
             {
                 "lecture_id": lecture_id,
                 "title": get_lecture_title(lecture_id),
                 "mindmap_json": result_json,
-            }
+            },
+            on_conflict="lecture_id",
         )
         .execute()
     )

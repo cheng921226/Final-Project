@@ -183,7 +183,11 @@ def save_transcript_segments(
     }
 
     try:
-        response = supabase_admin.table("transcripts").insert(row).execute()
+        response = (
+            supabase_admin.table("transcripts")
+            .upsert(row, on_conflict="lecture_id")
+            .execute()
+        )
         return {
             "saved_to_db": True,
             "inserted": len(response.data or [row]),

@@ -4,7 +4,7 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from roles import has_teacher_access
+from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 
 from .security import get_current_user
 from .users import get_student_id_from_auth
@@ -107,7 +107,9 @@ def get_lecture_for_teacher(lecture_id: int, teacher: dict[str, Any]) -> dict[st
         .execute()
     )
     course = course_response.data
-    if course and course.get("teacher_id") not in (None, teacher.get("id")):
+    if course and not can_manage_course(
+        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+    ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課的題目")
 
     return lecture
@@ -167,15 +169,10 @@ def get_lecture_questions(lecture_id: int):
 def get_teacher_question_review(user=Depends(get_current_user)):
     teacher = require_teacher(user)
 
-    courses = (
-        supabase_admin.table("courses")
-        .select("*")
-        .eq("teacher_id", teacher["id"])
-        .order("id")
-        .execute()
-        .data
-        or []
-    )
+    course_query = supabase_admin.table("courses").select("*")
+    if teacher.get("role") != CAMPUS_ROLE:
+        course_query = course_query.eq("teacher_id", teacher["id"])
+    courses = course_query.order("id").execute().data or []
 
     if not courses:
         return {"teacher": teacher, "courses": []}

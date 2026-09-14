@@ -43,9 +43,11 @@ export default function CourseUpload() {
         const idData = await idRes.json();
         const courseData = await courseRes.json();
         setTeacherId(idData.id);
-        const ownCourses = (courseData || []).filter(course => (
-          !course.teacher_id || String(course.teacher_id) === String(idData.id)
-        ));
+        const ownCourses = role.role === 'campus'
+          ? (courseData || [])
+          : (courseData || []).filter(course => (
+              !course.teacher_id || String(course.teacher_id) === String(idData.id)
+            ));
         setCourses(ownCourses);
         if (ownCourses[0]) setCourseId(String(ownCourses[0].id));
       } catch (err) {

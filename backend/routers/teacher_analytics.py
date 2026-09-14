@@ -4,8 +4,9 @@ from typing import Any
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 
-from roles import has_teacher_access
+from roles import CAMPUS_ROLE, has_teacher_access
 
+from .achievements import evaluate_course
 from .security import get_current_user
 
 router = APIRouter(prefix="/teacher", tags=["teacher analytics"])
@@ -119,29 +120,34 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     if not profile or not has_teacher_access(profile.get("role")):
         raise HTTPException(status_code=403, detail="Teacher or campus access required")
 
-    courses = (
-        supabase_admin.table("courses")
-        .select("*")
-        .eq("teacher_id", profile["id"])
-        .order("created_at")
-        .execute()
-    ).data or []
+    course_query = supabase_admin.table("courses").select("*")
+    if profile.get("role") != CAMPUS_ROLE:
+        course_query = course_query.eq("teacher_id", profile["id"])
+    courses = course_query.order("created_at").execute().data or []
     course_ids = [course["id"] for course in courses]
     if not course_ids:
         return {"teacher": profile, "courses": []}
 
     lectures = _rows("lectures", course_id=course_ids)
     lecture_ids = [lecture["id"] for lecture in lectures]
-    # Every student has access to every course, so the analytics population is
-    # the complete set of student accounts rather than an enrollment join.
     students = (
         supabase_admin.table("users")
-        .select("id,name,email,role")
+        .select("id,student_number,name,email,role")
         .eq("role", "student")
         .order("id")
         .execute()
     ).data or []
     all_student_ids = {row["id"] for row in students}
+    enrollments = []
+    if profile.get("role") == CAMPUS_ROLE:
+        enrollments = (
+            supabase_admin.table("student_courses")
+            .select("student_id,course_id")
+            .in_("course_id", course_ids)
+            .execute()
+            .data
+            or []
+        )
     progresses = _rows("video_progresses", lecture_id=lecture_ids)
     events = _rows("learning_events", lecture_id=lecture_ids)
     attempts = _rows("question_attempts", lecture_id=lecture_ids)
@@ -154,25 +160,34 @@ def get_teacher_analytics(user=Depends(get_current_user)):
 
     for course in courses:
         cid = course["id"]
+        course_student_ids = (
+            {
+                row["student_id"]
+                for row in enrollments
+                if row.get("course_id") == cid and row.get("student_id") in all_student_ids
+            }
+            if profile.get("role") == CAMPUS_ROLE
+            else all_student_ids
+        )
         course_lectures = [row for row in lectures if row.get("course_id") == cid]
         course_lecture_ids = {row["id"] for row in course_lectures}
         course_progresses = [
             row
             for row in progresses
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in all_student_ids
+            and row.get("student_id") in course_student_ids
         ]
         course_events = [
             row
             for row in events
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in all_student_ids
+            and row.get("student_id") in course_student_ids
         ]
         course_attempts = [
             row
             for row in attempts
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("student_id") in all_student_ids
+            and row.get("student_id") in course_student_ids
         ]
 
         active_students = {
@@ -180,7 +195,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             for row in course_progresses + course_events + course_attempts
             if row.get("student_id") is not None
         }
-        expected_completions = len(all_student_ids) * len(course_lectures)
+        expected_completions = len(course_student_ids) * len(course_lectures)
         completed_count = sum(bool(row.get("completed")) for row in course_progresses)
         correct_count = sum(bool(row.get("is_correct")) for row in course_attempts)
 
@@ -218,7 +233,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     ),
                     "completion_rate": _percent(
                         sum(bool(row.get("completed")) for row in lecture_progresses),
-                        len(all_student_ids),
+                        len(course_student_ids),
                     ),
                     "watched_minutes": round(
                         sum(
@@ -243,7 +258,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             )
 
         student_results = []
-        for student_id in sorted(all_student_ids):
+        for student_id in sorted(course_student_ids):
             student = student_map.get(student_id, {})
             student_progress = [
                 row for row in course_progresses if row.get("student_id") == student_id
@@ -257,6 +272,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             student_correct = sum(
                 bool(row.get("is_correct")) for row in student_attempts
             )
+            credit_result = evaluate_course(
+                course, course_lectures, student_progress, student_attempts
+            )
             last_active = None
             for row in student_progress:
                 last_active = _latest(last_active, row.get("updated_at"))
@@ -268,6 +286,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             student_results.append(
                 {
                     "id": student_id,
+                    "student_number": student.get("student_number"),
                     "name": student.get("name") or f"學生 {student_id}",
                     "email": student.get("email"),
                     "completed_lectures": sum(
@@ -281,6 +300,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     ),
                     "attempts": len(student_attempts),
                     "accuracy": _percent(student_correct, len(student_attempts)),
+                    "course_passed": credit_result["course_passed"],
+                    "credits_earned": credit_result["credits_earned"],
+                    "credits_total": credit_result["credits_total"],
                     "last_active": last_active,
                 }
             )
@@ -309,7 +331,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 "id": cid,
                 "title": course.get("title") or f"課程 {cid}",
                 "summary": {
-                    "students": len(all_student_ids),
+                    "students": len(course_student_ids),
                     "active_students": len(active_students),
                     "lectures": len(course_lectures),
                     "completion_rate": _percent(completed_count, expected_completions),

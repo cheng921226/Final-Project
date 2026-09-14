@@ -1,6 +1,6 @@
 from database.supabase import SUPABASE_KEY, SUPABASE_URL, supabase_admin
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from supabase import create_client
 
 router = APIRouter()
@@ -8,6 +8,7 @@ router = APIRouter()
 
 class RegisterRequest(BaseModel):
     name: str
+    student_number: str = Field(min_length=1, max_length=50)
     email: EmailStr
     password: str
 
@@ -16,30 +17,21 @@ class RegisterRequest(BaseModel):
 def register(data: RegisterRequest):
     try:
         res = supabase_admin.auth.admin.create_user(
-            {"email": data.email, "password": data.password, "email_confirm": True}
+            {
+                "email": data.email,
+                "password": data.password,
+                "email_confirm": True,
+                "user_metadata": {
+                    "name": data.name.strip(),
+                    "student_number": data.student_number.strip().upper(),
+                },
+            }
         )
 
         user = res.user
 
         if user is None:
             raise HTTPException(400, detail="Create user failed")
-
-        db_res = (
-            supabase_admin.table("users")
-            .insert(
-                {
-                    "auth_id": user.id,
-                    "name": data.name,
-                    "email": data.email,
-                    "role": "student",
-                }
-            )
-            .execute()
-        )
-
-        if not db_res.data:
-            supabase_admin.auth.admin.delete_user(user.id)
-            raise HTTPException(status_code=400, detail="Insert user profile failed")
 
         return {"message": "register success"}
     except Exception as e:

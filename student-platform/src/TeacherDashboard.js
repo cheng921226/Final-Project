@@ -87,6 +87,7 @@ export default function TeacherDashboard() {
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [emailPreview, setEmailPreview] = useState({ subject: '', body: '' });
+  const [exportingRoster, setExportingRoster] = useState(false);
 
   useEffect(() => {
     setShowAllQuestions(false);
@@ -214,6 +215,35 @@ export default function TeacherDashboard() {
       window.alert(err.message || '寄信失敗');
     } finally {
       setSendingEmails(false);
+    }
+  };
+
+  const handleExportCreditRoster = async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token || !courseId) return;
+
+    setExportingRoster(true);
+    try {
+      const response = await fetch(`${API_URL}/campus/courses/${courseId}/credit-roster.csv`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || '匯出學分名冊失敗');
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `course-${courseId}-credit-roster.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      window.alert(err.message || '匯出學分名冊失敗');
+    } finally {
+      setExportingRoster(false);
     }
   };
 
@@ -366,6 +396,16 @@ export default function TeacherDashboard() {
               ))}
             </select>
           </label>
+          {data.teacher?.role === 'campus' && (
+            <button
+              type="button"
+              className="teacher-mail-button campus-export-button"
+              onClick={handleExportCreditRoster}
+              disabled={exportingRoster || !courseId}
+            >
+              {exportingRoster ? '正在匯出...' : '匯出學分名冊'}
+            </button>
+          )}
         </div>
       </header>
 
@@ -474,7 +514,7 @@ export default function TeacherDashboard() {
                 checked={allStudentsSelected}
                 onChange={handleToggleAllStudents}
                 aria-label="全選學生"
-              /></th><th>學生</th><th>完成小節</th><th>觀看時間</th><th>答題率</th><th>最近活動</th></tr></thead>
+              /></th>{data.teacher?.role === 'campus' && <th>學號</th>}<th>學生</th><th>完成小節</th><th>觀看時間</th><th>答題率</th>{data.teacher?.role === 'campus' && <th>學分狀態</th>}<th>最近活動</th></tr></thead>
               <tbody>
                 {course.students.map(student => (
                   <tr key={student.id}>
@@ -486,10 +526,18 @@ export default function TeacherDashboard() {
                         aria-label={`選擇 ${student.name}`}
                       />
                     </td>
+                    {data.teacher?.role === 'campus' && <td>{student.student_number || '尚未填寫'}</td>}
                     <td><div className="student-cell"><span>{student.name.charAt(0)}</span><div><strong>{student.name}</strong><small>{student.email}</small></div></div></td>
                     <td><b>{student.completed_lectures}</b> / {student.total_lectures}</td>
                     <td>{student.watched_minutes} 分鐘</td>
                     <td><span className={`accuracy-chip ${student.accuracy < 60 ? 'needs-help' : ''}`}>{student.accuracy}%</span></td>
+                    {data.teacher?.role === 'campus' && (
+                      <td>
+                        <span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>
+                          {student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}
+                        </span>
+                      </td>
+                    )}
                     <td>{formatDate(student.last_active)}</td>
                   </tr>
                 ))}

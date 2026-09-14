@@ -5,6 +5,7 @@ const API_URL = "http://127.0.0.1:8000";
 
 export default function Register() {
     const [name, setName] = useState("");
+    const [studentNumber, setStudentNumber] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
@@ -14,6 +15,11 @@ export default function Register() {
 
     async function handleRegister() {
         setError(null);
+
+        if (!name.trim() || !studentNumber.trim() || !email.trim() || !password) {
+            setError("請完整填寫姓名、學號、電子信箱與密碼");
+            return;
+        }
 
         if (password !== confirmPassword) {
             setError("密碼不一致");
@@ -26,6 +32,7 @@ export default function Register() {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     name,
+                    student_number: studentNumber,
                     email,
                     password,
                 }),
@@ -36,7 +43,6 @@ export default function Register() {
                 throw new Error(err.detail || "註冊失敗");
             }
 
-            const data = await res.json();
             alert("註冊成功");
             navigate("/login");
         } catch (err) {
@@ -52,18 +58,27 @@ export default function Register() {
                 <p className="intro">一個帳號，保存你的課程與學習進度。</p>
 
                 <label className="field"><span>姓名</span><input placeholder="你的名字"
+                    value={name}
                     onChange={(e) => setName(e.target.value)}
                 /></label>
 
+                <label className="field"><span>學號</span><input placeholder="請輸入學號" autoComplete="off"
+                    value={studentNumber}
+                    onChange={(e) => setStudentNumber(e.target.value.toUpperCase())}
+                /></label>
+
                 <label className="field"><span>電子信箱</span><input placeholder="name@example.com" autoComplete="email"
+                    value={email}
                     onChange={(e) => setEmail(e.target.value)}
                 /></label>
 
                 <label className="field"><span>密碼</span><input type="password" placeholder="設定密碼" autoComplete="new-password"
+                    value={password}
                     onChange={(e) => setPassword(e.target.value)}
                 /></label>
 
                 <label className="field"><span>確認密碼</span><input type="password" placeholder="再輸入一次密碼" autoComplete="new-password"
+                    value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                 /></label>
 

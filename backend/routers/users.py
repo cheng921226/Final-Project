@@ -1,6 +1,10 @@
 from database.supabase import supabase_admin
 from fastapi import APIRouter, HTTPException, Depends
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
+from typing import Literal
+
+from roles import CAMPUS_ROLE
+
 from .security import get_current_user
 
 router = APIRouter()
@@ -8,13 +12,24 @@ router = APIRouter()
 
 class UserCreate(BaseModel):
     name: str
-    email: str | None = None
-    role: str = "teacher"
+    email: EmailStr | None = None
+    role: Literal["teacher", "campus"] = "teacher"
 
 
 # 新增使用者（老師）
 @router.post("/users")
-def create_user(body: UserCreate):
+def create_user(body: UserCreate, user=Depends(get_current_user)):
+    requester = (
+        supabase_admin.table("users")
+        .select("role")
+        .eq("auth_id", user.id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not requester or requester.get("role") != CAMPUS_ROLE:
+        raise HTTPException(status_code=403, detail="只有校園平台端可以新增帳號資料")
+
     res = (
         supabase_admin.table("users")
         .insert(
@@ -28,7 +43,8 @@ def create_user(body: UserCreate):
     )
     if not res.data:
         raise HTTPException(status_code=500, detail="新增使用者失敗")
-    return res.data[0]
+    created = res.data[0]
+    return {key: created.get(key) for key in ("id", "name", "email", "role")}
 
 
 # 內部取 id 函式
@@ -146,7 +162,12 @@ def get_chat_context(lecture_id: int, student_id: int, limit: int = 10):
 # 取得所有老師清單
 @router.get("/teachers")
 def get_teachers():
-    res = supabase_admin.table("users").select("*").eq("role", "teacher").execute()
+    res = (
+        supabase_admin.table("users")
+        .select("id,name,role")
+        .in_("role", ["teacher", "campus"])
+        .execute()
+    )
     return res.data
 
 
@@ -155,9 +176,12 @@ def get_teachers():
 def get_teacher(teacher_id: int):
     res = (
         supabase_admin.table("users")
-        .select("*")
+        .select("id,name,role")
         .eq("id", teacher_id)
-        .single()
+        .in_("role", ["teacher", "campus"])
+        .maybe_single()
         .execute()
     )
+    if not res.data:
+        raise HTTPException(status_code=404, detail="找不到講師資料")
     return res.data

@@ -5,7 +5,7 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from roles import has_teacher_access
+from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 
 from .security import get_current_user
 
@@ -263,15 +263,10 @@ def get_student_achievements(user=Depends(get_current_user)):
 @router.get("/teacher/course-credit-settings")
 def get_teacher_course_credit_settings(user=Depends(get_current_user)):
     teacher = require_teacher(user)
-    courses = (
-        supabase_admin.table("courses")
-        .select("*")
-        .eq("teacher_id", teacher["id"])
-        .order("id")
-        .execute()
-        .data
-        or []
-    )
+    course_query = supabase_admin.table("courses").select("*")
+    if teacher.get("role") != CAMPUS_ROLE:
+        course_query = course_query.eq("teacher_id", teacher["id"])
+    courses = course_query.order("id").execute().data or []
     return {
         "teacher": teacher,
         "courses": [
@@ -303,7 +298,9 @@ def update_course_credit_settings(
     course = course_response.data
     if not course:
         raise HTTPException(status_code=404, detail="找不到課程")
-    if course.get("teacher_id") not in (None, teacher.get("id")):
+    if not can_manage_course(
+        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+    ):
         raise HTTPException(status_code=403, detail="沒有權限修改這門課")
 
     course_update = {

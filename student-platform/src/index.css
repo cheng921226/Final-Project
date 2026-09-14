@@ -956,6 +956,28 @@ a {
   opacity: .45;
 }
 
+.campus-export-button {
+  align-self: end;
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+.credit-status-chip {
+  display: inline-flex;
+  padding: 5px 9px;
+  border-radius: 999px;
+  background: #f1f3f7;
+  color: #737c90;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.credit-status-chip.earned {
+  background: #e8f7ef;
+  color: #17824d;
+}
+
 .email-preview-backdrop {
   position: fixed;
   inset: 0;
