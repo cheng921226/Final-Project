@@ -46,6 +46,30 @@ function formatVideoTime(value) {
     : `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+function extractYouTubeVideoId(rawUrl) {
+  if (!rawUrl) return '';
+  try {
+    const url = new URL(rawUrl);
+    const hostname = url.hostname.replace(/^www\./, '');
+    if (hostname === 'youtu.be') {
+      return url.pathname.split('/').filter(Boolean)[0] || '';
+    }
+
+    const watchId = url.searchParams.get('v');
+    if (watchId) return watchId;
+
+    const pathParts = url.pathname.split('/').filter(Boolean);
+    const videoPathIndex = pathParts.findIndex(part => ['embed', 'shorts', 'live'].includes(part));
+    if (videoPathIndex >= 0) {
+      return pathParts[videoPathIndex + 1] || '';
+    }
+  } catch (e) {
+    const match = String(rawUrl).match(/(?:v=|youtu\.be\/|embed\/|shorts\/|live\/)([A-Za-z0-9_-]{11})/);
+    return match?.[1] || '';
+  }
+  return '';
+}
+
 function mergeSegments(segments) {
   if (segments.length === 0) return [];
   const sorted = [...segments].sort((a, b) => a.start - b.start);
@@ -129,6 +153,7 @@ function LectureDetail() {
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
+  const [videoError, setVideoError] = useState('');
   const [mindmapMarkdown, setMindmapMarkdown] = useState('');
   const [notes, setNotes] = useState([]);
   const [noteTitle, setNoteTitle] = useState('');
@@ -174,6 +199,7 @@ function LectureDetail() {
   const ignoreSeekUntilRef = useRef(0);
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
+  const playerLoadTimeoutRef = useRef(null);
   const questionsRef = useRef([]);
   const activeQuestionRef = useRef(null);
   const shownQuestionIdsRef = useRef(new Set());
@@ -434,10 +460,13 @@ function LectureDetail() {
           const lectureData = await lectureRes.json();
           const raw = lectureData[0]?.media_url;
           if (raw) {
-            try {
-              const vid = new URL(raw).searchParams.get('v');
-              if (vid) setVideoId(vid);
-            } catch (e) { }
+            const vid = extractYouTubeVideoId(raw);
+            if (vid) {
+              setVideoId(vid);
+              setVideoError('');
+            } else {
+              setVideoError('影片連結格式無法解析');
+            }
           }
         }
 
@@ -603,6 +632,8 @@ function LectureDetail() {
   // 初始化 YouTube IFrame API
   useEffect(() => {
     if (!videoId) return;
+    setVideoError('');
+    playerReadyRef.current = false;
 
     function observePlaybackPosition(currentTime, currentState) {
       const now = Date.now();
@@ -650,10 +681,21 @@ function LectureDetail() {
 
       playerRef.current = new window.YT.Player('yt-player', {
         videoId: videoId,
-        playerVars: { rel: 0, modestbranding: 1 },
+        playerVars: {
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          origin: window.location.origin,
+          widget_referrer: window.location.href,
+        },
         events: {
           onReady: async (event) => {
             playerReadyRef.current = true;
+            setVideoError('');
+            if (playerLoadTimeoutRef.current) {
+              clearTimeout(playerLoadTimeoutRef.current);
+              playerLoadTimeoutRef.current = null;
+            }
             totalDurationRef.current = event.target.getDuration();
 
             // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
@@ -752,9 +794,19 @@ function LectureDetail() {
               });
             }
           },
+
+          onError: (event) => {
+            setVideoError(`YouTube 播放器載入失敗（錯誤 ${event.data}）`);
+          },
         },
       });
     }
+
+    playerLoadTimeoutRef.current = setTimeout(() => {
+      if (!playerReadyRef.current) {
+        setVideoError('YouTube 播放器沒有成功載入，可能是瀏覽器未送出 referrer 或影片禁止嵌入播放');
+      }
+    }, 8000);
 
     if (window.YT && window.YT.Player) {
       initPlayer();
@@ -782,6 +834,10 @@ function LectureDetail() {
       }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
+      if (playerLoadTimeoutRef.current) {
+        clearTimeout(playerLoadTimeoutRef.current);
+        playerLoadTimeoutRef.current = null;
+      }
       playerReadyRef.current = false;
       playerRef.current?.destroy?.();
       playerRef.current = null;
@@ -1067,7 +1123,25 @@ function LectureDetail() {
         <main className="learning-main flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
           <div className="flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
             {videoId ? (
-              <div id="yt-player" style={{ width: '100%', height: '100%' }} />
+              <div className="relative w-full h-full">
+                <div id="yt-player" style={{ width: '100%', height: '100%' }} />
+                {videoError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center text-white">
+                    <p className="text-sm font-semibold">{videoError}</p>
+                    <p className="max-w-md text-xs text-slate-300">
+                      目前課程資料有讀到，但 YouTube 嵌入播放器沒有成功載入。可以先用 YouTube 開啟確認影片內容。
+                    </p>
+                    <a
+                      href={`https://www.youtube.com/watch?v=${videoId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
+                    >
+                      用 YouTube 開啟
+                    </a>
+                  </div>
+                )}
+              </div>
             ) : (
               <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
                 {loading ? '載入影片中...' : '無影片資料'}
