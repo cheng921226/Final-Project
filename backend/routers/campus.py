@@ -77,7 +77,9 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
     lecture_ids = [row["id"] for row in lectures if row.get("id") is not None]
 
     progresses: list[dict[str, Any]] = []
-    attempts: list[dict[str, Any]] = []
+    final_attempts: list[dict[str, Any]] = []
+    certificates: list[dict[str, Any]] = []
+    final_questions: list[dict[str, Any]] = []
     if lecture_ids:
         progresses = (
             supabase_admin.table("video_progresses")
@@ -88,15 +90,35 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
             .data
             or []
         )
-        attempts = (
-            supabase_admin.table("question_attempts")
-            .select("*")
-            .in_("student_id", student_ids)
-            .in_("lecture_id", lecture_ids)
-            .execute()
-            .data
-            or []
-        )
+    final_attempts = (
+        supabase_admin.table("final_assessment_attempts")
+        .select("*")
+        .in_("student_id", student_ids)
+        .eq("course_id", course_id)
+        .order("attempt_number")
+        .execute()
+        .data
+        or []
+    )
+    certificates = (
+        supabase_admin.table("course_certifications")
+        .select("*")
+        .in_("student_id", student_ids)
+        .eq("course_id", course_id)
+        .execute()
+        .data
+        or []
+    )
+    certificates = [row for row in certificates if row.get("final_attempt_id")]
+    final_questions = (
+        supabase_admin.table("final_assessment_questions")
+        .select("id")
+        .eq("course_id", course_id)
+        .eq("is_active", True)
+        .execute()
+        .data
+        or []
+    )
 
     enrolled_at = {
         row.get("student_id"): row.get("created_at") for row in enrollments
@@ -108,7 +130,9 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
             course,
             lectures,
             [row for row in progresses if row.get("student_id") == student_id],
-            [row for row in attempts if row.get("student_id") == student_id],
+            [row for row in final_attempts if row.get("student_id") == student_id],
+            next((row for row in certificates if row.get("student_id") == student_id), None),
+            len(final_questions),
         )
         roster.append(
             {
@@ -120,7 +144,7 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
                 "completed_lectures": result["completed_lectures"],
                 "total_lectures": result["lecture_count"],
                 "completion_percentage": result["completion_percentage"],
-                "quiz_average": result["quiz_average"],
+                "final_score": result["final_score"],
                 "course_passed": result["course_passed"],
                 "credits_earned": result["credits_earned"],
                 "credits_total": result["credits_total"],
@@ -158,7 +182,7 @@ def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
             "完成小節",
             "小節總數",
             "完成度",
-            "測驗平均",
+            "最終測驗成績",
             "是否取得學分",
             "取得學分數",
             "課程學分數",
@@ -179,7 +203,7 @@ def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
                 student["completed_lectures"],
                 student["total_lectures"],
                 f'{student["completion_percentage"]}%',
-                "尚無作答" if student["quiz_average"] is None else student["quiz_average"],
+                "尚未測驗" if student["final_score"] is None else student["final_score"],
                 "是" if student["course_passed"] else "否",
                 student["credits_earned"],
                 student["credits_total"],

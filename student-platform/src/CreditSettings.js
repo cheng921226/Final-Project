@@ -8,8 +8,10 @@ function emptyForm(course = {}) {
     credit_value: course.credit_value ?? 2,
     completion_threshold: course.completion_threshold ?? 100,
     passing_score: course.passing_score ?? 70,
-    require_passing_score: Boolean(course.require_passing_score),
+    retest_cooldown_minutes: course.retest_cooldown_minutes ?? 60,
+    final_question_count: course.final_question_count ?? 10,
     certification_enabled: course.certification_enabled ?? true,
+    certificate_show_score: course.certificate_show_score ?? true,
   };
 }
 
@@ -25,6 +27,7 @@ export default function CreditSettings() {
   const [form, setForm] = useState(emptyForm());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -91,9 +94,11 @@ export default function CreditSettings() {
       const payload = {
         credit_value: toNumber(form.credit_value),
         completion_threshold: toNumber(form.completion_threshold, 100),
-        passing_score: form.require_passing_score ? toNumber(form.passing_score, 70) : null,
-        require_passing_score: Boolean(form.require_passing_score),
+        passing_score: toNumber(form.passing_score, 70),
+        retest_cooldown_minutes: toNumber(form.retest_cooldown_minutes, 60),
+        final_question_count: toNumber(form.final_question_count, 10),
         certification_enabled: Boolean(form.certification_enabled),
+        certificate_show_score: Boolean(form.certificate_show_score),
       };
 
       const res = await fetch(`${API_URL}/teacher/courses/${courseId}/credit-settings`, {
@@ -114,6 +119,30 @@ export default function CreditSettings() {
       setMessage(err.message || '儲存學分設定失敗');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function generateFinalAssessment() {
+    if (!courseId || generating) return;
+    setGenerating(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/teacher/courses/${courseId}/final-assessment/generate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ question_count: toNumber(form.final_question_count, 10) }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || '正式測驗題目生成失敗');
+      setMessage(`已建立第 ${data.bank_version} 版正式測驗，共 ${data.question_count} 題。`);
+      await loadSettings(courseId);
+    } catch (err) {
+      setMessage(typeof err.message === 'string' ? err.message : '正式測驗題目生成失敗');
+    } finally {
+      setGenerating(false);
     }
   }
 
@@ -148,7 +177,7 @@ export default function CreditSettings() {
         <div>
           <p className="eyebrow">Credit rules</p>
           <h1>學分與認證設定</h1>
-          <p>設定每門課的學分數與通過條件；學生達成全部條件後，會一次取得完整學分。</p>
+          <p>設定影片完成門檻與正式測驗規則；影片中的練習題不列入學分計算。</p>
         </div>
         <div className="teacher-filters">
           <label>
@@ -166,7 +195,7 @@ export default function CreditSettings() {
         <div className="panel-title">
           <div>
             <h3>{selectedCourse?.title || '課程設定'}</h3>
-            <p>學生必須達成下方全部條件，才能通過課程並取得完整學分。</p>
+            <p>學生完成課程內容並通過 Course 層級最終測驗後，才會取得學分與認證。</p>
           </div>
         </div>
 
@@ -181,13 +210,31 @@ export default function CreditSettings() {
           </label>
           <label className="review-field">
             <span>及格分數</span>
-            <input type="number" min="0" max="100" value={form.passing_score} disabled={!form.require_passing_score} onChange={event => updateField('passing_score', event.target.value)} />
+            <input type="number" min="0" max="100" value={form.passing_score} onChange={event => updateField('passing_score', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>重測冷卻時間（分鐘）</span>
+            <input type="number" min="0" max="43200" value={form.retest_cooldown_minutes} onChange={event => updateField('retest_cooldown_minutes', event.target.value)} />
+          </label>
+          <label className="review-field">
+            <span>每次正式測驗題數</span>
+            <input type="number" min="1" max="50" value={form.final_question_count} onChange={event => updateField('final_question_count', event.target.value)} />
           </label>
         </div>
 
         <div className="settings-switches">
-          <label><input type="checkbox" checked={form.require_passing_score} onChange={event => updateField('require_passing_score', event.target.checked)} /> 需要測驗分數達標</label>
           <label><input type="checkbox" checked={form.certification_enabled} onChange={event => updateField('certification_enabled', event.target.checked)} /> 完成後顯示認證</label>
+          <label><input type="checkbox" checked={form.certificate_show_score} onChange={event => updateField('certificate_show_score', event.target.checked)} /> 認證顯示最終測驗成績</label>
+        </div>
+
+        <div className="final-bank-status">
+          <div>
+            <strong>正式測驗題庫</strong>
+            <p>目前啟用 {selectedCourse?.final_assessment_question_count ?? 0} 題。重新生成會建立新版本，既有作答紀錄不受影響。</p>
+          </div>
+          <button className="secondary-button" type="button" onClick={generateFinalAssessment} disabled={generating}>
+            {generating ? 'AI 產題中...' : 'AI 生成正式測驗'}
+          </button>
         </div>
 
         {message && <p className="question-review-message">{message}</p>}

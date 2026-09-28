@@ -196,7 +196,7 @@ function ReviewMode() {
         throw new Error(data.detail || '無法開始重新測驗');
       }
       if (data.status === 'already_passed') {
-        setRetestMessage('原始正確率已達通過標準，不需要重新測驗。');
+        setRetestMessage('練習題正確率已達掌握目標，不需要補充練習。');
         setRefreshKey(key => key + 1);
         return;
       }
@@ -382,15 +382,15 @@ function ReviewMode() {
                   </div>
                 )}
                 <div>
-                  <span>通過標準</span>
+                    <span>練習掌握目標</span>
                   <strong>{formatPercent(reviewData.assessment?.pass_threshold)}</strong>
                 </div>
                 <p className={reviewData.assessment?.passed ? 'review-success' : 'teacher-empty compact'}>
                   {reviewData.assessment?.passed
-                    ? '已達到課程測驗通過標準。'
+                    ? '已達到練習題掌握目標。這項結果只供學習診斷，不影響學分。'
                     : reviewData.assessment?.original_accuracy === null || reviewData.assessment?.original_accuracy === undefined
                       ? '完成影片中的題目後，這裡會顯示課程測驗狀態。'
-                      : '目前尚未達到課程通過標準，請先完成錯題複習，再進行重新測驗。'}
+                      : '目前練習題尚未達到掌握目標，可先回顧錯題，再進行補充練習。'}
                 </p>
                 {!reviewData.assessment?.passed && (reviewData.wrong_questions || []).length > 0 && (
                   <button
@@ -399,7 +399,7 @@ function ReviewMode() {
                     onClick={startRetest}
                     disabled={retestLoading}
                   >
-                    {retestLoading ? '準備中...' : '開始重新測驗'}
+                    {retestLoading ? '準備中...' : '開始補充練習'}
                   </button>
                 )}
                 {retestMessage && <small className="review-reset-message">{retestMessage}</small>}
@@ -409,7 +409,7 @@ function ReviewMode() {
                 <div className="retest-panel">
                   <div className="panel-title">
                     <div>
-                      <h3>重新測驗</h3>
+                      <h3>補充練習</h3>
                       <p>本次測驗將針對你先前需要加強的內容進行驗證。</p>
                     </div>
                     <span className="table-count">{retestQuestions.length} 題</span>
@@ -449,7 +449,7 @@ function ReviewMode() {
                       onClick={submitRetest}
                       disabled={retestSubmitting}
                     >
-                      {retestSubmitting ? '送出中...' : '送出重新測驗'}
+                      {retestSubmitting ? '送出中...' : '送出補充練習'}
                     </button>
                   </div>
                 </div>

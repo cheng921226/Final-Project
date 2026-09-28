@@ -3,6 +3,7 @@ from typing import Any
 
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
@@ -15,9 +16,11 @@ router = APIRouter()
 class CourseCreditSettingsPayload(BaseModel):
     credit_value: float = Field(ge=0)
     completion_threshold: float = Field(default=100, ge=0, le=100)
-    passing_score: float | None = Field(default=None, ge=0, le=100)
-    require_passing_score: bool = False
+    passing_score: float = Field(default=70, ge=0, le=100)
+    retest_cooldown_minutes: int = Field(default=60, ge=0, le=43200)
+    final_question_count: int = Field(default=10, ge=1, le=50)
     certification_enabled: bool = True
+    certificate_show_score: bool = True
 
 
 def user_profile(user) -> dict[str, Any]:
@@ -70,37 +73,42 @@ def evaluate_course(
     course: dict[str, Any],
     lectures: list[dict[str, Any]],
     progresses: list[dict[str, Any]],
-    attempts: list[dict[str, Any]],
+    final_attempts: list[dict[str, Any]],
+    certificate: dict[str, Any] | None,
+    final_question_count: int,
 ) -> dict[str, Any]:
     lecture_count = len(lectures)
-    completed_lectures = sum(1 for row in progresses if row.get("completed"))
+    progress_by_lecture = {row.get("lecture_id"): row for row in progresses}
+    completed_lectures = sum(
+        1
+        for lecture in lectures
+        if progress_by_lecture.get(lecture.get("id"), {}).get("completed")
+    )
     completion_percentage = percent(completed_lectures, lecture_count)
     watched_seconds = sum(number(row.get("watched_seconds")) for row in progresses)
 
-    attempt_count = len(attempts)
-    correct_count = sum(1 for row in attempts if row.get("is_correct"))
-    quiz_average = percent(correct_count, attempt_count) if attempt_count else None
+    latest_attempt = final_attempts[-1] if final_attempts else None
+    passed_attempt = next(
+        (attempt for attempt in reversed(final_attempts) if attempt.get("passed")), None
+    )
+    final_score = passed_attempt.get("score") if passed_attempt else (
+        latest_attempt.get("score") if latest_attempt else None
+    )
 
     total_credits = number(course.get("credit_value"))
     has_credit_settings = total_credits > 0
     required_completion = number(course.get("completion_threshold"), 100)
+    required_score = number(course.get("passing_score"), 70)
     completion_requirement_met = completion_percentage >= required_completion
-    score_is_required = bool(course.get("require_passing_score"))
-    required_score = number(course.get("passing_score"), 70) if score_is_required else None
-    score_requirement_met = (
-        not score_is_required
-        or (quiz_average is not None and quiz_average >= required_score)
-    )
+    final_requirement_met = bool(passed_attempt)
     course_passed = bool(
-        has_credit_settings
-        and completion_requirement_met
-        and score_requirement_met
+        certificate
+        or (has_credit_settings and completion_requirement_met and final_requirement_met)
     )
-    earned_credits = total_credits if course_passed else 0.0
-    certification_earned = bool(
-        course.get("certification_enabled", True)
-        and course_passed
+    earned_credits = number(certificate.get("credits_awarded")) if certificate else (
+        total_credits if course_passed else 0.0
     )
+    certification_earned = bool(certificate)
 
     requirements = [
         {
@@ -110,20 +118,16 @@ def evaluate_course(
             "target": required_completion,
             "unit": "%",
             "met": completion_requirement_met,
-        }
+        },
+        {
+            "key": "final_assessment",
+            "label": "最終測驗",
+            "current": final_score,
+            "target": required_score,
+            "unit": "分",
+            "met": final_requirement_met,
+        },
     ]
-    if score_is_required:
-        requirements.append(
-            {
-                "key": "score",
-                "label": "測驗平均",
-                "current": quiz_average,
-                "target": required_score,
-                "unit": "分",
-                "met": score_requirement_met,
-            }
-        )
-
     next_requirements = [
         f"{item['label']}達到 {item['target']:g}{item['unit']}"
         for item in requirements
@@ -132,14 +136,14 @@ def evaluate_course(
 
     if certification_earned:
         status = "certified"
-        status_label = "已取得認證"
+        status_label = "已完成"
     elif course_passed:
         status = "passed"
         status_label = "已通過"
     elif not has_credit_settings:
         status = "unconfigured"
         status_label = "尚未設定學分"
-    elif completion_percentage > 0 or attempt_count > 0:
+    elif completion_percentage > 0 or final_attempts:
         status = "in_progress"
         status_label = "進行中"
     else:
@@ -154,12 +158,16 @@ def evaluate_course(
         "completion_percentage": completion_percentage,
         "watched_seconds": int(watched_seconds),
         "watched_hours": round(watched_seconds / 3600, 1),
-        "quiz_average": quiz_average,
-        "attempt_count": attempt_count,
+        "final_score": final_score,
+        "final_attempt_count": len(final_attempts),
+        "final_assessment_passed": final_requirement_met,
+        "has_final_assessment": final_question_count > 0,
+        "retry_available_at": latest_attempt.get("retry_available_at") if latest_attempt else None,
         "credits_earned": earned_credits,
         "credits_total": total_credits,
         "course_passed": course_passed,
         "certification_earned": certification_earned,
+        "certificate": certificate,
         "status": status,
         "status_label": status_label,
         "next_requirements": [] if course_passed else next_requirements,
@@ -174,15 +182,42 @@ def get_student_achievements(user=Depends(get_current_user)):
     if profile.get("role") != "student":
         raise HTTPException(status_code=403, detail="這個頁面只有學生帳號可以使用")
     student_id = profile["id"]
-    courses = (
-        supabase_admin.table("courses").select("*").order("id").execute().data or []
+    enrollments = (
+        supabase_admin.table("student_courses")
+        .select("course_id")
+        .eq("student_id", student_id)
+        .execute()
+        .data
+        or []
     )
-    lectures = supabase_admin.table("lectures").select("*").order("id").execute().data or []
+    enrolled_course_ids = [
+        row["course_id"] for row in enrollments if row.get("course_id") is not None
+    ]
+    courses = []
+    lectures = []
+    if enrolled_course_ids:
+        courses = (
+            supabase_admin.table("courses")
+            .select("*")
+            .in_("id", enrolled_course_ids)
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
+        lectures = (
+            supabase_admin.table("lectures")
+            .select("*")
+            .in_("course_id", enrolled_course_ids)
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
     lecture_ids = [row["id"] for row in lectures if row.get("id") is not None]
+    course_ids = [row["id"] for row in courses if row.get("id") is not None]
 
     progresses = []
-    attempts = []
-    questions = []
     if lecture_ids:
         progresses = (
             supabase_admin.table("video_progresses")
@@ -193,28 +228,58 @@ def get_student_achievements(user=Depends(get_current_user)):
             .data
             or []
         )
-        attempts = (
-            supabase_admin.table("question_attempts")
-            .select("*")
-            .eq("student_id", student_id)
-            .in_("lecture_id", lecture_ids)
-            .execute()
-            .data
-            or []
-        )
-        questions = (
-            supabase_admin.table("questions")
-            .select("id, lecture_id")
-            .in_("lecture_id", lecture_ids)
-            .execute()
-            .data
-            or []
-        )
+
+    final_attempts = []
+    certificates = []
+    final_questions = []
+    if course_ids:
+        try:
+            final_attempts = (
+                supabase_admin.table("final_assessment_attempts")
+                .select("*")
+                .eq("student_id", student_id)
+                .in_("course_id", course_ids)
+                .order("attempt_number")
+                .execute()
+                .data
+                or []
+            )
+            certificates = (
+                supabase_admin.table("course_certifications")
+                .select("*")
+                .eq("student_id", student_id)
+                .in_("course_id", course_ids)
+                .execute()
+                .data
+                or []
+            )
+            certificates = [row for row in certificates if row.get("final_attempt_id")]
+            final_questions = (
+                supabase_admin.table("final_assessment_questions")
+                .select("id, course_id")
+                .in_("course_id", course_ids)
+                .eq("is_active", True)
+                .execute()
+                .data
+                or []
+            )
+        except APIError as exc:
+            if exc.code in {"PGRST204", "PGRST205"}:
+                raise HTTPException(
+                    status_code=503,
+                    detail="資料庫尚未完成正式測驗 migration，請先執行 final_assessment_and_certificates.sql",
+                ) from exc
+            raise
 
     lectures_by_course = grouped_by(lectures, "course_id")
     progresses_by_lecture = grouped_by(progresses, "lecture_id")
-    attempts_by_lecture = grouped_by(attempts, "lecture_id")
-    question_lecture_ids = {row.get("lecture_id") for row in questions}
+    attempts_by_course = grouped_by(final_attempts, "course_id")
+    certificates_by_course = {
+        row.get("course_id"): row for row in certificates if row.get("course_id") is not None
+    }
+    question_counts: dict[Any, int] = defaultdict(int)
+    for row in final_questions:
+        question_counts[row.get("course_id")] += 1
 
     course_results = []
     for course in courses:
@@ -224,34 +289,25 @@ def get_student_achievements(user=Depends(get_current_user)):
             for lecture in course_lectures
             for progress in progresses_by_lecture.get(lecture.get("id"), [])
         ]
-        course_attempts = [
-            attempt
-            for lecture in course_lectures
-            for attempt in attempts_by_lecture.get(lecture.get("id"), [])
-        ]
-        result = evaluate_course(
-            course,
-            course_lectures,
-            course_progresses,
-            course_attempts,
+        course_results.append(
+            evaluate_course(
+                course,
+                course_lectures,
+                course_progresses,
+                attempts_by_course.get(course.get("id"), []),
+                certificates_by_course.get(course.get("id")),
+                question_counts.get(course.get("id"), 0),
+            )
         )
-        result["has_questions"] = any(
-            lecture.get("id") in question_lecture_ids for lecture in course_lectures
-        )
-        course_results.append(result)
 
     return {
         "student_id": student_id,
         "summary": {
-            "completed_courses": sum(
-                1 for course in course_results if course["course_passed"]
-            ),
+            "completed_courses": sum(1 for course in course_results if course["course_passed"]),
             "learning_hours": round(
                 sum(course["watched_seconds"] for course in course_results) / 3600, 1
             ),
-            "earned_credits": round(
-                sum(course["credits_earned"] for course in course_results), 2
-            ),
+            "earned_credits": round(sum(course["credits_earned"] for course in course_results), 2),
             "certifications": sum(
                 1 for course in course_results if course["certification_earned"]
             ),
@@ -267,12 +323,30 @@ def get_teacher_course_credit_settings(user=Depends(get_current_user)):
     if teacher.get("role") != CAMPUS_ROLE:
         course_query = course_query.eq("teacher_id", teacher["id"])
     courses = course_query.order("id").execute().data or []
+    course_ids = [course["id"] for course in courses if course.get("id") is not None]
+    question_counts: dict[Any, int] = defaultdict(int)
+    if course_ids:
+        try:
+            rows = (
+                supabase_admin.table("final_assessment_questions")
+                .select("id, course_id")
+                .in_("course_id", course_ids)
+                .eq("is_active", True)
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                question_counts[row.get("course_id")] += 1
+        except Exception:
+            question_counts = defaultdict(int)
     return {
         "teacher": teacher,
         "courses": [
             {
                 **course,
                 "title": course_title(course),
+                "final_assessment_question_count": question_counts.get(course.get("id"), 0),
             }
             for course in courses
         ],
@@ -286,8 +360,6 @@ def update_course_credit_settings(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    if payload.require_passing_score and payload.passing_score is None:
-        raise HTTPException(status_code=422, detail="啟用測驗門檻時必須設定及格分數")
     course_response = (
         supabase_admin.table("courses")
         .select("id, teacher_id")
@@ -308,8 +380,11 @@ def update_course_credit_settings(
         "partial_credit_enabled": False,
         "completion_threshold": payload.completion_threshold,
         "passing_score": payload.passing_score,
-        "require_passing_score": payload.require_passing_score,
+        "require_passing_score": True,
+        "retest_cooldown_minutes": payload.retest_cooldown_minutes,
+        "final_question_count": payload.final_question_count,
         "certification_enabled": payload.certification_enabled,
+        "certificate_show_score": payload.certificate_show_score,
     }
     updated_course = (
         supabase_admin.table("courses")
@@ -319,11 +394,7 @@ def update_course_credit_settings(
         .data
         or []
     )
-
-    supabase_admin.table("course_credit_rules").delete().eq(
-        "course_id", course_id
-    ).execute()
-
+    supabase_admin.table("course_credit_rules").delete().eq("course_id", course_id).execute()
     return {
         "course": updated_course[0] if updated_course else course_update,
         "rules": [],

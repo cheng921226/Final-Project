@@ -153,6 +153,10 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     attempts = _rows("question_attempts", lecture_id=lecture_ids)
     questions = _rows("questions", lecture_id=lecture_ids)
     knowledge_points = _rows("knowledge_points", lecture_id=lecture_ids)
+    final_attempts = _rows("final_assessment_attempts", course_id=course_ids)
+    certificates = _rows("course_certifications", course_id=course_ids)
+    certificates = [row for row in certificates if row.get("final_attempt_id")]
+    final_questions = _rows("final_assessment_questions", course_id=course_ids)
 
     student_map = {row["id"]: row for row in students}
     question_map = {row["id"]: row for row in questions}
@@ -273,7 +277,27 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 bool(row.get("is_correct")) for row in student_attempts
             )
             credit_result = evaluate_course(
-                course, course_lectures, student_progress, student_attempts
+                course,
+                course_lectures,
+                student_progress,
+                [
+                    row
+                    for row in final_attempts
+                    if row.get("course_id") == cid and row.get("student_id") == student_id
+                ],
+                next(
+                    (
+                        row
+                        for row in certificates
+                        if row.get("course_id") == cid and row.get("student_id") == student_id
+                    ),
+                    None,
+                ),
+                sum(
+                    1
+                    for row in final_questions
+                    if row.get("course_id") == cid and row.get("is_active", True)
+                ),
             )
             last_active = None
             for row in student_progress:
@@ -303,6 +327,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     "course_passed": credit_result["course_passed"],
                     "credits_earned": credit_result["credits_earned"],
                     "credits_total": credit_result["credits_total"],
+                    "final_score": credit_result["final_score"],
                     "last_active": last_active,
                 }
             )
