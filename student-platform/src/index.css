@@ -2976,3 +2976,175 @@ a {
     justify-content: space-between;
   }
 }
+
+/* Course-level final assessment and certificate */
+.secondary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #334155;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.secondary-button:hover { background: #f8fafc; }
+.secondary-button:disabled { cursor: wait; opacity: .6; }
+
+.final-bank-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin-top: 22px;
+  padding: 18px;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.final-bank-status strong { color: #0f172a; }
+.final-bank-status p { margin: 5px 0 0; color: #64748b; font-size: 13px; }
+
+.achievement-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+.final-assessment-entry {
+  border-color: #99d5c9;
+  background: #f2fbf8;
+}
+
+.lecture-number.final {
+  background: #0f766e;
+  color: #fff;
+}
+
+.final-assessment-page,
+.certificate-page {
+  width: min(1120px, calc(100% - 40px));
+  margin: 0 auto;
+  padding: 32px 0 64px;
+}
+
+.final-assessment-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.final-assessment-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-block: 1px solid #dbe3ea;
+  margin: 24px 0;
+}
+
+.final-assessment-summary > div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 20px 24px;
+  border-right: 1px solid #dbe3ea;
+}
+
+.final-assessment-summary > div:last-child { border-right: 0; }
+.final-assessment-summary span { color: #64748b; font-size: 13px; }
+.final-assessment-summary strong { color: #0f172a; font-size: 24px; }
+
+.assessment-state-card,
+.assessment-result,
+.final-question-panel {
+  margin-top: 22px;
+  padding: 26px;
+  border: 1px solid #dbe3ea;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.assessment-state-card h2,
+.assessment-result h2 { margin: 0 0 8px; color: #0f172a; font-size: 22px; }
+.assessment-state-card p,
+.assessment-result p { margin: 6px 0 18px; color: #64748b; }
+.assessment-state-card.cooldown { border-left: 5px solid #d97706; }
+.assessment-state-card.passed,
+.assessment-result.passed { border-left: 5px solid #0f766e; background: #f2fbf8; }
+.assessment-result.failed { border-left: 5px solid #dc6b3f; background: #fff8f5; }
+.assessment-state-card.cooldown > strong { display: block; margin: 8px 0; color: #92400e; font-size: 28px; }
+
+.assessment-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.final-question-panel .review-question-list { margin-top: 18px; }
+.final-question { border-radius: 8px; }
+
+.certificate-toolbar {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.certificate-sheet {
+  aspect-ratio: 16 / 9;
+  padding: 24px;
+  border: 8px solid #0f766e;
+  background: #f8fafc;
+  box-shadow: 0 20px 55px rgba(15, 23, 42, .15);
+}
+
+.certificate-inner {
+  display: flex;
+  height: 100%;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #cbd5e1;
+  text-align: center;
+}
+
+.certificate-kicker { margin: 0 0 8px; color: #0f766e; font-size: 13px; font-weight: 800; }
+.certificate-inner h1 { margin: 0 0 25px; color: #0f172a; font-size: clamp(28px, 4vw, 54px); }
+.certificate-copy { margin: 8px 0; color: #64748b; }
+.certificate-inner h2 { margin: 4px 0 12px; color: #0f172a; font-size: clamp(25px, 3.5vw, 46px); }
+.certificate-inner h3 { margin: 4px 0 22px; color: #0f172a; font-size: clamp(21px, 3vw, 38px); }
+
+.certificate-details {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px 32px;
+  color: #334155;
+  font-weight: 700;
+}
+
+.certificate-details span { display: flex; flex-direction: column; gap: 3px; }
+.certificate-details small { color: #64748b; font-size: 11px; font-weight: 600; }
+.certificate-inner footer { display: flex; width: min(760px, 86%); justify-content: space-between; margin-top: 32px; color: #64748b; font-size: 12px; }
+.certificate-inner code { color: #475569; }
+
+@media (max-width: 760px) {
+  .final-assessment-page,
+  .certificate-page { width: min(100% - 24px, 1120px); padding-top: 20px; }
+  .final-assessment-hero,
+  .assessment-result,
+  .final-bank-status { align-items: stretch; flex-direction: column; }
+  .final-assessment-summary { grid-template-columns: 1fr; }
+  .final-assessment-summary > div { border-right: 0; border-bottom: 1px solid #dbe3ea; }
+  .final-assessment-summary > div:last-child { border-bottom: 0; }
+  .certificate-sheet { min-height: 560px; aspect-ratio: auto; padding: 12px; }
+  .certificate-details { display: grid; grid-template-columns: 1fr 1fr; }
+  .certificate-inner footer { flex-direction: column; gap: 6px; }
+}

@@ -98,3 +98,5 @@ begin
     on delete set null;
   end if;
 end $$;
+
+notify pgrst, 'reload schema';

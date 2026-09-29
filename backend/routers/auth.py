@@ -50,7 +50,11 @@ class RefreshRequest(BaseModel):
 @router.post("/login")
 def login(data: LoginRequest):
     try:
-        res = supabase_admin.auth.sign_in_with_password(
+        # Keep the service-role client stateless. Signing in on that shared
+        # client would replace its Authorization header with the user's token
+        # and make later admin writes subject to that user's RLS policies.
+        auth_client = create_client(SUPABASE_URL, SUPABASE_KEY)
+        res = auth_client.auth.sign_in_with_password(
             {"email": data.email, "password": data.password}
         )
 

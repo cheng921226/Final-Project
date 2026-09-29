@@ -13,6 +13,8 @@ import QuestionReview from './QuestionReview';
 import Achievements from './Achievements';
 import CourseUpload from './CourseUpload';
 import CreditSettings from './CreditSettings';
+import FinalAssessment from './FinalAssessment';
+import Certificate from './Certificate';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
@@ -24,11 +26,13 @@ export default function App() {
           <Route index element={<Home token={token} />} />
           <Route path="course/:id" element={<CourseDetail />} />
           <Route path="course/:id/lecture/:lectureId" element={<LectureDetail />} />
+          <Route path="course/:id/final-assessment" element={<FinalAssessment />} />
           <Route path="login" element={<Login setToken={setToken} />} />
           <Route path="register" element={<Register />} />
           <Route path="profile" element={<Profile />} />
           <Route path="review" element={<ReviewMode />} />
           <Route path="achievements" element={<Achievements />} />
+          <Route path="certificate/:courseId" element={<Certificate />} />
           <Route path="teacher" element={<TeacherDashboard />} />
           <Route path="teacher/upload" element={<CourseUpload />} />
           <Route path="teacher/questions" element={<QuestionReview />} />

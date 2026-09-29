@@ -7,6 +7,7 @@ function CourseDetail() {
   const { id } = useParams();
   const [lectures, setLectures] = useState([]);
   const [progressMap, setProgressMap] = useState({}); // { lectureId: { watched_seconds, completed } }
+  const [finalAssessment, setFinalAssessment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -46,6 +47,15 @@ function CourseDetail() {
           if (data) map[lectureId] = data;
         });
         setProgressMap(map);
+
+        try {
+          const assessmentRes = await fetch(`${API_URL}/courses/${id}/final-assessment`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (assessmentRes.ok) setFinalAssessment(await assessmentRes.json());
+        } catch {
+          setFinalAssessment(null);
+        }
       } catch (err) {
         setError(err.message || '取得小節列表失敗');
       } finally {
@@ -132,6 +142,32 @@ function CourseDetail() {
                 </Link>
               );
             })}
+
+            {finalAssessment && (
+              <Link to={`/course/${id}/final-assessment`}>
+                <div className={`lecture-card final-assessment-entry ${finalAssessment.state}`}>
+                  <div className="lecture-info">
+                    <span className="lecture-number final">✓</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="lecture-title">課程最終測驗</h3>
+                        {finalAssessment.state === 'passed' && <span className="achievement-status certified">已完成</span>}
+                      </div>
+                      <p className="lecture-subtitle">
+                        {finalAssessment.state === 'locked' && '完成課程內容後解鎖'}
+                        {finalAssessment.state === 'unconfigured' && '教師尚未完成學分設定'}
+                        {finalAssessment.state === 'not_ready' && '教師正在準備正式測驗'}
+                        {finalAssessment.state === 'ready' && `已解鎖 · 通過標準 ${finalAssessment.settings.passing_score} 分`}
+                        {finalAssessment.state === 'in_progress' && '測驗進行中'}
+                        {finalAssessment.state === 'cooldown' && '等待重新測驗開放'}
+                        {finalAssessment.state === 'passed' && '已通過並取得課程學分'}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="lecture-state"><span className="card-arrow">→</span></div>
+                </div>
+              </Link>
+            )}
           </div>
         )}
       </main>
