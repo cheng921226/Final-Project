@@ -288,7 +288,7 @@ def generate_summary(body: SummaryRequest):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -357,7 +357,7 @@ def generate_mindmap(body: MindMapRequest):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -430,7 +430,7 @@ def generate_knowledge_points(body: KnowledgePointsRequest):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.5-flash",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
