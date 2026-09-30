@@ -235,7 +235,9 @@ export default function TeacherDashboard() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `course-${courseId}-credit-roster.csv`;
+      const courseTitle = course?.title || `課程 ${courseId}`;
+      const safeCourseTitle = courseTitle.replace(/[\\/:*?"<>|]/g, '_').trim();
+      link.download = `${safeCourseTitle}-學分名冊.csv`;
       document.body.appendChild(link);
       link.click();
       link.remove();

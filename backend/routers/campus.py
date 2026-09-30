@@ -2,6 +2,7 @@ import csv
 import io
 from datetime import datetime, timezone
 from typing import Any
+from urllib.parse import quote
 
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -212,9 +213,11 @@ def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
             ]
         )
 
-    filename = f"course-{course_id}-credit-roster.csv"
+    filename = f"{course_title}-學分名冊.csv"
     return Response(
         content="\ufeff" + output.getvalue(),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"
+        },
     )
