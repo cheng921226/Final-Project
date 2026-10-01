@@ -117,6 +117,7 @@ export default function Layout({ token, setToken }) {
                                 <>
                                     <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
                                     <Link to="/teacher/questions" className="teacher-nav-link">審題</Link>
+                                    <Link to="/teacher/final-assessment" className="teacher-nav-link">最終測驗</Link>
                                     <Link to="/teacher/upload" className="teacher-nav-link">上傳課程</Link>
                                     <Link to="/teacher/credits" className="teacher-nav-link">學分設定</Link>
                                 </>

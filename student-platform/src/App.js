@@ -14,6 +14,7 @@ import Achievements from './Achievements';
 import CourseUpload from './CourseUpload';
 import CreditSettings from './CreditSettings';
 import FinalAssessment from './FinalAssessment';
+import TeacherFinalAssessment from './TeacherFinalAssessment';
 import Certificate from './Certificate';
 
 export default function App() {
@@ -36,6 +37,7 @@ export default function App() {
           <Route path="teacher" element={<TeacherDashboard />} />
           <Route path="teacher/upload" element={<CourseUpload />} />
           <Route path="teacher/questions" element={<QuestionReview />} />
+          <Route path="teacher/final-assessment" element={<TeacherFinalAssessment />} />
           <Route path="teacher/credits" element={<CreditSettings />} />
         </Route>
       </Routes>

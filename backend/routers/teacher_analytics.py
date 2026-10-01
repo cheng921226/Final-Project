@@ -5,6 +5,7 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 
 from roles import CAMPUS_ROLE, has_teacher_access
+from services.question_statistics import percentage, question_attempt_statistics
 
 from .achievements import evaluate_course
 from .security import get_current_user
@@ -104,7 +105,7 @@ def _hotspots(
 
 
 def _percent(numerator: int | float, denominator: int | float) -> int:
-    return round(numerator / denominator * 100) if denominator else 0
+    return percentage(numerator, denominator)
 
 
 @router.get("/analytics")
@@ -333,21 +334,22 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             )
 
         question_results = []
+        question_stats = question_attempt_statistics(course_attempts)
         for question_id in {row.get("question_id") for row in course_attempts}:
             if question_id is None:
                 continue
             question_attempts = [
                 row for row in course_attempts if row.get("question_id") == question_id
             ]
-            correct = sum(bool(row.get("is_correct")) for row in question_attempts)
+            stats = question_stats.get(question_id, {})
             question = question_map.get(question_id, {})
             question_results.append(
                 {
                     "id": question_id,
                     "lecture_id": question.get("lecture_id"),
                     "text": question.get("question_text") or f"題目 {question_id}",
-                    "attempts": len(question_attempts),
-                    "accuracy": _percent(correct, len(question_attempts)),
+                    "attempts": stats.get("attempt_count", len(question_attempts)),
+                    "accuracy": stats.get("accuracy", 0),
                 }
             )
 

@@ -3,12 +3,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from database.supabase import supabase_admin
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 from services.ai_generation import gemini_client, normalize_answer, parse_json_response
+from services.question_statistics import question_attempt_statistics
 
 from .security import get_current_user
 
@@ -26,6 +27,28 @@ class FinalAssessmentSubmit(BaseModel):
 
 class FinalAssessmentGenerateRequest(BaseModel):
     question_count: int | None = Field(default=None, ge=1, le=50)
+
+
+class FinalQuestionCreate(BaseModel):
+    question_text: str
+    options_json: list[str] = Field(default_factory=list)
+    answer: str
+    explanation: str | None = None
+    knowledge_point_id: int | None = None
+    is_active: bool = True
+
+
+class FinalQuestionUpdate(BaseModel):
+    question_text: str | None = None
+    options_json: list[str] | None = None
+    answer: str | None = None
+    explanation: str | None = None
+    knowledge_point_id: int | None = None
+    is_active: bool | None = None
+
+
+class ImportInLectureQuestions(BaseModel):
+    question_ids: list[int] = Field(min_length=1)
 
 
 def number(value: Any, default: float = 0) -> float:
@@ -84,6 +107,16 @@ def get_course(course_id: int) -> dict[str, Any]:
     if not response.data:
         raise HTTPException(status_code=404, detail="找不到課程")
     return response.data
+
+
+def require_course_manager(course_id: int, user) -> tuple[dict[str, Any], dict[str, Any]]:
+    teacher = require_teacher(user)
+    course = get_course(course_id)
+    if not can_manage_course(
+        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+    ):
+        raise HTTPException(status_code=403, detail="沒有權限管理這門課")
+    return teacher, course
 
 
 def require_enrollment(student_id: int, course_id: int) -> None:
@@ -156,6 +189,39 @@ def active_questions(course_id: int) -> list[dict[str, Any]]:
         .data
         or []
     )
+
+
+def current_bank_version(course_id: int) -> int:
+    rows = (
+        supabase_admin.table("final_assessment_questions")
+        .select("bank_version")
+        .eq("course_id", course_id)
+        .order("bank_version", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    return int(rows[0].get("bank_version") or 1) if rows else 1
+
+
+def final_question_payload(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id"),
+        "course_id": row.get("course_id"),
+        "question_text": row.get("question_text"),
+        "options_json": row.get("options_json") or [],
+        "answer": row.get("answer"),
+        "explanation": row.get("explanation"),
+        "knowledge_point_id": row.get("knowledge_point_id"),
+        "knowledge_point_titles": row.get("knowledge_point_titles") or [],
+        "source_type": row.get("source_type") or "ai",
+        "source_question_id": row.get("source_question_id"),
+        "bank_version": row.get("bank_version"),
+        "is_active": bool(row.get("is_active")),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
 
 
 def student_attempts(student_id: int, course_id: int) -> list[dict[str, Any]]:
@@ -316,6 +382,361 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
     return payload
 
 
+@router.get("/teacher/final-assessments")
+def get_teacher_final_assessments(user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    course_query = supabase_admin.table("courses").select("*")
+    if teacher.get("role") != CAMPUS_ROLE:
+        course_query = course_query.eq("teacher_id", teacher["id"])
+    courses = course_query.order("id").execute().data or []
+    course_ids = [row["id"] for row in courses]
+    questions = []
+    if course_ids:
+        questions = (
+            supabase_admin.table("final_assessment_questions")
+            .select("id,course_id,bank_version,is_active")
+            .in_("course_id", course_ids)
+            .execute()
+            .data
+            or []
+        )
+    results = []
+    for course in courses:
+        rows = [row for row in questions if row.get("course_id") == course["id"]]
+        latest_version = max((int(row.get("bank_version") or 1) for row in rows), default=0)
+        latest_rows = [
+            row for row in rows if int(row.get("bank_version") or 1) == latest_version
+        ]
+        results.append(
+            {
+                "id": course["id"],
+                "title": course.get("title") or f"課程 {course['id']}",
+                "passing_score": number(course.get("passing_score"), 70),
+                "final_question_count": int(number(course.get("final_question_count"), 10)),
+                "has_final_assessment": bool(rows),
+                "current_version": latest_version,
+                "question_count": len(latest_rows),
+                "active_question_count": sum(bool(row.get("is_active")) for row in latest_rows),
+            }
+        )
+    return {"teacher": teacher, "courses": results}
+
+
+@router.get("/teacher/courses/{course_id}/final-assessment")
+def get_teacher_final_assessment(
+    course_id: int,
+    bank_version: int | None = Query(default=None, ge=1),
+    user=Depends(get_current_user),
+):
+    _, course = require_course_manager(course_id, user)
+    all_rows = (
+        supabase_admin.table("final_assessment_questions")
+        .select("*")
+        .eq("course_id", course_id)
+        .order("bank_version", desc=True)
+        .order("id")
+        .execute()
+        .data
+        or []
+    )
+    versions = sorted(
+        {int(row.get("bank_version") or 1) for row in all_rows}, reverse=True
+    )
+    selected_version = bank_version or (versions[0] if versions else 1)
+    rows = [
+        row
+        for row in all_rows
+        if int(row.get("bank_version") or 1) == selected_version
+    ]
+    lectures = get_course_lectures(course_id)
+    lecture_ids = [row["id"] for row in lectures]
+    knowledge_points = []
+    if lecture_ids:
+        knowledge_points = (
+            supabase_admin.table("knowledge_points")
+            .select("id,lecture_id,title")
+            .in_("lecture_id", lecture_ids)
+            .order("id")
+            .execute()
+            .data
+            or []
+        )
+    lecture_titles = {row["id"]: row.get("title") for row in lectures}
+    return {
+        "course": {
+            "id": course_id,
+            "title": course.get("title") or f"課程 {course_id}",
+            "passing_score": number(course.get("passing_score"), 70),
+            "final_question_count": int(number(course.get("final_question_count"), 10)),
+        },
+        "has_final_assessment": bool(all_rows),
+        "current_version": versions[0] if versions else 0,
+        "selected_version": selected_version,
+        "is_current_version": selected_version == (versions[0] if versions else 1),
+        "versions": [
+            {
+                "bank_version": version,
+                "question_count": sum(
+                    int(row.get("bank_version") or 1) == version for row in all_rows
+                ),
+                "active_question_count": sum(
+                    int(row.get("bank_version") or 1) == version
+                    and bool(row.get("is_active"))
+                    for row in all_rows
+                ),
+            }
+            for version in versions
+        ],
+        "question_count": len(rows),
+        "active_question_count": sum(bool(row.get("is_active")) for row in rows),
+        "questions": [final_question_payload(row) for row in rows],
+        "knowledge_points": [
+            {**row, "lecture_title": lecture_titles.get(row.get("lecture_id"))}
+            for row in knowledge_points
+        ],
+    }
+
+
+@router.post("/teacher/courses/{course_id}/final-assessment/questions")
+def create_final_assessment_question(
+    course_id: int,
+    payload: FinalQuestionCreate,
+    user=Depends(get_current_user),
+):
+    require_course_manager(course_id, user)
+    if not payload.question_text.strip() or len(payload.options_json) < 2:
+        raise HTTPException(status_code=422, detail="題目與選項不可空白")
+    answer = normalize_answer(payload.answer)
+    if answer not in {"A", "B", "C", "D", "E"}:
+        raise HTTPException(status_code=422, detail="請設定正確答案")
+    row = {
+        **payload.model_dump(),
+        "course_id": course_id,
+        "question_text": payload.question_text.strip(),
+        "answer": answer,
+        "source_type": "manual",
+        "source_question_id": None,
+        "knowledge_point_titles": [],
+        "bank_version": current_bank_version(course_id),
+    }
+    response = supabase_admin.table("final_assessment_questions").insert(row).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="新增正式測驗題目失敗")
+    return final_question_payload(response.data[0])
+
+
+@router.patch("/teacher/final-assessment/questions/{question_id}")
+def update_final_assessment_question(
+    question_id: int,
+    payload: FinalQuestionUpdate,
+    user=Depends(get_current_user),
+):
+    existing = (
+        supabase_admin.table("final_assessment_questions")
+        .select("*")
+        .eq("id", question_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="找不到正式測驗題目")
+    require_course_manager(existing["course_id"], user)
+    if int(existing.get("bank_version") or 1) != current_bank_version(existing["course_id"]):
+        raise HTTPException(status_code=409, detail="歷史版本為唯讀，不能修改")
+    update = payload.model_dump(exclude_unset=True)
+    if "answer" in update:
+        update["answer"] = normalize_answer(update["answer"])
+    if "question_text" in update:
+        update["question_text"] = update["question_text"].strip()
+    update["updated_at"] = datetime.now(timezone.utc).isoformat()
+    response = (
+        supabase_admin.table("final_assessment_questions")
+        .update(update)
+        .eq("id", question_id)
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=500, detail="修改正式測驗題目失敗")
+    return final_question_payload(response.data[0])
+
+
+@router.delete("/teacher/final-assessment/questions/{question_id}")
+def delete_final_assessment_question(question_id: int, user=Depends(get_current_user)):
+    existing = (
+        supabase_admin.table("final_assessment_questions")
+        .select("id,course_id")
+        .eq("id", question_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not existing:
+        raise HTTPException(status_code=404, detail="找不到正式測驗題目")
+    require_course_manager(existing["course_id"], user)
+    full_existing = (
+        supabase_admin.table("final_assessment_questions")
+        .select("bank_version")
+        .eq("id", question_id)
+        .single()
+        .execute()
+        .data
+    )
+    if int((full_existing or {}).get("bank_version") or 1) != current_bank_version(existing["course_id"]):
+        raise HTTPException(status_code=409, detail="歷史版本為唯讀，不能停用")
+    response = (
+        supabase_admin.table("final_assessment_questions")
+        .update(
+            {
+                "is_active": False,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        .eq("id", question_id)
+        .execute()
+    )
+    return {"message": "disabled", "question_id": question_id, "data": response.data or []}
+
+
+@router.get("/teacher/courses/{course_id}/in-lecture-questions")
+def get_in_lecture_question_candidates(
+    course_id: int,
+    lecture_id: int | None = None,
+    sort: str = Query(default="accuracy_asc"),
+    user=Depends(get_current_user),
+):
+    require_course_manager(course_id, user)
+    lectures = get_course_lectures(course_id)
+    lecture_map = {row["id"]: row for row in lectures}
+    lecture_ids = list(lecture_map)
+    if lecture_id is not None:
+        if lecture_id not in lecture_map:
+            raise HTTPException(status_code=404, detail="找不到該課程的小節")
+        lecture_ids = [lecture_id]
+    if not lecture_ids:
+        return {"lectures": [], "questions": []}
+
+    questions = (
+        supabase_admin.table("questions")
+        .select("*")
+        .in_("lecture_id", lecture_ids)
+        .eq("question_type", "original")
+        .execute()
+        .data
+        or []
+    )
+    questions = [row for row in questions if row.get("source_timestamp") is not None]
+    question_ids = [row["id"] for row in questions]
+    attempts = []
+    if question_ids:
+        attempts = (
+            supabase_admin.table("question_attempts")
+            .select("question_id,is_correct")
+            .in_("question_id", question_ids)
+            .execute()
+            .data
+            or []
+        )
+    stats = question_attempt_statistics(attempts)
+    kp_ids = [row.get("knowledge_point_id") for row in questions if row.get("knowledge_point_id")]
+    knowledge_points = []
+    if kp_ids:
+        knowledge_points = (
+            supabase_admin.table("knowledge_points")
+            .select("id,title")
+            .in_("id", kp_ids)
+            .execute()
+            .data
+            or []
+        )
+    kp_map = {row["id"]: row for row in knowledge_points}
+    lecture_order = {row["id"]: index for index, row in enumerate(lectures)}
+    result = [
+        {
+            "id": row["id"],
+            "lecture_id": row["lecture_id"],
+            "lecture_title": lecture_map[row["lecture_id"]].get("title")
+            or f"小節 {row['lecture_id']}",
+            "question_text": row.get("question_text"),
+            "options_json": row.get("options_json") or [],
+            "correct_answer": row.get("answer"),
+            "explanation": row.get("explanation"),
+            "source_timestamp": row.get("source_timestamp"),
+            "knowledge_point_id": row.get("knowledge_point_id"),
+            "knowledge_point": kp_map.get(row.get("knowledge_point_id")),
+            **stats.get(row["id"], {"attempt_count": 0, "correct_count": 0, "accuracy": 0}),
+            "lecture_order": lecture_order[row["lecture_id"]],
+        }
+        for row in questions
+    ]
+    if sort not in {"accuracy_asc", "accuracy_desc", "timeline_asc", "timeline_desc"}:
+        raise HTTPException(status_code=422, detail="不支援的排序方式")
+    if sort.startswith("accuracy"):
+        result.sort(
+            key=lambda row: (row["accuracy"], row["lecture_order"], row["source_timestamp"]),
+            reverse=sort.endswith("desc"),
+        )
+    else:
+        result.sort(
+            key=lambda row: (row["lecture_order"], row["source_timestamp"]),
+            reverse=sort.endswith("desc"),
+        )
+    return {
+        "lectures": [
+            {"id": row["id"], "title": row.get("title") or f"小節 {row['id']}"}
+            for row in lectures
+        ],
+        "questions": result,
+    }
+
+
+@router.post("/teacher/courses/{course_id}/final-assessment/questions/from-in-lecture")
+def import_in_lecture_questions(
+    course_id: int,
+    payload: ImportInLectureQuestions,
+    user=Depends(get_current_user),
+):
+    require_course_manager(course_id, user)
+    lectures = get_course_lectures(course_id)
+    lecture_ids = [row["id"] for row in lectures]
+    rows = (
+        supabase_admin.table("questions")
+        .select("*")
+        .in_("id", list(dict.fromkeys(payload.question_ids)))
+        .in_("lecture_id", lecture_ids)
+        .eq("question_type", "original")
+        .execute()
+        .data
+        or []
+    )
+    if len(rows) != len(set(payload.question_ids)):
+        raise HTTPException(status_code=422, detail="部分題目不屬於這門課或不可匯入")
+    version = current_bank_version(course_id)
+    snapshots = [
+        {
+            "course_id": course_id,
+            "question_text": row.get("question_text"),
+            "options_json": row.get("options_json") or [],
+            "answer": normalize_answer(row.get("answer")),
+            "explanation": row.get("explanation"),
+            "knowledge_point_id": row.get("knowledge_point_id"),
+            "knowledge_point_titles": [],
+            "source_type": "in_lecture",
+            "source_question_id": row["id"],
+            "bank_version": version,
+            "is_active": True,
+        }
+        for row in rows
+    ]
+    response = supabase_admin.table("final_assessment_questions").insert(snapshots).execute()
+    return {
+        "status": "success",
+        "bank_version": version,
+        "question_count": len(response.data or []),
+        "questions": [final_question_payload(row) for row in response.data or []],
+    }
+
+
 @router.get("/courses/{course_id}/final-assessment")
 def get_final_assessment_status(course_id: int, user=Depends(get_current_user)):
     return build_status(require_student(user), course_id)
@@ -349,6 +770,9 @@ def start_final_assessment(course_id: int, user=Depends(get_current_user)):
     questions = active_questions(course_id)
     requested_count = max(1, int(number(course.get("final_question_count"), 10)))
     selected = random.sample(questions, min(requested_count, len(questions)))
+    bank_version = max(
+        (int(question.get("bank_version") or 1) for question in selected), default=1
+    )
     attempts = student_attempts(student["id"], course_id)
     row = {
         "student_id": student["id"],
@@ -357,6 +781,7 @@ def start_final_assessment(course_id: int, user=Depends(get_current_user)):
         "passing_score": number(course.get("passing_score"), 70),
         "total_questions": len(selected),
         "question_ids": [question["id"] for question in selected],
+        "bank_version": bank_version,
         "status": "in_progress",
     }
     response = supabase_admin.table("final_assessment_attempts").insert(row).execute()
@@ -480,7 +905,7 @@ def submit_final_assessment(
     }
 
 
-def transcript_text_for_course(course_id: int) -> str:
+def course_material_for_final_assessment(course_id: int) -> str:
     lectures = get_course_lectures(course_id)
     lecture_ids = [row["id"] for row in lectures if row.get("id") is not None]
     if not lecture_ids:
@@ -494,7 +919,25 @@ def transcript_text_for_course(course_id: int) -> str:
         .data
         or []
     )
+    summaries = (
+        supabase_admin.table("summaries")
+        .select("lecture_id,summary_text")
+        .in_("lecture_id", lecture_ids)
+        .execute()
+        .data
+        or []
+    )
+    knowledge_points = (
+        supabase_admin.table("knowledge_points")
+        .select("id,lecture_id,title,description")
+        .in_("lecture_id", lecture_ids)
+        .order("id")
+        .execute()
+        .data
+        or []
+    )
     transcript_map = {row.get("lecture_id"): row for row in transcripts}
+    summary_map = {row.get("lecture_id"): row for row in summaries}
     blocks = []
     for lecture in lectures:
         transcript = transcript_map.get(lecture.get("id"), {})
@@ -506,9 +949,24 @@ def transcript_text_for_course(course_id: int) -> str:
                 for segment in segments
                 if isinstance(segment, dict)
             )
-        if content:
+        summary = str(
+            summary_map.get(lecture.get("id"), {}).get("summary_text") or ""
+        ).strip()
+        points = [
+            point
+            for point in knowledge_points
+            if point.get("lecture_id") == lecture.get("id")
+        ]
+        if content or summary or points:
             title = lecture.get("title") or lecture.get("course_name") or f"Lecture {lecture.get('id')}"
-            blocks.append(f"## {title}\n{content}")
+            point_text = "\n".join(
+                f"- id={point.get('id')}: {point.get('title')} - {point.get('description') or ''}"
+                for point in points
+            )
+            blocks.append(
+                f"## {title}\n\n摘要：\n{summary or '無'}\n\n知識點：\n{point_text or '無'}"
+                f"\n\n逐字稿：\n{content or '無'}"
+            )
     return "\n\n".join(blocks)
 
 
@@ -525,24 +983,25 @@ def generate_final_assessment(
     ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課")
 
-    transcript = transcript_text_for_course(course_id)
-    if not transcript:
-        raise HTTPException(status_code=400, detail="這門課目前沒有可用的逐字稿")
+    material = course_material_for_final_assessment(course_id)
+    if not material:
+        raise HTTPException(status_code=400, detail="這門課目前沒有可用的課程內容")
     count = payload.question_count or int(number(course.get("final_question_count"), 10))
     prompt = f"""
-請根據以下整門課程的逐字稿，產生 {count} 題正式期末選擇題。
+請根據以下整門課程的逐字稿、摘要與知識點，產生 {count} 題正式選擇題。
 這些題目用於 Course 層級的 Final Assessment，不是影片播放中的練習題。
 請平均涵蓋不同小節的重要概念，避免只集中在單一小節。
 每題固定四個選項，answer 只能是 A、B、C 或 D。
 題目不需要影片時間點，不要輸出 source_timestamp。
+題目應著重核心概念、理解與應用，避免只考記憶性內容。
 每題必須包含清楚的 explanation，並可提供 knowledge_point_titles 字串陣列。
 請只輸出穩定 JSON。
 
 JSON 格式：
 {{"questions":[{{"question_text":"題目","options":["A. 選項A","B. 選項B","C. 選項C","D. 選項D"],"answer":"A","explanation":"解析","knowledge_point_titles":["知識點"]}}]}}
 
-課程逐字稿：
-{transcript}
+整門課程資料：
+{material}
 """
     try:
         ai_response = gemini_client.models.generate_content(
@@ -588,6 +1047,9 @@ JSON 格式：
             "answer": normalize_answer(question["answer"]),
             "explanation": question.get("explanation"),
             "knowledge_point_titles": question.get("knowledge_point_titles") or [],
+            "knowledge_point_id": None,
+            "source_type": "ai",
+            "source_question_id": None,
             "bank_version": next_version,
             "is_active": True,
         }

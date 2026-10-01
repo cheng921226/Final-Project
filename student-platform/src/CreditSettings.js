@@ -27,7 +27,6 @@ export default function CreditSettings() {
   const [form, setForm] = useState(emptyForm());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -122,30 +121,6 @@ export default function CreditSettings() {
     }
   }
 
-  async function generateFinalAssessment() {
-    if (!courseId || generating) return;
-    setGenerating(true);
-    setMessage('');
-    try {
-      const res = await fetch(`${API_URL}/teacher/courses/${courseId}/final-assessment/generate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ question_count: toNumber(form.final_question_count, 10) }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || '正式測驗題目生成失敗');
-      setMessage(`已建立第 ${data.bank_version} 版正式測驗，共 ${data.question_count} 題。`);
-      await loadSettings(courseId);
-    } catch (err) {
-      setMessage(typeof err.message === 'string' ? err.message : '正式測驗題目生成失敗');
-    } finally {
-      setGenerating(false);
-    }
-  }
-
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在載入學分設定...</p></div>;
   }
@@ -230,11 +205,9 @@ export default function CreditSettings() {
         <div className="final-bank-status">
           <div>
             <strong>正式測驗題庫</strong>
-            <p>目前啟用 {selectedCourse?.final_assessment_question_count ?? 0} 題。重新生成會建立新版本，既有作答紀錄不受影響。</p>
+            <p>{(selectedCourse?.final_assessment_question_count ?? 0) > 0 ? '已建立' : '尚未建立'}，目前啟用 {selectedCourse?.final_assessment_question_count ?? 0} 題。</p>
           </div>
-          <button className="secondary-button" type="button" onClick={generateFinalAssessment} disabled={generating}>
-            {generating ? 'AI 產題中...' : 'AI 生成正式測驗'}
-          </button>
+          <Link className="secondary-button" to="/teacher/final-assessment">前往最終測驗</Link>
         </div>
 
         {message && <p className="question-review-message">{message}</p>}
