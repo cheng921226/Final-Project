@@ -168,6 +168,67 @@ a {
   font-weight: 800;
 }
 
+.teacher-menu {
+  position: relative;
+}
+
+.teacher-menu-trigger {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 13px;
+  border: 1px solid rgba(91, 91, 214, .18);
+  border-radius: 10px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.teacher-menu-trigger:hover,
+.teacher-menu-trigger[aria-expanded="true"] {
+  border-color: rgba(91, 91, 214, .35);
+  background: #e4e5ff;
+}
+
+.teacher-menu-chevron {
+  font-size: 12px;
+  transition: transform .18s ease;
+}
+
+.teacher-menu-trigger[aria-expanded="true"] .teacher-menu-chevron {
+  transform: rotate(180deg);
+}
+
+.teacher-menu-panel {
+  position: absolute;
+  top: calc(100% + 9px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  width: 180px;
+  padding: 7px;
+  border: 1px solid #e2e5ef;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 16px 38px rgba(23, 32, 51, .15);
+}
+
+.teacher-menu-panel a {
+  padding: 10px 11px;
+  border-radius: 6px;
+  color: #4e586e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.teacher-menu-panel a:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
 .page-wrap {
   width: min(1180px, calc(100% - 40px));
   margin: 0 auto;
@@ -2416,6 +2477,19 @@ a {
 
   .teacher-nav-link {
     padding: 7px 9px;
+  }
+
+  .teacher-menu-trigger {
+    height: 36px;
+    padding: 0 10px;
+  }
+
+  .teacher-menu-panel {
+    position: fixed;
+    top: 58px;
+    right: 12px;
+    left: 12px;
+    width: auto;
   }
 
   .teacher-page {

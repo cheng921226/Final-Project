@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -40,6 +40,8 @@ export default function Layout({ token, setToken }) {
     const navigate = useNavigate();
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
+    const teacherMenuRef = useRef(null);
 
     useEffect(() => {
         if (!token) {
@@ -88,6 +90,27 @@ export default function Layout({ token, setToken }) {
         };
     }, [token, setToken]);
 
+    useEffect(() => {
+        if (!teacherMenuOpen) return undefined;
+
+        function closeOutside(event) {
+            if (!teacherMenuRef.current?.contains(event.target)) {
+                setTeacherMenuOpen(false);
+            }
+        }
+
+        function closeOnEscape(event) {
+            if (event.key === "Escape") setTeacherMenuOpen(false);
+        }
+
+        document.addEventListener("mousedown", closeOutside);
+        document.addEventListener("keydown", closeOnEscape);
+        return () => {
+            document.removeEventListener("mousedown", closeOutside);
+            document.removeEventListener("keydown", closeOnEscape);
+        };
+    }, [teacherMenuOpen]);
+
     function logout() {
         clearStoredSession();
         setToken(null);
@@ -114,13 +137,27 @@ export default function Layout({ token, setToken }) {
                                 </>
                             )}
                             {['teacher', 'campus'].includes(user.role) && (
-                                <>
-                                    <Link to="/teacher" className="teacher-nav-link">分析中心</Link>
-                                    <Link to="/teacher/questions" className="teacher-nav-link">審題</Link>
-                                    <Link to="/teacher/final-assessment" className="teacher-nav-link">最終測驗</Link>
-                                    <Link to="/teacher/upload" className="teacher-nav-link">上傳課程</Link>
-                                    <Link to="/teacher/credits" className="teacher-nav-link">學分設定</Link>
-                                </>
+                                <div className="teacher-menu" ref={teacherMenuRef}>
+                                    <button
+                                        type="button"
+                                        className="teacher-menu-trigger"
+                                        aria-expanded={teacherMenuOpen}
+                                        aria-controls="teacher-feature-menu"
+                                        onClick={() => setTeacherMenuOpen(open => !open)}
+                                    >
+                                        教師功能
+                                        <span className="teacher-menu-chevron" aria-hidden="true">▾</span>
+                                    </button>
+                                    {teacherMenuOpen && (
+                                        <div className="teacher-menu-panel" id="teacher-feature-menu">
+                                            <Link to="/teacher" onClick={() => setTeacherMenuOpen(false)}>分析中心</Link>
+                                            <Link to="/teacher/questions" onClick={() => setTeacherMenuOpen(false)}>審題</Link>
+                                            <Link to="/teacher/final-assessment" onClick={() => setTeacherMenuOpen(false)}>最終測驗</Link>
+                                            <Link to="/teacher/upload" onClick={() => setTeacherMenuOpen(false)}>上傳課程</Link>
+                                            <Link to="/teacher/credits" onClick={() => setTeacherMenuOpen(false)}>學分設定</Link>
+                                        </div>
+                                    )}
+                                </div>
                             )}
                             <span className="avatar">{(user.name || user.email || 'U').charAt(0).toUpperCase()}</span>
                             <span>{user.name || user.email}</span>
