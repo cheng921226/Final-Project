@@ -2,7 +2,8 @@ STUDENT_ROLE = "student"
 TEACHER_ROLE = "teacher"
 CAMPUS_ROLE = "campus"
 
-# Campus accounts can use teacher features, but only for courses they uploaded.
+# Campus accounts manage courses they uploaded. Teachers manage courses assigned
+# to them, including courses originally uploaded by a campus account.
 TEACHER_ACCESS_ROLES = frozenset({TEACHER_ROLE, CAMPUS_ROLE})
 
 

@@ -46,7 +46,10 @@ test('campus manages its uploaded courses and sees uploader and assignment', asy
     json: async () => ({
       actor: { id: 99, role: 'campus' },
       courses: [baseCourse],
-      teachers: [{ id: 10, name: '王老師', email: 'teacher@example.com' }],
+      teachers: [
+        { id: 99, name: '校園平台甲（平台端）', email: 'campus@example.com', role: 'campus' },
+        { id: 10, name: '王老師', email: 'teacher@example.com', role: 'teacher' },
+      ],
     }),
   });
 
@@ -54,5 +57,6 @@ test('campus manages its uploaded courses and sees uploader and assignment', asy
   expect(await screen.findByRole('heading', { name: '平台課程管理' })).toBeInTheDocument();
   expect(screen.getByDisplayValue('校園平台甲')).toBeInTheDocument();
   expect(screen.getByText('授課教師')).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
 });

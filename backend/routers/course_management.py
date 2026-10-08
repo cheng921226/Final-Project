@@ -187,12 +187,21 @@ def get_course_management(user=Depends(get_current_user)):
     if teacher.get("role") == CAMPUS_ROLE:
         teachers = (
             supabase_admin.table("users")
-            .select("id,name,email")
+            .select("id,name,email,role")
             .eq("role", "teacher")
             .order("name")
             .execute()
             .data
             or []
+        )
+        teachers.insert(
+            0,
+            {
+                "id": teacher["id"],
+                "name": f"{teacher.get('name') or teacher.get('email') or '平台端'}（平台端）",
+                "email": teacher.get("email"),
+                "role": CAMPUS_ROLE,
+            },
         )
     return {"actor": teacher, "courses": courses, "teachers": teachers}
 
@@ -217,7 +226,10 @@ def update_course(
             .execute()
             .data
         )
-        if not assigned or assigned.get("role") != "teacher":
+        is_campus_self = values["teacher_id"] == teacher.get("id")
+        if not assigned or (
+            assigned.get("role") != "teacher" and not is_campus_self
+        ):
             raise HTTPException(status_code=422, detail="授課教師帳號不存在或角色不正確")
     target_teacher_id = values.get("teacher_id", course.get("teacher_id"))
     if values.get("status") == "published" and target_teacher_id is None:
@@ -240,8 +252,8 @@ def duplicate_course(course_id: int, user=Depends(get_current_user)):
     course = require_course_manager(course_id, teacher)
     owner_id = teacher["id"]
     if teacher.get("role") == CAMPUS_ROLE:
-        owner_id = course.get("teacher_id")
-        if owner_id is not None:
+        owner_id = course.get("teacher_id") or teacher["id"]
+        if owner_id != teacher["id"]:
             owner = (
                 supabase_admin.table("users")
                 .select("id,role")
@@ -251,7 +263,7 @@ def duplicate_course(course_id: int, user=Depends(get_current_user)):
                 .data
             )
             if not owner or owner.get("role") != "teacher":
-                owner_id = None
+                owner_id = teacher["id"]
     copied = (
         supabase_admin.table("courses")
         .insert(

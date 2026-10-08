@@ -130,6 +130,12 @@ class TeacherAuthorizationTests(unittest.TestCase):
                 require_course_manager(20, teacher)
         self.assertEqual(context.exception.status_code, 403)
 
+    def test_assigned_teacher_can_manage_course_uploaded_by_campus(self):
+        with patch("routers.teacher_access.supabase_admin", self.database):
+            course = require_course_manager(20, {"id": 9, "role": "teacher"})
+        self.assertEqual(course["created_by_user_id"], 22)
+        self.assertEqual(course["teacher_id"], 9)
+
     def test_teacher_cannot_manage_unassigned_course(self):
         with patch("routers.teacher_access.supabase_admin", self.database):
             with self.assertRaises(HTTPException) as context:
@@ -142,9 +148,10 @@ class TeacherAuthorizationTests(unittest.TestCase):
             1,
         )
 
-    def test_campus_created_course_starts_unassigned(self):
-        self.assertIsNone(
-            course_owner_for_creation({"id": 99, "role": "campus"}, 99)
+    def test_campus_created_course_defaults_to_itself(self):
+        self.assertEqual(
+            course_owner_for_creation({"id": 99, "role": "campus"}, None),
+            99,
         )
 
     def test_campus_can_manage_only_courses_it_uploaded(self):

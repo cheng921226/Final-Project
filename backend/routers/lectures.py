@@ -47,7 +47,7 @@ def get_courses(keyword: str = None):
 def create_course(body: CourseCreate, user=Depends(get_current_user)):
     teacher = require_teacher(user)
     owner_id = course_owner_for_creation(teacher, body.teacher_id)
-    if teacher.get("role") == "campus" and owner_id is not None:
+    if teacher.get("role") == "campus" and owner_id != teacher["id"]:
         assigned = (
             supabase_admin.table("users")
             .select("id,role")

@@ -7,12 +7,14 @@ update public.courses
 set created_by_user_id = teacher_id
 where created_by_user_id is null;
 
--- A campus account is an uploader/manager, not the assigned instructor.
+-- Platform uploads default to the same campus account as instructor. The
+-- platform can later reassign the course to a teacher account.
 update public.courses as course
-set teacher_id = null
-from public.users as assigned
-where course.teacher_id = assigned.id
-  and assigned.role <> 'teacher';
+set teacher_id = course.created_by_user_id
+from public.users as creator
+where course.created_by_user_id = creator.id
+  and creator.role = 'campus'
+  and course.teacher_id is null;
 
 alter table public.courses
 alter column created_by_user_id set not null;

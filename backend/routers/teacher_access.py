@@ -66,8 +66,6 @@ def require_lecture_manager(lecture_id: int, teacher: dict[str, Any]) -> dict[st
 def course_owner_for_creation(
     teacher: dict[str, Any], requested_teacher_id: int | None
 ) -> int | None:
-    if teacher.get("role") == CAMPUS_ROLE and requested_teacher_id is not None:
-        if requested_teacher_id == teacher.get("id"):
-            return None
-        return requested_teacher_id
+    if teacher.get("role") == CAMPUS_ROLE:
+        return requested_teacher_id if requested_teacher_id is not None else teacher["id"]
     return teacher["id"]
