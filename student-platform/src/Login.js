@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -9,6 +9,9 @@ export default function Login({ setToken }) {
     const [error, setError] = useState(null);
 
     const navigate = useNavigate();
+    const location = useLocation();
+    const redirectTo = location.state?.from || "/";
+    const fromProtectedPage = location.state?.from && location.state.from !== "/";
 
     async function handleLogin() {
         setError(null);
@@ -33,7 +36,7 @@ export default function Login({ setToken }) {
             localStorage.setItem("access_token", data.access_token);
             localStorage.setItem("refresh_token", data.refresh_token);
             setToken(data.access_token);
-            navigate("/");
+            navigate(redirectTo, { replace: true });
         } catch (err) {
             setError(err.message);
         }
@@ -50,6 +53,11 @@ export default function Login({ setToken }) {
             >
                 <div className="auth-icon">L</div>
                 <h1>歡迎回來</h1>
+                {fromProtectedPage && (
+                    <p className="auth-alert" style={{ marginBottom: '12px', color: '#b45309', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '10px 12px', fontSize: '14px' }}>
+                        請先登入後，再繼續查看這個頁面。
+                    </p>
+                )}
                 <p className="intro">登入後繼續你的學習旅程。</p>
 
                 <label className="field">
