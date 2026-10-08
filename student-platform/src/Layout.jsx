@@ -2,11 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useNavigate } from "react-router-dom";
 
 const API_URL = 'http://127.0.0.1:8000';
+const TOKEN_REFRESH_EARLY_MS = 60_000;
+const TOKEN_REFRESH_RETRY_MS = 30_000;
+const MAX_TIMER_DELAY = 2_147_000_000;
 let sessionRefreshPromise = null;
 
 function clearStoredSession() {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+}
+
+function getTokenRefreshTime(token) {
+    try {
+        const payload = token.split(".")[1];
+        if (!payload) return null;
+
+        const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+        const decoded = window.atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, "="));
+        const { exp } = JSON.parse(decoded);
+        return Number.isFinite(exp) ? exp * 1000 - TOKEN_REFRESH_EARLY_MS : null;
+    } catch {
+        return null;
+    }
 }
 
 async function refreshAccessToken() {
@@ -42,6 +59,66 @@ export default function Layout({ token, setToken }) {
     const [loading, setLoading] = useState(true);
     const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
     const teacherMenuRef = useRef(null);
+
+    useEffect(() => {
+        if (!token) return undefined;
+
+        let cancelled = false;
+        let timerId;
+        let refreshing = false;
+        const refreshTime = getTokenRefreshTime(token);
+        if (refreshTime === null) return undefined;
+
+        function scheduleRefresh() {
+            const delay = Math.min(Math.max(refreshTime - Date.now(), 0), MAX_TIMER_DELAY);
+            timerId = window.setTimeout(() => {
+                if (refreshTime - Date.now() > 0) {
+                    scheduleRefresh();
+                    return;
+                }
+                renewSession();
+            }, delay);
+        }
+
+        async function renewSession() {
+            if (cancelled || refreshing) return;
+            refreshing = true;
+
+            try {
+                const refreshedToken = await refreshAccessToken();
+                if (cancelled) return;
+                if (!refreshedToken) {
+                    clearStoredSession();
+                    setUser(null);
+                    setToken(null);
+                    return;
+                }
+                setToken(refreshedToken);
+            } catch (error) {
+                console.error("Unable to refresh session", error);
+                if (!cancelled) {
+                    timerId = window.setTimeout(renewSession, TOKEN_REFRESH_RETRY_MS);
+                }
+            } finally {
+                refreshing = false;
+            }
+        }
+
+        function refreshIfExpired() {
+            if (refreshTime - Date.now() <= 0) renewSession();
+        }
+
+        scheduleRefresh();
+        window.addEventListener("focus", refreshIfExpired);
+        document.addEventListener("visibilitychange", refreshIfExpired);
+
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timerId);
+            window.removeEventListener("focus", refreshIfExpired);
+            document.removeEventListener("visibilitychange", refreshIfExpired);
+        };
+    }, [token, setToken]);
 
     useEffect(() => {
         if (!token) {
