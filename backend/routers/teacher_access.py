@@ -43,9 +43,7 @@ def require_course_manager(
     course = response.data
     if not course:
         raise HTTPException(status_code=404, detail="找不到課程")
-    is_platform_manager = (
-        allow_campus_all and teacher.get("role") == CAMPUS_ROLE
-    )
+    is_platform_manager = allow_campus_all and teacher.get("role") == CAMPUS_ROLE
     if not is_platform_manager and not can_manage_course(
         teacher.get("role"),
         teacher.get("id"),
@@ -82,5 +80,7 @@ def course_owner_for_creation(
     teacher: dict[str, Any], requested_teacher_id: int | None
 ) -> int | None:
     if teacher.get("role") == CAMPUS_ROLE:
-        return requested_teacher_id if requested_teacher_id is not None else teacher["id"]
+        return (
+            requested_teacher_id if requested_teacher_id is not None else teacher["id"]
+        )
     return teacher["id"]

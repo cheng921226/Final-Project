@@ -3230,7 +3230,7 @@ a {
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
-  align-self: center;
+  align-self: flex-end;
   white-space: nowrap;
 }
 .course-settings-card { display: grid; gap: 18px; margin-bottom: 18px; }

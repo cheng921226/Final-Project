@@ -109,7 +109,9 @@ def get_course(course_id: int) -> dict[str, Any]:
     return response.data
 
 
-def require_course_manager(course_id: int, user) -> tuple[dict[str, Any], dict[str, Any]]:
+def require_course_manager(
+    course_id: int, user
+) -> tuple[dict[str, Any], dict[str, Any]]:
     teacher = require_teacher(user)
     course = get_course(course_id)
     if not can_manage_course(
@@ -164,7 +166,9 @@ def course_completion(
         )
     progress_by_lecture = {row.get("lecture_id"): row for row in progresses}
     completed = sum(
-        1 for lecture_id in lecture_ids if progress_by_lecture.get(lecture_id, {}).get("completed")
+        1
+        for lecture_id in lecture_ids
+        if progress_by_lecture.get(lecture_id, {}).get("completed")
     )
     total = len(lecture_ids)
     percentage = round(completed / total * 100) if total else 0
@@ -306,7 +310,9 @@ def issue_certificate(
         "learning_hours": completion.get("learning_hours", 0),
         "final_score": attempt.get("score"),
         "student_name": student.get("name") or student.get("email") or "Student",
-        "course_name": course.get("title") or course.get("course_name") or f"課程 {course['id']}",
+        "course_name": course.get("title")
+        or course.get("course_name")
+        or f"課程 {course['id']}",
         "show_final_score": bool(course.get("certificate_show_score", True)),
     }
     if existing:
@@ -331,7 +337,9 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
     questions = active_questions(course_id)
     attempts = student_attempts(student["id"], course_id)
     latest = attempts[-1] if attempts else None
-    passed_attempt = next((row for row in reversed(attempts) if row.get("passed")), None)
+    passed_attempt = next(
+        (row for row in reversed(attempts) if row.get("passed")), None
+    )
     certificate = get_certificate(student["id"], course_id)
     now = datetime.now(timezone.utc)
 
@@ -363,13 +371,17 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
     payload = {
         "course": {
             "id": course.get("id"),
-            "title": course.get("title") or course.get("course_name") or f"課程 {course_id}",
+            "title": course.get("title")
+            or course.get("course_name")
+            or f"課程 {course_id}",
         },
         "state": state,
         "completion": completion,
         "settings": {
             "passing_score": number(course.get("passing_score"), 70),
-            "retest_cooldown_minutes": int(number(course.get("retest_cooldown_minutes"), 60)),
+            "retest_cooldown_minutes": int(
+                number(course.get("retest_cooldown_minutes"), 60)
+            ),
             "question_count": int(number(course.get("final_question_count"), 10)),
         },
         "question_bank_count": len(questions),
@@ -408,7 +420,9 @@ def get_teacher_final_assessments(user=Depends(get_current_user)):
     results = []
     for course in courses:
         rows = [row for row in questions if row.get("course_id") == course["id"]]
-        latest_version = max((int(row.get("bank_version") or 1) for row in rows), default=0)
+        latest_version = max(
+            (int(row.get("bank_version") or 1) for row in rows), default=0
+        )
         latest_rows = [
             row for row in rows if int(row.get("bank_version") or 1) == latest_version
         ]
@@ -417,11 +431,15 @@ def get_teacher_final_assessments(user=Depends(get_current_user)):
                 "id": course["id"],
                 "title": course.get("title") or f"課程 {course['id']}",
                 "passing_score": number(course.get("passing_score"), 70),
-                "final_question_count": int(number(course.get("final_question_count"), 10)),
+                "final_question_count": int(
+                    number(course.get("final_question_count"), 10)
+                ),
                 "has_final_assessment": bool(rows),
                 "current_version": latest_version,
                 "question_count": len(latest_rows),
-                "active_question_count": sum(bool(row.get("is_active")) for row in latest_rows),
+                "active_question_count": sum(
+                    bool(row.get("is_active")) for row in latest_rows
+                ),
             }
         )
     return {"teacher": teacher, "courses": results}
@@ -449,9 +467,7 @@ def get_teacher_final_assessment(
     )
     selected_version = bank_version or (versions[0] if versions else 1)
     rows = [
-        row
-        for row in all_rows
-        if int(row.get("bank_version") or 1) == selected_version
+        row for row in all_rows if int(row.get("bank_version") or 1) == selected_version
     ]
     lectures = get_course_lectures(course_id)
     lecture_ids = [row["id"] for row in lectures]
@@ -547,7 +563,9 @@ def update_final_assessment_question(
     if not existing:
         raise HTTPException(status_code=404, detail="找不到正式測驗題目")
     require_course_manager(existing["course_id"], user)
-    if int(existing.get("bank_version") or 1) != current_bank_version(existing["course_id"]):
+    if int(existing.get("bank_version") or 1) != current_bank_version(
+        existing["course_id"]
+    ):
         raise HTTPException(status_code=409, detail="歷史版本為唯讀，不能修改")
     update = payload.model_dump(exclude_unset=True)
     if "answer" in update:
@@ -587,7 +605,9 @@ def delete_final_assessment_question(question_id: int, user=Depends(get_current_
         .execute()
         .data
     )
-    if int((full_existing or {}).get("bank_version") or 1) != current_bank_version(existing["course_id"]):
+    if int((full_existing or {}).get("bank_version") or 1) != current_bank_version(
+        existing["course_id"]
+    ):
         raise HTTPException(status_code=409, detail="歷史版本為唯讀，不能停用")
     response = (
         supabase_admin.table("final_assessment_questions")
@@ -600,7 +620,11 @@ def delete_final_assessment_question(question_id: int, user=Depends(get_current_
         .eq("id", question_id)
         .execute()
     )
-    return {"message": "disabled", "question_id": question_id, "data": response.data or []}
+    return {
+        "message": "disabled",
+        "question_id": question_id,
+        "data": response.data or [],
+    }
 
 
 @router.get("/teacher/courses/{course_id}/in-lecture-questions")
@@ -644,7 +668,11 @@ def get_in_lecture_question_candidates(
             or []
         )
     stats = question_attempt_statistics(attempts)
-    kp_ids = [row.get("knowledge_point_id") for row in questions if row.get("knowledge_point_id")]
+    kp_ids = [
+        row.get("knowledge_point_id")
+        for row in questions
+        if row.get("knowledge_point_id")
+    ]
     knowledge_points = []
     if kp_ids:
         knowledge_points = (
@@ -670,7 +698,9 @@ def get_in_lecture_question_candidates(
             "source_timestamp": row.get("source_timestamp"),
             "knowledge_point_id": row.get("knowledge_point_id"),
             "knowledge_point": kp_map.get(row.get("knowledge_point_id")),
-            **stats.get(row["id"], {"attempt_count": 0, "correct_count": 0, "accuracy": 0}),
+            **stats.get(
+                row["id"], {"attempt_count": 0, "correct_count": 0, "accuracy": 0}
+            ),
             "lecture_order": lecture_order[row["lecture_id"]],
         }
         for row in questions
@@ -679,7 +709,11 @@ def get_in_lecture_question_candidates(
         raise HTTPException(status_code=422, detail="不支援的排序方式")
     if sort.startswith("accuracy"):
         result.sort(
-            key=lambda row: (row["accuracy"], row["lecture_order"], row["source_timestamp"]),
+            key=lambda row: (
+                row["accuracy"],
+                row["lecture_order"],
+                row["source_timestamp"],
+            ),
             reverse=sort.endswith("desc"),
         )
     else:
@@ -735,7 +769,9 @@ def import_in_lecture_questions(
         }
         for row in rows
     ]
-    response = supabase_admin.table("final_assessment_questions").insert(snapshots).execute()
+    response = (
+        supabase_admin.table("final_assessment_questions").insert(snapshots).execute()
+    )
     return {
         "status": "success",
         "bank_version": version,
@@ -756,7 +792,9 @@ def start_final_assessment(course_id: int, user=Depends(get_current_user)):
     if status["state"] == "passed":
         return {**status, "status": "already_passed"}
     if status["state"] == "locked":
-        raise HTTPException(status_code=400, detail="請先完成課程影片要求，再進行最終測驗")
+        raise HTTPException(
+            status_code=400, detail="請先完成課程影片要求，再進行最終測驗"
+        )
     if status["state"] == "unconfigured":
         raise HTTPException(status_code=400, detail="教師尚未完成這門課的學分設定")
     if status["state"] == "not_ready":
@@ -870,7 +908,9 @@ def submit_final_assessment(
     now = datetime.now(timezone.utc)
     course = get_course(attempt["course_id"])
     cooldown = max(0, int(number(course.get("retest_cooldown_minutes"), 60)))
-    retry_available_at = None if passed else (now + timedelta(minutes=cooldown)).isoformat()
+    retry_available_at = (
+        None if passed else (now + timedelta(minutes=cooldown)).isoformat()
+    )
     update = {
         "score": score,
         "correct_questions": correct,
@@ -891,7 +931,9 @@ def submit_final_assessment(
     )
     completed_attempt = updated[0] if updated else {**attempt, **update}
     certificate = None
-    completion = course_completion(student["id"], course, get_course_lectures(course["id"]))
+    completion = course_completion(
+        student["id"], course, get_course_lectures(course["id"])
+    )
     if (
         passed
         and completion["completion_met"]
@@ -965,7 +1007,11 @@ def course_material_for_final_assessment(course_id: int) -> str:
             if point.get("lecture_id") == lecture.get("id")
         ]
         if content or summary or points:
-            title = lecture.get("title") or lecture.get("course_name") or f"Lecture {lecture.get('id')}"
+            title = (
+                lecture.get("title")
+                or lecture.get("course_name")
+                or f"Lecture {lecture.get('id')}"
+            )
             point_text = "\n".join(
                 f"- id={point.get('id')}: {point.get('title')} - {point.get('description') or ''}"
                 for point in points
@@ -996,7 +1042,9 @@ def generate_final_assessment(
     material = course_material_for_final_assessment(course_id)
     if not material:
         raise HTTPException(status_code=400, detail="這門課目前沒有可用的課程內容")
-    count = payload.question_count or int(number(course.get("final_question_count"), 10))
+    count = payload.question_count or int(
+        number(course.get("final_question_count"), 10)
+    )
     prompt = f"""
 請根據以下整門課程的逐字稿、摘要與知識點，產生 {count} 題正式選擇題。
 這些題目用於 Course 層級的 Final Assessment，不是影片播放中的練習題。
@@ -1066,7 +1114,9 @@ JSON 格式：
         for question in generated
     ]
     try:
-        response = supabase_admin.table("final_assessment_questions").insert(rows).execute()
+        response = (
+            supabase_admin.table("final_assessment_questions").insert(rows).execute()
+        )
     except APIError as exc:
         if exc.code == "42501":
             raise HTTPException(

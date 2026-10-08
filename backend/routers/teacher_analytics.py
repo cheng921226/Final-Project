@@ -217,9 +217,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
 
     for course in courses:
         cid = course["id"]
-        course_student_ids = _enrolled_student_ids(
-            enrollments, cid, all_student_ids
-        )
+        course_student_ids = _enrolled_student_ids(enrollments, cid, all_student_ids)
         course_lectures = [row for row in lectures if row.get("course_id") == cid]
         course_lecture_ids = {row["id"] for row in course_lectures}
         course_progresses = [
@@ -280,9 +278,21 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 lecture_students.append(
                     _student_scope_result(
                         student,
-                        [row for row in lecture_progresses if row.get("student_id") == student_id],
-                        [row for row in lecture_events if row.get("student_id") == student_id],
-                        [row for row in lecture_attempts if row.get("student_id") == student_id],
+                        [
+                            row
+                            for row in lecture_progresses
+                            if row.get("student_id") == student_id
+                        ],
+                        [
+                            row
+                            for row in lecture_events
+                            if row.get("student_id") == student_id
+                        ],
+                        [
+                            row
+                            for row in lecture_attempts
+                            if row.get("student_id") == student_id
+                        ],
                         1,
                     )
                 )
@@ -350,13 +360,15 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 [
                     row
                     for row in final_attempts
-                    if row.get("course_id") == cid and row.get("student_id") == student_id
+                    if row.get("course_id") == cid
+                    and row.get("student_id") == student_id
                 ],
                 next(
                     (
                         row
                         for row in certificates
-                        if row.get("course_id") == cid and row.get("student_id") == student_id
+                        if row.get("course_id") == cid
+                        and row.get("student_id") == student_id
                     ),
                     None,
                 ),

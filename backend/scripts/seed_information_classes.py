@@ -109,7 +109,9 @@ def main() -> None:
             ).execute()
             completed += 1
         print(f"{class_name}：{last - first + 1} 人")
-    print(f"建立完成：{completed} 個學生帳號，平台：{campus.get('name') or campus.get('email')}")
+    print(
+        f"建立完成：{completed} 個學生帳號，平台：{campus.get('name') or campus.get('email')}"
+    )
 
 
 if __name__ == "__main__":

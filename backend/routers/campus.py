@@ -123,9 +123,7 @@ def _course_credit_roster(course_id: int, campus_id: int) -> dict[str, Any]:
         or []
     )
 
-    enrolled_at = {
-        row.get("student_id"): row.get("created_at") for row in enrollments
-    }
+    enrolled_at = {row.get("student_id"): row.get("created_at") for row in enrollments}
     roster = []
     for student in students:
         student_id = student["id"]
@@ -134,7 +132,10 @@ def _course_credit_roster(course_id: int, campus_id: int) -> dict[str, Any]:
             lectures,
             [row for row in progresses if row.get("student_id") == student_id],
             [row for row in final_attempts if row.get("student_id") == student_id],
-            next((row for row in certificates if row.get("student_id") == student_id), None),
+            next(
+                (row for row in certificates if row.get("student_id") == student_id),
+                None,
+            ),
             len(final_questions),
         )
         roster.append(
@@ -205,8 +206,10 @@ def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
                 student.get("enrolled_at") or "",
                 student["completed_lectures"],
                 student["total_lectures"],
-                f'{student["completion_percentage"]}%',
-                "尚未測驗" if student["final_score"] is None else student["final_score"],
+                f"{student['completion_percentage']}%",
+                "尚未測驗"
+                if student["final_score"] is None
+                else student["final_score"],
                 "是" if student["course_passed"] else "否",
                 student["credits_earned"],
                 student["credits_total"],

@@ -88,9 +88,7 @@ def get_lecture_title(lecture_id: int) -> str:
 
 
 def existing_rows(table_name: str, lecture_id: int) -> list[dict[str, Any]]:
-    query = (
-        supabase_admin.table(table_name).select("*").eq("lecture_id", lecture_id)
-    )
+    query = supabase_admin.table(table_name).select("*").eq("lecture_id", lecture_id)
     if table_name in {"knowledge_points", "questions"}:
         query = query.eq("is_active", True)
     response = query.execute()
@@ -331,7 +329,9 @@ JSON 格式：
     questions = result_json.get("questions", [])
 
     source_questions = [
-        q for q in questions if q.get("question_text") and q.get("options") and q.get("answer")
+        q
+        for q in questions
+        if q.get("question_text") and q.get("options") and q.get("answer")
     ]
     rows = []
     for q in source_questions:

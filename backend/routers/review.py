@@ -121,7 +121,9 @@ def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
         )
 
 
-def get_course_scope(course_id: int) -> tuple[dict[str, Any], list[dict[str, Any]], list[int]]:
+def get_course_scope(
+    course_id: int,
+) -> tuple[dict[str, Any], list[dict[str, Any]], list[int]]:
     course = get_course(course_id)
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -363,7 +365,9 @@ def submit_retest_session(
         .eq("id", session_id)
         .execute()
     )
-    updated_session = (response.data or [{**session, **update_row, "status": status}])[0]
+    updated_session = (response.data or [{**session, **update_row, "status": status}])[
+        0
+    ]
 
     return {
         "status": status,
@@ -432,9 +436,13 @@ def build_review_context(student_id: int, lecture_ids: list[int]) -> dict[str, A
 
     questions = select_questions(lecture_ids)
     question_map = rows_by_id(questions)
-    original_questions = [question for question in questions if is_original_question(question)]
+    original_questions = [
+        question for question in questions if is_original_question(question)
+    ]
     extension_questions = [
-        question for question in questions if (question.get("question_type") or "") == "extension"
+        question
+        for question in questions
+        if (question.get("question_type") or "") == "extension"
     ]
     extensions_by_source: dict[Any, list[dict[str, Any]]] = {}
     for question in extension_questions:
@@ -483,7 +491,9 @@ def build_review_context(student_id: int, lecture_ids: list[int]) -> dict[str, A
     }
 
 
-def get_latest_retest_session(student_id: int, lecture_ids: list[int]) -> dict[str, Any] | None:
+def get_latest_retest_session(
+    student_id: int, lecture_ids: list[int]
+) -> dict[str, Any] | None:
     if not lecture_ids:
         return None
     lectures = (
@@ -520,7 +530,9 @@ def build_assessment_status(
     questions: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    original_questions = [question for question in questions if is_original_question(question)]
+    original_questions = [
+        question for question in questions if is_original_question(question)
+    ]
     original_question_ids = {question.get("id") for question in original_questions}
     initial_attempts = [
         attempt
@@ -530,7 +542,9 @@ def build_assessment_status(
     ]
     first_initial = first_attempts_by_question(initial_attempts)
     original_total = len(first_initial)
-    original_correct = sum(1 for attempt in first_initial.values() if attempt.get("is_correct"))
+    original_correct = sum(
+        1 for attempt in first_initial.values() if attempt.get("is_correct")
+    )
     original_accuracy = percent_ratio(original_correct, original_total)
 
     latest_session = None
@@ -695,7 +709,9 @@ def build_review_payload(
             latest_retest_attempts.get(question.get("id")),
             *[
                 latest_retest_attempts.get(extension.get("id"))
-                for extension in context["extensions_by_source"].get(question.get("id"), [])
+                for extension in context["extensions_by_source"].get(
+                    question.get("id"), []
+                )
             ],
         ]
         related_retest_attempts = [row for row in related_retest_attempts if row]
@@ -716,7 +732,9 @@ def build_review_payload(
                 "knowledge_point": kp,
                 "answered_at": attempt.get("answered_at"),
                 "initial_result": "wrong",
-                "retest_status": "mastered" if retest_mastered else (
+                "retest_status": "mastered"
+                if retest_mastered
+                else (
                     "needs_reinforcement" if related_retest_attempts else "not_retested"
                 ),
             }

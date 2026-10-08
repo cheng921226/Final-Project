@@ -403,7 +403,9 @@ class KnowledgePointsRequest(BaseModel):
 
 # 生成知識點
 @router.post("/ai/knowledge_points")
-def generate_knowledge_points(body: KnowledgePointsRequest, user=Depends(get_current_user)):
+def generate_knowledge_points(
+    body: KnowledgePointsRequest, user=Depends(get_current_user)
+):
     teacher = require_teacher(user)
     require_lecture_manager(body.lecture_id, teacher)
     existing_response = (

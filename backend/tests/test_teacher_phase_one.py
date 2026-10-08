@@ -206,10 +206,15 @@ class TeacherAuthorizationTests(unittest.TestCase):
     def test_disabling_question_preserves_attempt_history(self):
         question = {"id": 5, "lecture_id": 7, "is_active": True}
         attempts = [{"id": 1, "question_id": 5, "is_correct": False}]
-        database = FakeSupabase({"questions": [question], "question_attempts": attempts})
+        database = FakeSupabase(
+            {"questions": [question], "question_attempts": attempts}
+        )
         with (
             patch("routers.questions.supabase_admin", database),
-            patch("routers.questions.require_teacher", return_value={"id": 1, "role": "teacher"}),
+            patch(
+                "routers.questions.require_teacher",
+                return_value={"id": 1, "role": "teacher"},
+            ),
             patch("routers.questions.get_lecture_for_teacher", return_value={"id": 7}),
         ):
             result = delete_teacher_question(5, SimpleNamespace(id="teacher-auth"))
@@ -220,8 +225,14 @@ class TeacherAuthorizationTests(unittest.TestCase):
 
     def test_only_campus_can_reassign_course_teacher(self):
         with (
-            patch("routers.course_management.require_teacher", return_value={"id": 1, "role": "teacher"}),
-            patch("routers.course_management.require_course_manager", return_value={"id": 10, "teacher_id": 1}),
+            patch(
+                "routers.course_management.require_teacher",
+                return_value={"id": 1, "role": "teacher"},
+            ),
+            patch(
+                "routers.course_management.require_course_manager",
+                return_value={"id": 10, "teacher_id": 1},
+            ),
         ):
             with self.assertRaises(HTTPException) as context:
                 update_course(

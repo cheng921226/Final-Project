@@ -66,7 +66,9 @@ def percent(part: float, total: float) -> int:
 
 
 def course_title(course: dict[str, Any]) -> str:
-    return course.get("title") or course.get("course_name") or f"課程 {course.get('id')}"
+    return (
+        course.get("title") or course.get("course_name") or f"課程 {course.get('id')}"
+    )
 
 
 def evaluate_course(
@@ -91,8 +93,10 @@ def evaluate_course(
     passed_attempt = next(
         (attempt for attempt in reversed(final_attempts) if attempt.get("passed")), None
     )
-    final_score = passed_attempt.get("score") if passed_attempt else (
-        latest_attempt.get("score") if latest_attempt else None
+    final_score = (
+        passed_attempt.get("score")
+        if passed_attempt
+        else (latest_attempt.get("score") if latest_attempt else None)
     )
 
     total_credits = number(course.get("credit_value"))
@@ -103,10 +107,14 @@ def evaluate_course(
     final_requirement_met = bool(passed_attempt)
     course_passed = bool(
         certificate
-        or (has_credit_settings and completion_requirement_met and final_requirement_met)
+        or (
+            has_credit_settings and completion_requirement_met and final_requirement_met
+        )
     )
-    earned_credits = number(certificate.get("credits_awarded")) if certificate else (
-        total_credits if course_passed else 0.0
+    earned_credits = (
+        number(certificate.get("credits_awarded"))
+        if certificate
+        else (total_credits if course_passed else 0.0)
     )
     certification_earned = bool(certificate)
 
@@ -162,7 +170,9 @@ def evaluate_course(
         "final_attempt_count": len(final_attempts),
         "final_assessment_passed": final_requirement_met,
         "has_final_assessment": final_question_count > 0,
-        "retry_available_at": latest_attempt.get("retry_available_at") if latest_attempt else None,
+        "retry_available_at": latest_attempt.get("retry_available_at")
+        if latest_attempt
+        else None,
         "credits_earned": earned_credits,
         "credits_total": total_credits,
         "course_passed": course_passed,
@@ -275,7 +285,9 @@ def get_student_achievements(user=Depends(get_current_user)):
     progresses_by_lecture = grouped_by(progresses, "lecture_id")
     attempts_by_course = grouped_by(final_attempts, "course_id")
     certificates_by_course = {
-        row.get("course_id"): row for row in certificates if row.get("course_id") is not None
+        row.get("course_id"): row
+        for row in certificates
+        if row.get("course_id") is not None
     }
     question_counts: dict[Any, int] = defaultdict(int)
     for row in final_questions:
@@ -303,11 +315,15 @@ def get_student_achievements(user=Depends(get_current_user)):
     return {
         "student_id": student_id,
         "summary": {
-            "completed_courses": sum(1 for course in course_results if course["course_passed"]),
+            "completed_courses": sum(
+                1 for course in course_results if course["course_passed"]
+            ),
             "learning_hours": round(
                 sum(course["watched_seconds"] for course in course_results) / 3600, 1
             ),
-            "earned_credits": round(sum(course["credits_earned"] for course in course_results), 2),
+            "earned_credits": round(
+                sum(course["credits_earned"] for course in course_results), 2
+            ),
             "certifications": sum(
                 1 for course in course_results if course["certification_earned"]
             ),
@@ -348,7 +364,9 @@ def get_teacher_course_credit_settings(user=Depends(get_current_user)):
             {
                 **course,
                 "title": course_title(course),
-                "final_assessment_question_count": question_counts.get(course.get("id"), 0),
+                "final_assessment_question_count": question_counts.get(
+                    course.get("id"), 0
+                ),
             }
             for course in courses
         ],
@@ -399,7 +417,9 @@ def update_course_credit_settings(
         .data
         or []
     )
-    supabase_admin.table("course_credit_rules").delete().eq("course_id", course_id).execute()
+    supabase_admin.table("course_credit_rules").delete().eq(
+        "course_id", course_id
+    ).execute()
     return {
         "course": updated_course[0] if updated_course else course_update,
         "rules": [],

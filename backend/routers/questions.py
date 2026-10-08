@@ -122,7 +122,9 @@ def get_lecture_for_teacher(lecture_id: int, teacher: dict[str, Any]) -> dict[st
     return lecture
 
 
-def teacher_question_row(body: TeacherQuestionPayload | TeacherQuestionUpdate) -> dict[str, Any]:
+def teacher_question_row(
+    body: TeacherQuestionPayload | TeacherQuestionUpdate,
+) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
     if "answer" in data:
         data["answer"] = normalize_answer(data["answer"])
@@ -264,12 +266,16 @@ def get_teacher_question_review(user=Depends(get_current_user)):
             if question.get("lecture_id") == lecture.get("id")
         ]
         lecture["knowledge_points"] = [
-            point for point in knowledge_points if point.get("lecture_id") == lecture.get("id")
+            point
+            for point in knowledge_points
+            if point.get("lecture_id") == lecture.get("id")
         ]
 
     for course in courses:
         course["lectures"] = [
-            lecture for lecture in lectures if lecture.get("course_id") == course.get("id")
+            lecture
+            for lecture in lectures
+            if lecture.get("course_id") == course.get("id")
         ]
 
     return {"teacher": teacher, "courses": courses}
@@ -316,7 +322,10 @@ def update_teacher_question(
     update_data = teacher_question_row(body)
     if not update_data:
         raise HTTPException(status_code=422, detail="請至少提供一個要更新的欄位")
-    if update_data.get("question_text") is not None and not update_data["question_text"].strip():
+    if (
+        update_data.get("question_text") is not None
+        and not update_data["question_text"].strip()
+    ):
         raise HTTPException(status_code=422, detail="題目內容不可空白")
     if update_data.get("answer") == "":
         raise HTTPException(status_code=422, detail="請設定正確答案")

@@ -57,7 +57,9 @@ def create_course(body: CourseCreate, user=Depends(get_current_user)):
             .data
         )
         if not assigned or assigned.get("role") != "teacher":
-            raise HTTPException(status_code=422, detail="授課教師帳號不存在或角色不正確")
+            raise HTTPException(
+                status_code=422, detail="授課教師帳號不存在或角色不正確"
+            )
     res = (
         supabase_admin.table("courses")
         .insert(

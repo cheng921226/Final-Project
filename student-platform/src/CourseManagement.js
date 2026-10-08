@@ -250,7 +250,13 @@ export default function CourseManagement() {
         </div>
         <div className="teacher-filters">
           <label><span>課程</span><select value={courseId} onChange={event => chooseCourse(event.target.value)}>{(data?.courses || []).map(course => <option key={course.id} value={course.id}>{course.title}{course.assigned_teacher ? `｜${course.assigned_teacher.name || course.assigned_teacher.email}` : '｜尚未指派'}</option>)}</select></label>
-          <Link className="question-secondary-button course-upload-link" to="/teacher/upload">新增課程或小節</Link>
+          <Link
+            className="question-secondary-button course-upload-link"
+            to="/teacher/upload"
+            state={{ courseId }}
+          >
+            新增課程或小節
+          </Link>
         </div>
       </header>
 

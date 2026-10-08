@@ -50,7 +50,13 @@ def _get_smtp_config():
     }
 
 
-def send_email(to: list[str], subject: str, body: str, cc: list[str] | None = None, bcc: list[str] | None = None):
+def send_email(
+    to: list[str],
+    subject: str,
+    body: str,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+):
     recipients = [email.strip() for email in to if email and email.strip()]
     carbon_copy = [email.strip() for email in (cc or []) if email and email.strip()]
     blind_copy = [email.strip() for email in (bcc or []) if email and email.strip()]

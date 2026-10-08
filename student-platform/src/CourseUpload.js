@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
 
 export default function CourseUpload() {
+  const location = useLocation();
+  const preferredCourseId = location.state?.courseId;
   const token = localStorage.getItem('access_token');
   const [courses, setCourses] = useState([]);
   const [teacherId, setTeacherId] = useState(null);
@@ -45,7 +47,11 @@ export default function CourseUpload() {
         setTeacherId(idData.id);
         const ownCourses = courseData.courses || [];
         setCourses(ownCourses);
-        if (ownCourses[0]) setCourseId(String(ownCourses[0].id));
+        const preferredCourse = ownCourses.find(
+          course => String(course.id) === String(preferredCourseId)
+        );
+        const initialCourse = preferredCourse || ownCourses[0];
+        if (initialCourse) setCourseId(String(initialCourse.id));
       } catch (err) {
         setError(err.message || '載入上傳資料失敗');
       } finally {
@@ -54,7 +60,7 @@ export default function CourseUpload() {
     }
 
     loadInitialData();
-  }, [token]);
+  }, [preferredCourseId, token]);
 
   const canSubmit = useMemo(() => (
     lectureTitle.trim()

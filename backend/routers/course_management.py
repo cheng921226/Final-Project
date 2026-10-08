@@ -47,9 +47,7 @@ class LectureOrderUpdate(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
-    components: list[
-        Literal["summary", "knowledge_points", "mindmap", "questions"]
-    ]
+    components: list[Literal["summary", "knowledge_points", "mindmap", "questions"]]
 
 
 class TranscriptUpdate(BaseModel):
@@ -225,19 +223,16 @@ def update_course(
             .data
         )
         is_campus_self = values["teacher_id"] == teacher.get("id")
-        if not assigned or (
-            assigned.get("role") != "teacher" and not is_campus_self
-        ):
-            raise HTTPException(status_code=422, detail="授課教師帳號不存在或角色不正確")
+        if not assigned or (assigned.get("role") != "teacher" and not is_campus_self):
+            raise HTTPException(
+                status_code=422, detail="授課教師帳號不存在或角色不正確"
+            )
     target_teacher_id = values.get("teacher_id", course.get("teacher_id"))
     if values.get("status") == "published" and target_teacher_id is None:
         raise HTTPException(status_code=422, detail="課程發布前必須先指派授課教師")
     values["updated_at"] = _now()
     response = (
-        supabase_admin.table("courses")
-        .update(values)
-        .eq("id", course_id)
-        .execute()
+        supabase_admin.table("courses").update(values).eq("id", course_id).execute()
     )
     if not response.data:
         raise HTTPException(status_code=500, detail="課程更新失敗")
@@ -322,10 +317,7 @@ def update_lecture(
     values = payload.model_dump(exclude_unset=True)
     values["updated_at"] = _now()
     response = (
-        supabase_admin.table("lectures")
-        .update(values)
-        .eq("id", lecture_id)
-        .execute()
+        supabase_admin.table("lectures").update(values).eq("id", lecture_id).execute()
     )
     if not response.data:
         raise HTTPException(status_code=500, detail="小節更新失敗")
@@ -398,7 +390,10 @@ def update_lecture_order(
         or []
     )
     current_ids = {row["id"] for row in current}
-    if len(payload.lecture_ids) != len(current_ids) or set(payload.lecture_ids) != current_ids:
+    if (
+        len(payload.lecture_ids) != len(current_ids)
+        or set(payload.lecture_ids) != current_ids
+    ):
         raise HTTPException(status_code=422, detail="小節排序資料不完整")
     for index, lecture_id in enumerate(payload.lecture_ids):
         supabase_admin.table("lectures").update(
