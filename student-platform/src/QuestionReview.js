@@ -220,7 +220,7 @@ export default function QuestionReview() {
   }
 
   async function deleteQuestion(question) {
-    const confirmed = window.confirm(`確定要刪除這題嗎？\n\n${question.question_text}`);
+    const confirmed = window.confirm(`確定要停用這題嗎？學生之後不會再看到，但歷史作答會保留。\n\n${question.question_text}`);
     if (!confirmed) return;
 
     setSaving(true);
@@ -232,15 +232,15 @@ export default function QuestionReview() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || '刪除題目失敗');
+        throw new Error(body.detail || '停用題目失敗');
       }
-      setMessage('題目已刪除。');
+      setMessage('題目已停用，歷史作答仍然保留。');
       if (form.id === question.id) {
         setForm({ ...EMPTY_FORM, lecture_id: lectureId });
       }
       await loadReviewData(lectureId);
     } catch (err) {
-      setMessage(err.message || '刪除題目失敗');
+      setMessage(err.message || '停用題目失敗');
     } finally {
       setSaving(false);
     }
@@ -341,7 +341,7 @@ export default function QuestionReview() {
                       onClick={() => deleteQuestion(question)}
                       disabled={saving}
                     >
-                      刪除
+                      停用
                     </button>
                   </div>
                 </div>

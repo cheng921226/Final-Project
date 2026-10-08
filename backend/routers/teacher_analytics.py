@@ -108,6 +108,59 @@ def _percent(numerator: int | float, denominator: int | float) -> int:
     return percentage(numerator, denominator)
 
 
+def _enrolled_student_ids(
+    enrollments: list[dict[str, Any]],
+    course_id: int,
+    known_student_ids: set[int],
+) -> set[int]:
+    return {
+        row["student_id"]
+        for row in enrollments
+        if row.get("course_id") == course_id
+        and row.get("student_id") in known_student_ids
+    }
+
+
+def _last_student_activity(
+    progresses: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    attempts: list[dict[str, Any]],
+) -> str | None:
+    last_active = None
+    for row in progresses:
+        last_active = _latest(last_active, row.get("updated_at"))
+    for row in events:
+        last_active = _latest(last_active, row.get("created_at"))
+    for row in attempts:
+        last_active = _latest(last_active, row.get("answered_at"))
+    return last_active
+
+
+def _student_scope_result(
+    student: dict[str, Any],
+    progresses: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    total_lectures: int,
+) -> dict[str, Any]:
+    correct = sum(bool(row.get("is_correct")) for row in attempts)
+    return {
+        "id": student.get("id"),
+        "student_number": student.get("student_number"),
+        "name": student.get("name") or f"學生 {student.get('id')}",
+        "email": student.get("email"),
+        "completed_lectures": sum(bool(row.get("completed")) for row in progresses),
+        "total_lectures": total_lectures,
+        "watched_minutes": round(
+            sum(row.get("watched_seconds") or 0 for row in progresses) / 60,
+            1,
+        ),
+        "attempts": len(attempts),
+        "accuracy": _percent(correct, len(attempts)),
+        "last_active": _last_student_activity(progresses, events, attempts),
+    }
+
+
 @router.get("/analytics")
 def get_teacher_analytics(user=Depends(get_current_user)):
     profile_response = (
@@ -139,16 +192,14 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         .execute()
     ).data or []
     all_student_ids = {row["id"] for row in students}
-    enrollments = []
-    if profile.get("role") == CAMPUS_ROLE:
-        enrollments = (
-            supabase_admin.table("student_courses")
-            .select("student_id,course_id")
-            .in_("course_id", course_ids)
-            .execute()
-            .data
-            or []
-        )
+    enrollments = (
+        supabase_admin.table("student_courses")
+        .select("student_id,course_id")
+        .in_("course_id", course_ids)
+        .execute()
+        .data
+        or []
+    )
     progresses = _rows("video_progresses", lecture_id=lecture_ids)
     events = _rows("learning_events", lecture_id=lecture_ids)
     attempts = _rows("question_attempts", lecture_id=lecture_ids)
@@ -160,19 +211,12 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     final_questions = _rows("final_assessment_questions", course_id=course_ids)
 
     student_map = {row["id"]: row for row in students}
-    question_map = {row["id"]: row for row in questions}
     result_courses = []
 
     for course in courses:
         cid = course["id"]
-        course_student_ids = (
-            {
-                row["student_id"]
-                for row in enrollments
-                if row.get("course_id") == cid and row.get("student_id") in all_student_ids
-            }
-            if profile.get("role") == CAMPUS_ROLE
-            else all_student_ids
+        course_student_ids = _enrolled_student_ids(
+            enrollments, cid, all_student_ids
         )
         course_lectures = [row for row in lectures if row.get("course_id") == cid]
         course_lecture_ids = {row["id"] for row in course_lectures}
@@ -226,6 +270,19 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             for event in lecture_events:
                 event_counts[event.get("event_type") or "unknown"] += 1
 
+            lecture_students = []
+            for student_id in sorted(course_student_ids):
+                student = student_map.get(student_id, {"id": student_id})
+                lecture_students.append(
+                    _student_scope_result(
+                        student,
+                        [row for row in lecture_progresses if row.get("student_id") == student_id],
+                        [row for row in lecture_events if row.get("student_id") == student_id],
+                        [row for row in lecture_attempts if row.get("student_id") == student_id],
+                        1,
+                    )
+                )
+
             lecture_results.append(
                 {
                     "id": lid,
@@ -259,6 +316,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     "seek_hotspots": _hotspots(
                         lecture_events, "seek", lecture_knowledge_points
                     ),
+                    "students": lecture_students,
                 }
             )
 
@@ -274,8 +332,12 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             student_attempts = [
                 row for row in course_attempts if row.get("student_id") == student_id
             ]
-            student_correct = sum(
-                bool(row.get("is_correct")) for row in student_attempts
+            scope_result = _student_scope_result(
+                student,
+                student_progress,
+                student_events,
+                student_attempts,
+                len(course_lectures),
             )
             credit_result = evaluate_course(
                 course,
@@ -300,49 +362,30 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     if row.get("course_id") == cid and row.get("is_active", True)
                 ),
             )
-            last_active = None
-            for row in student_progress:
-                last_active = _latest(last_active, row.get("updated_at"))
-            for row in student_events:
-                last_active = _latest(last_active, row.get("created_at"))
-            for row in student_attempts:
-                last_active = _latest(last_active, row.get("answered_at"))
-
             student_results.append(
                 {
-                    "id": student_id,
-                    "student_number": student.get("student_number"),
-                    "name": student.get("name") or f"學生 {student_id}",
-                    "email": student.get("email"),
-                    "completed_lectures": sum(
-                        bool(row.get("completed")) for row in student_progress
-                    ),
-                    "total_lectures": len(course_lectures),
-                    "watched_minutes": round(
-                        sum(row.get("watched_seconds") or 0 for row in student_progress)
-                        / 60,
-                        1,
-                    ),
-                    "attempts": len(student_attempts),
-                    "accuracy": _percent(student_correct, len(student_attempts)),
+                    **scope_result,
                     "course_passed": credit_result["course_passed"],
                     "credits_earned": credit_result["credits_earned"],
                     "credits_total": credit_result["credits_total"],
                     "final_score": credit_result["final_score"],
-                    "last_active": last_active,
                 }
             )
 
         question_results = []
         question_stats = question_attempt_statistics(course_attempts)
-        for question_id in {row.get("question_id") for row in course_attempts}:
-            if question_id is None:
-                continue
+        course_questions = [
+            row
+            for row in questions
+            if row.get("lecture_id") in course_lecture_ids
+            and row.get("is_active", True)
+        ]
+        for question in course_questions:
+            question_id = question.get("id")
             question_attempts = [
                 row for row in course_attempts if row.get("question_id") == question_id
             ]
             stats = question_stats.get(question_id, {})
-            question = question_map.get(question_id, {})
             question_results.append(
                 {
                     "id": question_id,
@@ -350,6 +393,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                     "text": question.get("question_text") or f"題目 {question_id}",
                     "attempts": stats.get("attempt_count", len(question_attempts)),
                     "accuracy": stats.get("accuracy", 0),
+                    "has_attempts": bool(question_attempts),
                 }
             )
 

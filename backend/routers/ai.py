@@ -8,6 +8,7 @@ from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
 from .security import get_current_user
+from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
 
 router = APIRouter()
@@ -258,7 +259,9 @@ class SummaryRequest(BaseModel):
 
 # 生成摘要
 @router.post("/ai/summary")
-def generate_summary(body: SummaryRequest):
+def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    require_lecture_manager(body.lecture_id, teacher)
     existing_response = (
         supabase_admin.table("summaries")
         .select("*")
@@ -314,7 +317,9 @@ class MindMapRequest(BaseModel):
 
 # 生成心智圖
 @router.post("/ai/mindmap")
-def generate_mindmap(body: MindMapRequest):
+def generate_mindmap(body: MindMapRequest, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    require_lecture_manager(body.lecture_id, teacher)
     existing_response = (
         supabase_admin.table("mindmaps")
         .select("*")
@@ -398,7 +403,9 @@ class KnowledgePointsRequest(BaseModel):
 
 # 生成知識點
 @router.post("/ai/knowledge_points")
-def generate_knowledge_points(body: KnowledgePointsRequest):
+def generate_knowledge_points(body: KnowledgePointsRequest, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    require_lecture_manager(body.lecture_id, teacher)
     existing_response = (
         supabase_admin.table("knowledge_points")
         .select("*")
@@ -462,7 +469,9 @@ class QuestionsRequest(BaseModel):
 
 # 生成題目
 @router.post("/ai/questions")
-def generate_questions(body: QuestionsRequest):
+def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    require_lecture_manager(body.lecture_id, teacher)
     existing_response = (
         supabase_admin.table("questions")
         .select("*")

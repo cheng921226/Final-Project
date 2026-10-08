@@ -127,3 +127,83 @@ test('selects students and sends the chosen recipients to the email API', async 
     localStorage.removeItem('access_token');
   }
 });
+
+test('switches the student table to the selected lecture metrics', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '測試課程',
+        summary: { students: 1, active_students: 1, lectures: 1, completion_rate: 100, watched_hours: 1, question_accuracy: 80 },
+        students: [{ id: 1, name: '課程資料', email: 'student@example.com', completed_lectures: 3, total_lectures: 3, watched_minutes: 60, accuracy: 80 }],
+        questions: [],
+        lectures: [{
+          id: 11,
+          title: '第一小節',
+          completion_rate: 0,
+          watched_minutes: 2,
+          accuracy: 50,
+          attempts: 2,
+          students_started: 1,
+          pause_count: 0,
+          seek_count: 0,
+          pause_hotspots: [],
+          seek_hotspots: [],
+          students: [{ id: 1, name: '小節資料', email: 'student@example.com', completed_lectures: 0, total_lectures: 1, watched_minutes: 2, accuracy: 50 }],
+        }],
+      }],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    await screen.findByText('課程資料');
+    const scopeSelect = screen.getByRole('combobox', { name: '分析範圍' });
+    fireEvent.change(scopeSelect, { target: { value: '11' } });
+    expect(screen.queryByText('課程資料')).not.toBeInTheDocument();
+    expect(screen.getByText('小節資料')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '正確率' })).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: '小節完成' })).toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
+test('shows unanswered questions without treating them as errors', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '測試課程',
+        summary: { students: 0, active_students: 0, lectures: 0 },
+        lectures: [],
+        students: [],
+        questions: [{ id: 1, text: '尚未作答題目', accuracy: 0, attempts: 0, has_attempts: false }],
+      }],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    const toggle = await screen.findByRole('button', { name: '顯示所有題目錯誤率（1 題）' });
+    expect(screen.queryByText('尚未作答題目')).not.toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.getByText('尚未作答題目')).toBeInTheDocument();
+    expect(screen.getByText('尚無作答')).toBeInTheDocument();
+    expect(screen.queryByText('100%')).not.toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});

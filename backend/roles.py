@@ -15,4 +15,4 @@ def can_manage_course(
 ) -> bool:
     if role == CAMPUS_ROLE:
         return True
-    return role == TEACHER_ROLE and teacher_id in (None, user_id)
+    return role == TEACHER_ROLE and teacher_id == user_id

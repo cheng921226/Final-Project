@@ -101,7 +101,17 @@ export default function TeacherDashboard() {
     [data, courseId]
   );
 
-  const students = course?.students || [];
+  const selectedLecture = useMemo(
+    () => lectureId === 'all'
+      ? null
+      : course?.lectures?.find(item => String(item.id) === lectureId),
+    [course, lectureId]
+  );
+
+  const students = useMemo(
+    () => selectedLecture?.students || course?.students || [],
+    [course, selectedLecture]
+  );
   const selectedStudents = useMemo(
     () => students.filter(student => selectedStudentIds.includes(student.id)),
     [students, selectedStudentIds]
@@ -142,7 +152,7 @@ export default function TeacherDashboard() {
         '',
         `這封信是來自「${courseName}」課程的學習提醒。`,
         '',
-        `目前系統判定您尚未完成「${lectureName}」的學習內容，請登入平台完成該小節內容，以維持學習進度。`,
+        `請登入平台確認「${lectureName}」的學習進度，並完成尚未完成的內容。`,
         '',
         '若您已完成相關內容，請忽略此信，或稍後再次確認學習紀錄是否已更新。',
         '',
@@ -279,13 +289,6 @@ export default function TeacherDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const selectedLecture = useMemo(
-    () => lectureId === 'all'
-      ? null
-      : course?.lectures?.find(item => String(item.id) === lectureId),
-    [course, lectureId]
-  );
-
   const visibleLectures = selectedLecture ? [selectedLecture] : (course?.lectures || []);
   const visibleQuestions = selectedLecture
     ? (course?.questions || []).filter(
@@ -293,10 +296,14 @@ export default function TeacherDashboard() {
     )
     : (course?.questions || []);
 
-  const sortedQuestions = [...visibleQuestions].sort((a, b) => a.accuracy - b.accuracy);
+  const sortedQuestions = [...visibleQuestions].sort((a, b) => {
+    if (a.has_attempts === false && b.has_attempts !== false) return 1;
+    if (b.has_attempts === false && a.has_attempts !== false) return -1;
+    return a.accuracy - b.accuracy;
+  });
   const displayedQuestions = showAllQuestions
     ? sortedQuestions
-    : sortedQuestions.filter(question => question.accuracy < 100).slice(0, 5);
+    : sortedQuestions.filter(question => question.has_attempts !== false && question.accuracy < 100).slice(0, 5);
 
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在整理學習數據...</p></div>;
@@ -495,10 +502,10 @@ export default function TeacherDashboard() {
           <div className="panel-title">
             <div>
               <h3>學生學習狀態</h3>
-              <p>依課程累積進度與近期活動整理</p>
+              <p>{selectedLecture ? `${selectedLecture.title}的小節進度與近期活動` : '依課程累積進度與近期活動整理'}</p>
             </div>
             <div className="student-panel-actions">
-              <span className="table-count">{selectedStudentIds.length} / {course.students.length} 已選</span>
+              <span className="table-count">{selectedStudentIds.length} / {students.length} 已選</span>
               <button
                 type="button"
                 className="teacher-mail-button"
@@ -516,9 +523,9 @@ export default function TeacherDashboard() {
                 checked={allStudentsSelected}
                 onChange={handleToggleAllStudents}
                 aria-label="全選學生"
-              /></th>{data.teacher?.role === 'campus' && <th>學號</th>}<th>學生</th><th>完成小節</th><th>觀看時間</th><th>答題率</th>{data.teacher?.role === 'campus' && <th>學分狀態</th>}<th>最近活動</th></tr></thead>
+              /></th>{data.teacher?.role === 'campus' && <th>學號</th>}<th>學生</th><th>{selectedLecture ? '小節完成' : '完成小節'}</th><th>觀看時間</th><th>正確率</th>{data.teacher?.role === 'campus' && !selectedLecture && <th>學分狀態</th>}<th>最近活動</th></tr></thead>
               <tbody>
-                {course.students.map(student => (
+                {students.map(student => (
                   <tr key={student.id}>
                     <td className="student-checkbox-col">
                       <input
@@ -533,7 +540,7 @@ export default function TeacherDashboard() {
                     <td><b>{student.completed_lectures}</b> / {student.total_lectures}</td>
                     <td>{student.watched_minutes} 分鐘</td>
                     <td><span className={`accuracy-chip ${student.accuracy < 60 ? 'needs-help' : ''}`}>{student.accuracy}%</span></td>
-                    {data.teacher?.role === 'campus' && (
+                    {data.teacher?.role === 'campus' && !selectedLecture && (
                       <td>
                         <span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>
                           {student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}
@@ -573,8 +580,8 @@ export default function TeacherDashboard() {
                   <div className="question-insight" key={question.id}>
                     <span>{index + 1}</span>
                     <div><p>{question.text}</p><small>{question.attempts} 次作答</small></div>
-                    <strong className={`question-error-rate ${100 - question.accuracy >= 80 ? 'error-red' : 100 - question.accuracy >= 60 ? 'error-orange' : 100 - question.accuracy >= 40 ? 'error-yellow' : 'error-neutral'}`}>
-                      <span>錯誤率</span>{100 - question.accuracy}%
+                    <strong className={`question-error-rate ${question.has_attempts === false ? 'error-neutral' : 100 - question.accuracy >= 80 ? 'error-red' : 100 - question.accuracy >= 60 ? 'error-orange' : 100 - question.accuracy >= 40 ? 'error-yellow' : 'error-neutral'}`}>
+                      <span>{question.has_attempts === false ? '作答狀態' : '錯誤率'}</span>{question.has_attempts === false ? '尚無作答' : `${100 - question.accuracy}%`}
                     </strong>
                   </div>
                 ))}

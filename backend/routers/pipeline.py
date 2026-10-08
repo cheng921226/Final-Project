@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline as run_pipeline
+
+from .security import get_current_user
+from .teacher_access import require_lecture_manager, require_teacher
 
 router = APIRouter()
 
@@ -16,7 +19,13 @@ class YoutubePipelineRequest(BaseModel):
     skip_existing_ai: bool = True
 
 @router.post("/lectures/{lecture_id}/ai-pipeline-youtube")
-def run_youtube_ai_pipeline(lecture_id: int, payload: YoutubePipelineRequest):
+def run_youtube_ai_pipeline(
+    lecture_id: int,
+    payload: YoutubePipelineRequest,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    require_lecture_manager(lecture_id, teacher)
     try:
         return run_pipeline(
             lecture_id,

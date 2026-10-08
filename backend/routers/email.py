@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 
 from routers.security import get_current_user
+from routers.teacher_access import require_teacher
 
 router = APIRouter(prefix="/email", tags=["email"])
 
@@ -85,8 +86,7 @@ def send_email(to: list[str], subject: str, body: str, cc: list[str] | None = No
 
 @router.post("/send")
 def send_email_route(data: EmailSendRequest, user=Depends(get_current_user)):
-    if not user or not getattr(user, "email", None):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+    require_teacher(user)
 
     result = send_email(
         to=list(data.to),

@@ -99,9 +99,10 @@ def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
             supabase_admin.table("questions")
             .select(
                 "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "answer, explanation, source_timestamp, question_type, source_question_id"
+                "answer, explanation, source_timestamp, question_type, source_question_id, is_active"
             )
             .in_("lecture_id", lecture_ids)
+            .eq("is_active", True)
             .execute()
             .data
             or []

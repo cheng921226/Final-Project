@@ -28,7 +28,7 @@ export default function CourseUpload() {
     async function loadInitialData() {
       try {
         const [courseRes, idRes, roleRes] = await Promise.all([
-          fetch(`${API_URL}/courses`),
+          fetch(`${API_URL}/courses`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/id`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/role`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
@@ -46,7 +46,7 @@ export default function CourseUpload() {
         const ownCourses = role.role === 'campus'
           ? (courseData || [])
           : (courseData || []).filter(course => (
-            !course.teacher_id || String(course.teacher_id) === String(idData.id)
+            String(course.teacher_id) === String(idData.id)
           ));
         setCourses(ownCourses);
         if (ownCourses[0]) setCourseId(String(ownCourses[0].id));
@@ -72,7 +72,10 @@ export default function CourseUpload() {
 
     const res = await fetch(`${API_URL}/courses`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({
         title: newCourseTitle.trim(),
         teacher_id: teacherId,
@@ -97,7 +100,10 @@ export default function CourseUpload() {
       const targetCourseId = await createCourseIfNeeded();
       const res = await fetch(`${API_URL}/lectures`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           title: lectureTitle.trim(),
           media_url: youtubeUrl.trim(),

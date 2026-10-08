@@ -38,6 +38,7 @@ class TeacherQuestionUpdate(BaseModel):
     explanation: str | None = None
     source_timestamp: int | None = None
     knowledge_point_id: int | None = None
+    is_active: bool | None = None
 
 
 def normalize_answer(value: Any) -> str:
@@ -65,6 +66,7 @@ def teacher_question(row: dict[str, Any]) -> dict[str, Any]:
     return {
         **public_question(row),
         "answer": row.get("answer"),
+        "is_active": row.get("is_active", True),
     }
 
 
@@ -155,10 +157,11 @@ def get_lecture_questions(lecture_id: int):
             supabase_admin.table("questions")
             .select(
                 "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "explanation, source_timestamp, question_type, source_question_id"
+                "explanation, source_timestamp, question_type, source_question_id, is_active"
             )
             .eq("lecture_id", lecture_id)
             .eq("question_type", "original")
+            .eq("is_active", True)
             .order("source_timestamp")
             .execute()
         )
@@ -215,10 +218,11 @@ def get_teacher_question_review(user=Depends(get_current_user)):
                 supabase_admin.table("questions")
                 .select(
                     "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                    "answer, explanation, source_timestamp, question_type, source_question_id"
+                    "answer, explanation, source_timestamp, question_type, source_question_id, is_active"
                 )
                 .in_("lecture_id", lecture_ids)
                 .eq("question_type", "original")
+                .eq("is_active", True)
                 .order("source_timestamp")
                 .execute()
                 .data
@@ -339,13 +343,13 @@ def delete_teacher_question(question_id: int, user=Depends(get_current_user)):
 
     response = (
         supabase_admin.table("questions")
-        .delete()
+        .update({"is_active": False})
         .eq("id", question_id)
         .execute()
     )
     if not response.data:
-        raise HTTPException(status_code=500, detail="刪除題目失敗")
-    return {"message": "deleted", "question_id": question_id}
+        raise HTTPException(status_code=500, detail="停用題目失敗")
+    return {"message": "disabled", "question_id": question_id}
 
 
 @router.get("/lectures/{lecture_id}/question-attempts")
@@ -436,6 +440,8 @@ def create_question_attempt(
     question = question_response.data
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
+    if not question.get("is_active", True):
+        raise HTTPException(status_code=410, detail="Question is no longer active")
 
     if question.get("lecture_id") != body.lecture_id:
         raise HTTPException(

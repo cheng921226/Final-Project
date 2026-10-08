@@ -13,6 +13,12 @@ from services.transcription import (
 )
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
 from .security import get_current_user
+from .teacher_access import (
+    course_owner_for_creation,
+    require_course_manager,
+    require_lecture_manager,
+    require_teacher,
+)
 from .users import get_student_id_from_auth
 
 router = APIRouter()
@@ -37,13 +43,14 @@ def get_courses(keyword: str = None):
 
 
 @router.post("/courses")
-def create_course(body: CourseCreate):
+def create_course(body: CourseCreate, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
     res = (
-        supabase.table("courses")
+        supabase_admin.table("courses")
         .insert(
             {
                 "title": body.title,
-                "teacher_id": body.teacher_id,
+                "teacher_id": course_owner_for_creation(teacher, body.teacher_id),
             }
         )
         .execute()
@@ -90,7 +97,9 @@ def get_selected_lecture(lecture_id: int):
 
 
 @router.post("/lectures")
-def create_lecture(body: LectureCreate):
+def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    require_course_manager(body.course_id, teacher)
     is_youtube = "youtube.com" in body.media_url or "youtu.be" in body.media_url
     duration_seconds = body.duration_seconds
     if duration_seconds is None and is_youtube:
@@ -103,7 +112,7 @@ def create_lecture(body: LectureCreate):
             ) from exc
 
     res = (
-        supabase.table("lectures")
+        supabase_admin.table("lectures")
         .insert(
             {
                 "title": body.title,
@@ -418,7 +427,10 @@ async def transcribe_lecture_media(
     model_size: str = Form(default="tiny"),
     word_timestamps: bool = Form(default=False),
     save_to_db: bool = Form(default=True),
+    user=Depends(get_current_user),
 ):
+    teacher = require_teacher(user)
+    require_lecture_manager(lecture_id, teacher)
     suffix = os.path.splitext(file.filename or "")[1] or ".media"
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:

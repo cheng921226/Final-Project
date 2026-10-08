@@ -3,7 +3,7 @@ import shutil
 import tempfile
 
 from database.supabase import supabase_admin
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from services.transcription import (
     download_youtube_audio,
@@ -11,6 +11,9 @@ from services.transcription import (
     save_transcript_segments,
     transcribe_media,
 )
+
+from .security import get_current_user
+from .teacher_access import require_lecture_manager, require_teacher
 
 router = APIRouter()
 
@@ -32,7 +35,10 @@ async def transcribe_lecture_media(
     model_size: str = Form(default="tiny"),
     word_timestamps: bool = Form(default=False),
     save_to_db: bool = Form(default=True),
+    user=Depends(get_current_user),
 ):
+    teacher = require_teacher(user)
+    require_lecture_manager(lecture_id, teacher)
     suffix = os.path.splitext(file.filename or "")[1] or ".media"
 
     try:
@@ -72,7 +78,13 @@ async def transcribe_lecture_media(
 
 # 輸入 YouTube 連結並轉成有時間戳的逐字稿
 @router.post("/lectures/{lecture_id}/transcribe-youtube")
-def transcribe_lecture_youtube(lecture_id: int, payload: YoutubeTranscribeRequest):
+def transcribe_lecture_youtube(
+    lecture_id: int,
+    payload: YoutubeTranscribeRequest,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    require_lecture_manager(lecture_id, teacher)
     download_dir = tempfile.mkdtemp(prefix="youtube_transcribe_")
 
     try:
