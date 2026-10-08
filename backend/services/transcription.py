@@ -1,4 +1,5 @@
 import os
+import shutil
 import tempfile
 from functools import lru_cache
 from typing import Any
@@ -93,6 +94,10 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
         "http_chunk_size": 10 * 1024 * 1024,
         "continuedl": True,
     }
+    node_path = shutil.which("node")
+    if node_path:
+        # YouTube now requires JavaScript challenge solving for many media URLs.
+        ydl_opts["js_runtimes"] = {"node": {"path": node_path}}
 
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(clean_url, download=True)
