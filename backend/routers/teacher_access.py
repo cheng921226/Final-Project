@@ -27,7 +27,12 @@ def require_teacher(user) -> dict[str, Any]:
     return profile
 
 
-def require_course_manager(course_id: int, teacher: dict[str, Any]) -> dict[str, Any]:
+def require_course_manager(
+    course_id: int,
+    teacher: dict[str, Any],
+    *,
+    allow_campus_all: bool = False,
+) -> dict[str, Any]:
     response = (
         supabase_admin.table("courses")
         .select("*")
@@ -38,7 +43,10 @@ def require_course_manager(course_id: int, teacher: dict[str, Any]) -> dict[str,
     course = response.data
     if not course:
         raise HTTPException(status_code=404, detail="找不到課程")
-    if not can_manage_course(
+    is_platform_manager = (
+        allow_campus_all and teacher.get("role") == CAMPUS_ROLE
+    )
+    if not is_platform_manager and not can_manage_course(
         teacher.get("role"),
         teacher.get("id"),
         course.get("teacher_id"),
@@ -48,7 +56,12 @@ def require_course_manager(course_id: int, teacher: dict[str, Any]) -> dict[str,
     return course
 
 
-def require_lecture_manager(lecture_id: int, teacher: dict[str, Any]) -> dict[str, Any]:
+def require_lecture_manager(
+    lecture_id: int,
+    teacher: dict[str, Any],
+    *,
+    allow_campus_all: bool = False,
+) -> dict[str, Any]:
     response = (
         supabase_admin.table("lectures")
         .select("*")
@@ -59,7 +72,9 @@ def require_lecture_manager(lecture_id: int, teacher: dict[str, Any]) -> dict[st
     lecture = response.data
     if not lecture:
         raise HTTPException(status_code=404, detail="找不到小節")
-    require_course_manager(lecture["course_id"], teacher)
+    require_course_manager(
+        lecture["course_id"], teacher, allow_campus_all=allow_campus_all
+    )
     return lecture
 
 

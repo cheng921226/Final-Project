@@ -3225,6 +3225,14 @@ a {
 
 /* Course management */
 .course-management-page { width: min(1180px, calc(100% - 40px)); }
+.course-management-page .course-upload-link {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  white-space: nowrap;
+}
 .course-settings-card { display: grid; gap: 18px; margin-bottom: 18px; }
 .course-management-actions,
 .managed-lecture-actions,
@@ -3235,6 +3243,14 @@ a {
   gap: 9px;
 }
 .course-management-actions { justify-content: flex-end; }
+.course-management-actions > .question-secondary-button,
+.course-management-actions > .question-save-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
 .course-status-badge {
   padding: 6px 10px;
   border-radius: 999px;

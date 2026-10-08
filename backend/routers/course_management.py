@@ -130,9 +130,7 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
 
 def _managed_courses(teacher: dict[str, Any]) -> list[dict[str, Any]]:
     query = supabase_admin.table("courses").select("*")
-    if teacher.get("role") == CAMPUS_ROLE:
-        query = query.eq("created_by_user_id", teacher["id"])
-    else:
+    if teacher.get("role") != CAMPUS_ROLE:
         query = query.eq("teacher_id", teacher["id"])
     return query.order("updated_at", desc=True).execute().data or []
 
@@ -213,7 +211,7 @@ def update_course(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    course = require_course_manager(course_id, teacher)
+    course = require_course_manager(course_id, teacher, allow_campus_all=True)
     values = payload.model_dump(exclude_unset=True)
     if "teacher_id" in values and teacher.get("role") != CAMPUS_ROLE:
         raise HTTPException(status_code=403, detail="只有校園平台端可以指派授課教師")
@@ -249,7 +247,7 @@ def update_course(
 @router.post("/courses/{course_id}/duplicate")
 def duplicate_course(course_id: int, user=Depends(get_current_user)):
     teacher = require_teacher(user)
-    course = require_course_manager(course_id, teacher)
+    course = require_course_manager(course_id, teacher, allow_campus_all=True)
     owner_id = teacher["id"]
     if teacher.get("role") == CAMPUS_ROLE:
         owner_id = course.get("teacher_id") or teacher["id"]
@@ -320,7 +318,7 @@ def update_lecture(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_lecture_manager(lecture_id, teacher)
+    require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
     values = payload.model_dump(exclude_unset=True)
     values["updated_at"] = _now()
     response = (
@@ -363,7 +361,7 @@ def update_transcript(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_lecture_manager(lecture_id, teacher)
+    require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
     content = payload.content.strip()
     segments = _segments_from_edited_transcript(content)
     response = (
@@ -390,7 +388,7 @@ def update_lecture_order(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_course_manager(course_id, teacher)
+    require_course_manager(course_id, teacher, allow_campus_all=True)
     current = (
         supabase_admin.table("lectures")
         .select("id")
@@ -431,7 +429,7 @@ def regenerate_lecture_content(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_lecture_manager(lecture_id, teacher)
+    require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
     components = list(dict.fromkeys(payload.components))
     if not components:
         raise HTTPException(status_code=422, detail="請至少選擇一種要重新產生的內容")

@@ -39,13 +39,23 @@ test('teacher manages owned courses without teacher assignment control', async (
   expect(screen.queryByText('授課教師')).not.toBeInTheDocument();
 });
 
-test('campus manages its uploaded courses and sees uploader and assignment', async () => {
+test('campus sees and manages teacher courses alongside its own courses', async () => {
   localStorage.setItem('access_token', 'campus-token');
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
       actor: { id: 99, role: 'campus' },
-      courses: [baseCourse],
+      courses: [
+        baseCourse,
+        {
+          ...baseCourse,
+          id: 2,
+          title: '離散數學',
+          teacher_id: 10,
+          created_by_user_id: 10,
+          creator: { id: 10, name: '王老師', email: 'teacher@example.com' },
+        },
+      ],
       teachers: [
         { id: 99, name: '校園平台甲（平台端）', email: 'campus@example.com', role: 'campus' },
         { id: 10, name: '王老師', email: 'teacher@example.com', role: 'teacher' },
@@ -59,4 +69,5 @@ test('campus manages its uploaded courses and sees uploader and assignment', asy
   expect(screen.getByText('授課教師')).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: '離散數學｜王老師' })).toBeInTheDocument();
 });

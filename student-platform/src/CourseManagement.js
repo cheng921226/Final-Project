@@ -246,11 +246,11 @@ export default function CourseManagement() {
         <div>
           <p className="eyebrow">Course management</p>
           <h1>{isCampus ? '平台課程管理' : '我的課程管理'}</h1>
-          <p>{isCampus ? '管理由此平台帳號上傳的課程、指派授課教師並控制發布狀態。' : '管理自己上傳或被指派授課的課程、安排小節並管理 AI 教材。'}</p>
+          <p>{isCampus ? '管理平台上的所有課程，包括老師建立的課程、授課教師指派與發布狀態。' : '管理自己上傳或被指派授課的課程、安排小節並管理 AI 教材。'}</p>
         </div>
         <div className="teacher-filters">
           <label><span>課程</span><select value={courseId} onChange={event => chooseCourse(event.target.value)}>{(data?.courses || []).map(course => <option key={course.id} value={course.id}>{course.title}{course.assigned_teacher ? `｜${course.assigned_teacher.name || course.assigned_teacher.email}` : '｜尚未指派'}</option>)}</select></label>
-          <Link className="question-secondary-button" to="/teacher/upload">新增課程或小節</Link>
+          <Link className="question-secondary-button course-upload-link" to="/teacher/upload">新增課程或小節</Link>
         </div>
       </header>
 

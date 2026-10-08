@@ -1,12 +1,13 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
 from routers.teacher_access import (
     course_owner_for_creation,
     require_course_manager,
+    require_lecture_manager,
     require_teacher,
 )
 from roles import can_manage_course
@@ -14,6 +15,7 @@ from routers.teacher_analytics import _enrolled_student_ids, _student_scope_resu
 from routers.questions import delete_teacher_question
 from routers.course_management import (
     CourseUpdate,
+    _managed_courses,
     _segments_from_edited_transcript,
     update_course,
 )
@@ -157,6 +159,49 @@ class TeacherAuthorizationTests(unittest.TestCase):
     def test_campus_can_manage_only_courses_it_uploaded(self):
         self.assertTrue(can_manage_course("campus", 22, 9, 22))
         self.assertFalse(can_manage_course("campus", 23, 9, 22))
+
+    def test_campus_course_management_can_list_and_manage_teacher_courses(self):
+        course_rows = [
+            {"id": 10, "teacher_id": 1, "created_by_user_id": 1},
+            {"id": 20, "teacher_id": 9, "created_by_user_id": 22},
+        ]
+        query = Mock()
+        query.order.return_value = query
+        query.execute.return_value.data = course_rows
+        database = Mock()
+        database.table.return_value.select.return_value = query
+
+        with patch("routers.course_management.supabase_admin", database):
+            courses = _managed_courses({"id": 99, "role": "campus"})
+
+        self.assertEqual(courses, course_rows)
+        query.eq.assert_not_called()
+        with patch("routers.teacher_access.supabase_admin", self.database):
+            managed_course = require_course_manager(
+                10,
+                {"id": 99, "role": "campus"},
+                allow_campus_all=True,
+            )
+        self.assertEqual(managed_course["id"], 10)
+        lecture_database = FakeSupabase(
+            {
+                "lectures": [{"id": 100, "course_id": 10}],
+                "courses": [{"id": 10, "teacher_id": 1, "created_by_user_id": 1}],
+            }
+        )
+        with patch("routers.teacher_access.supabase_admin", lecture_database):
+            managed_lecture = require_lecture_manager(
+                100,
+                {"id": 99, "role": "campus"},
+                allow_campus_all=True,
+            )
+        self.assertEqual(managed_lecture["id"], 100)
+
+    def test_campus_cannot_manage_teacher_course_outside_course_management(self):
+        with patch("routers.teacher_access.supabase_admin", self.database):
+            with self.assertRaises(HTTPException) as context:
+                require_course_manager(10, {"id": 99, "role": "campus"})
+        self.assertEqual(context.exception.status_code, 403)
 
     def test_disabling_question_preserves_attempt_history(self):
         question = {"id": 5, "lecture_id": 7, "is_active": True}
