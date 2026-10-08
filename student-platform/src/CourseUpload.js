@@ -28,7 +28,7 @@ export default function CourseUpload() {
     async function loadInitialData() {
       try {
         const [courseRes, idRes, roleRes] = await Promise.all([
-          fetch(`${API_URL}/courses`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_URL}/teacher/course-management`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/id`, { headers: { Authorization: `Bearer ${token}` } }),
           fetch(`${API_URL}/role`, { headers: { Authorization: `Bearer ${token}` } }),
         ]);
@@ -43,11 +43,7 @@ export default function CourseUpload() {
         const idData = await idRes.json();
         const courseData = await courseRes.json();
         setTeacherId(idData.id);
-        const ownCourses = role.role === 'campus'
-          ? (courseData || [])
-          : (courseData || []).filter(course => (
-            String(course.teacher_id) === String(idData.id)
-          ));
+        const ownCourses = courseData.courses || [];
         setCourses(ownCourses);
         if (ownCourses[0]) setCourseId(String(ownCourses[0].id));
       } catch (err) {

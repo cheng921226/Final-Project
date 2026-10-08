@@ -39,7 +39,10 @@ def require_course_manager(course_id: int, teacher: dict[str, Any]) -> dict[str,
     if not course:
         raise HTTPException(status_code=404, detail="找不到課程")
     if not can_manage_course(
-        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
     ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課")
     return course
@@ -62,7 +65,9 @@ def require_lecture_manager(lecture_id: int, teacher: dict[str, Any]) -> dict[st
 
 def course_owner_for_creation(
     teacher: dict[str, Any], requested_teacher_id: int | None
-) -> int:
+) -> int | None:
     if teacher.get("role") == CAMPUS_ROLE and requested_teacher_id is not None:
+        if requested_teacher_id == teacher.get("id"):
+            return None
         return requested_teacher_id
     return teacher["id"]

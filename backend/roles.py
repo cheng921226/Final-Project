@@ -2,7 +2,7 @@ STUDENT_ROLE = "student"
 TEACHER_ROLE = "teacher"
 CAMPUS_ROLE = "campus"
 
-# Campus accounts share the teacher feature permissions and course ownership rules.
+# Campus accounts can use teacher features, but only for courses they uploaded.
 TEACHER_ACCESS_ROLES = frozenset({TEACHER_ROLE, CAMPUS_ROLE})
 
 
@@ -11,8 +11,11 @@ def has_teacher_access(role: str | None) -> bool:
 
 
 def can_manage_course(
-    role: str | None, user_id: int | None, teacher_id: int | None
+    role: str | None,
+    user_id: int | None,
+    teacher_id: int | None,
+    created_by_user_id: int | None = None,
 ) -> bool:
     if role == CAMPUS_ROLE:
-        return True
+        return created_by_user_id == user_id
     return role == TEACHER_ROLE and teacher_id == user_id

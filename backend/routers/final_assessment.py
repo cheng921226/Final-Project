@@ -113,7 +113,10 @@ def require_course_manager(course_id: int, user) -> tuple[dict[str, Any], dict[s
     teacher = require_teacher(user)
     course = get_course(course_id)
     if not can_manage_course(
-        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
     ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課")
     return teacher, course
@@ -386,7 +389,9 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
 def get_teacher_final_assessments(user=Depends(get_current_user)):
     teacher = require_teacher(user)
     course_query = supabase_admin.table("courses").select("*")
-    if teacher.get("role") != CAMPUS_ROLE:
+    if teacher.get("role") == CAMPUS_ROLE:
+        course_query = course_query.eq("created_by_user_id", teacher["id"])
+    else:
         course_query = course_query.eq("teacher_id", teacher["id"])
     courses = course_query.order("id").execute().data or []
     course_ids = [row["id"] for row in courses]
@@ -981,7 +986,10 @@ def generate_final_assessment(
     teacher = require_teacher(user)
     course = get_course(course_id)
     if not can_manage_course(
-        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
     ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課")
 

@@ -29,7 +29,7 @@ def require_campus(user) -> dict[str, Any]:
     return profile
 
 
-def _course_credit_roster(course_id: int) -> dict[str, Any]:
+def _course_credit_roster(course_id: int, campus_id: int) -> dict[str, Any]:
     course_response = (
         supabase_admin.table("courses")
         .select("*")
@@ -40,6 +40,8 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
     course = course_response.data
     if not course:
         raise HTTPException(status_code=404, detail="找不到課程")
+    if course.get("created_by_user_id") != campus_id:
+        raise HTTPException(status_code=403, detail="只能查看此平台帳號上傳的課程")
 
     enrollments = (
         supabase_admin.table("student_courses")
@@ -159,14 +161,14 @@ def _course_credit_roster(course_id: int) -> dict[str, Any]:
 
 @router.get("/courses/{course_id}/credit-roster")
 def get_course_credit_roster(course_id: int, user=Depends(get_current_user)):
-    require_campus(user)
-    return _course_credit_roster(course_id)
+    campus = require_campus(user)
+    return _course_credit_roster(course_id, campus["id"])
 
 
 @router.get("/courses/{course_id}/credit-roster.csv")
 def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
-    require_campus(user)
-    roster = _course_credit_roster(course_id)
+    campus = require_campus(user)
+    roster = _course_credit_roster(course_id, campus["id"])
     students = roster["students"]
     if not students:
         raise HTTPException(status_code=404, detail="這門課目前沒有選課學生")

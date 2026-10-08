@@ -175,7 +175,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Teacher or campus access required")
 
     course_query = supabase_admin.table("courses").select("*")
-    if profile.get("role") != CAMPUS_ROLE:
+    if profile.get("role") == CAMPUS_ROLE:
+        course_query = course_query.eq("created_by_user_id", profile["id"])
+    else:
         course_query = course_query.eq("teacher_id", profile["id"])
     courses = course_query.order("created_at").execute().data or []
     course_ids = [course["id"] for course in courses]
@@ -261,7 +263,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 row for row in course_attempts if row.get("lecture_id") == lid
             ]
             lecture_knowledge_points = [
-                row for row in knowledge_points if row.get("lecture_id") == lid
+                row
+                for row in knowledge_points
+                if row.get("lecture_id") == lid and row.get("is_active", True)
             ]
             lecture_correct = sum(
                 bool(row.get("is_correct")) for row in lecture_attempts

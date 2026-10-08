@@ -105,14 +105,17 @@ def get_lecture_for_teacher(lecture_id: int, teacher: dict[str, Any]) -> dict[st
 
     course_response = (
         supabase_admin.table("courses")
-        .select("id, teacher_id")
+        .select("id, teacher_id, created_by_user_id")
         .eq("id", lecture.get("course_id"))
         .maybe_single()
         .execute()
     )
     course = course_response.data
     if course and not can_manage_course(
-        teacher.get("role"), teacher.get("id"), course.get("teacher_id")
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
     ):
         raise HTTPException(status_code=403, detail="沒有權限管理這門課的題目")
 
@@ -189,7 +192,9 @@ def get_teacher_question_review(user=Depends(get_current_user)):
     teacher = require_teacher(user)
 
     course_query = supabase_admin.table("courses").select("*")
-    if teacher.get("role") != CAMPUS_ROLE:
+    if teacher.get("role") == CAMPUS_ROLE:
+        course_query = course_query.eq("created_by_user_id", teacher["id"])
+    else:
         course_query = course_query.eq("teacher_id", teacher["id"])
     courses = course_query.order("id").execute().data or []
 
@@ -245,6 +250,7 @@ def get_teacher_question_review(user=Depends(get_current_user)):
             supabase_admin.table("knowledge_points")
             .select("id, lecture_id, title, start_time, end_time")
             .in_("lecture_id", lecture_ids)
+            .eq("is_active", True)
             .order("start_time")
             .execute()
             .data

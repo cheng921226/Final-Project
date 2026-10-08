@@ -655,6 +655,7 @@ def build_review_payload(
         supabase_admin.table("knowledge_points")
         .select("id, lecture_id, title, description, start_time, end_time")
         .in_("lecture_id", lecture_ids)
+        .eq("is_active", True)
         .execute()
         .data
         or []

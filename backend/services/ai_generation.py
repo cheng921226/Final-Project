@@ -1,4 +1,5 @@
 import json
+import os
 from typing import Any
 
 from google import genai
@@ -7,6 +8,7 @@ from database.supabase import supabase_admin
 
 
 gemini_client = genai.Client()
+CONTENT_GENERATION_MODEL = os.getenv("GEMINI_CONTENT_MODEL", "gemini-3.5-flash")
 
 
 def format_transcript_for_prompt(segments: list[dict[str, Any]]) -> str:
@@ -86,12 +88,12 @@ def get_lecture_title(lecture_id: int) -> str:
 
 
 def existing_rows(table_name: str, lecture_id: int) -> list[dict[str, Any]]:
-    response = (
-        supabase_admin.table(table_name)
-        .select("*")
-        .eq("lecture_id", lecture_id)
-        .execute()
+    query = (
+        supabase_admin.table(table_name).select("*").eq("lecture_id", lecture_id)
     )
+    if table_name in {"knowledge_points", "questions"}:
+        query = query.eq("is_active", True)
+    response = query.execute()
     return response.data or []
 
 
@@ -114,7 +116,7 @@ JSON 格式：
 """
 
     ai_response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=CONTENT_GENERATION_MODEL,
         contents=prompt,
         config={"response_mime_type": "application/json"},
     )
@@ -152,7 +154,7 @@ JSON 格式：
 """
 
     ai_response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=CONTENT_GENERATION_MODEL,
         contents=prompt,
         config={"response_mime_type": "application/json"},
     )
@@ -208,7 +210,7 @@ JSON 格式：
 """
 
     ai_response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=CONTENT_GENERATION_MODEL,
         contents=prompt,
         config={"response_mime_type": "application/json"},
     )
@@ -321,7 +323,7 @@ JSON 格式：
 """
 
     ai_response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model=CONTENT_GENERATION_MODEL,
         contents=prompt,
         config={"response_mime_type": "application/json"},
     )

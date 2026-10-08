@@ -9,8 +9,14 @@ from routers.teacher_access import (
     require_course_manager,
     require_teacher,
 )
+from roles import can_manage_course
 from routers.teacher_analytics import _enrolled_student_ids, _student_scope_result
 from routers.questions import delete_teacher_question
+from routers.course_management import (
+    CourseUpdate,
+    _segments_from_edited_transcript,
+    update_course,
+)
 
 
 class FakeResponse:
@@ -84,6 +90,15 @@ class TeacherAnalyticsTests(unittest.TestCase):
         self.assertEqual(result["accuracy"], 50)
         self.assertEqual(result["last_active"], "2026-01-03")
 
+    def test_edited_transcript_keeps_timestamp_segments(self):
+        segments = _segments_from_edited_transcript(
+            "(0:10) 第一段內容\n(0:45) 第二段內容"
+        )
+        self.assertEqual(len(segments), 2)
+        self.assertEqual(segments[0]["start_time"], 10)
+        self.assertEqual(segments[0]["end_time"], 45)
+        self.assertEqual(segments[1]["text"], "第二段內容")
+
 
 class TeacherAuthorizationTests(unittest.TestCase):
     def setUp(self):
@@ -94,9 +109,9 @@ class TeacherAuthorizationTests(unittest.TestCase):
                     {"id": 2, "auth_id": "student-auth", "role": "student"},
                 ],
                 "courses": [
-                    {"id": 10, "teacher_id": 1},
-                    {"id": 20, "teacher_id": 9},
-                    {"id": 30, "teacher_id": None},
+                    {"id": 10, "teacher_id": 1, "created_by_user_id": 1},
+                    {"id": 20, "teacher_id": 9, "created_by_user_id": 22},
+                    {"id": 30, "teacher_id": None, "created_by_user_id": 22},
                 ],
             }
         )
@@ -127,6 +142,15 @@ class TeacherAuthorizationTests(unittest.TestCase):
             1,
         )
 
+    def test_campus_created_course_starts_unassigned(self):
+        self.assertIsNone(
+            course_owner_for_creation({"id": 99, "role": "campus"}, 99)
+        )
+
+    def test_campus_can_manage_only_courses_it_uploaded(self):
+        self.assertTrue(can_manage_course("campus", 22, 9, 22))
+        self.assertFalse(can_manage_course("campus", 23, 9, 22))
+
     def test_disabling_question_preserves_attempt_history(self):
         question = {"id": 5, "lecture_id": 7, "is_active": True}
         attempts = [{"id": 1, "question_id": 5, "is_correct": False}]
@@ -141,6 +165,19 @@ class TeacherAuthorizationTests(unittest.TestCase):
         self.assertEqual(result["message"], "disabled")
         self.assertFalse(question["is_active"])
         self.assertEqual(len(attempts), 1)
+
+    def test_only_campus_can_reassign_course_teacher(self):
+        with (
+            patch("routers.course_management.require_teacher", return_value={"id": 1, "role": "teacher"}),
+            patch("routers.course_management.require_course_manager", return_value={"id": 10, "teacher_id": 1}),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                update_course(
+                    10,
+                    CourseUpdate(teacher_id=9),
+                    SimpleNamespace(id="teacher-auth"),
+                )
+        self.assertEqual(context.exception.status_code, 403)
 
 
 if __name__ == "__main__":

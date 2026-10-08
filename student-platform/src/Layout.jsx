@@ -145,12 +145,13 @@ export default function Layout({ token, setToken }) {
                                         aria-controls="teacher-feature-menu"
                                         onClick={() => setTeacherMenuOpen(open => !open)}
                                     >
-                                        教師功能
+                                        {user.role === 'campus' ? '平台管理' : '教師功能'}
                                         <span className="teacher-menu-chevron" aria-hidden="true">▾</span>
                                     </button>
                                     {teacherMenuOpen && (
                                         <div className="teacher-menu-panel" id="teacher-feature-menu">
                                             <Link to="/teacher" onClick={() => setTeacherMenuOpen(false)}>分析中心</Link>
+                                            <Link to="/teacher/courses" onClick={() => setTeacherMenuOpen(false)}>課程管理</Link>
                                             <Link to="/teacher/questions" onClick={() => setTeacherMenuOpen(false)}>審題</Link>
                                             <Link to="/teacher/final-assessment" onClick={() => setTeacherMenuOpen(false)}>最終測驗</Link>
                                             <Link to="/teacher/upload" onClick={() => setTeacherMenuOpen(false)}>上傳課程</Link>

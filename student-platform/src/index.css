@@ -3223,6 +3223,100 @@ a {
   .certificate-inner footer { flex-direction: column; gap: 6px; }
 }
 
+/* Course management */
+.course-management-page { width: min(1180px, calc(100% - 40px)); }
+.course-settings-card { display: grid; gap: 18px; margin-bottom: 18px; }
+.course-management-actions,
+.managed-lecture-actions,
+.managed-ai-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
+}
+.course-management-actions { justify-content: flex-end; }
+.course-status-badge {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.status-draft { background: #f1f5f9; color: #475569; }
+.status-published { background: #dcfce7; color: #166534; }
+.status-archived { background: #fee2e2; color: #991b1b; }
+.managed-lecture-list { display: grid; gap: 14px; margin-top: 16px; }
+.managed-lecture-card {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+.managed-lecture-order {
+  display: flex;
+  align-items: center;
+  flex-direction: column;
+  gap: 7px;
+}
+.managed-lecture-order strong {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  background: #eef2ff;
+  color: #5145a6;
+}
+.managed-lecture-order button,
+.managed-ai-actions button {
+  border: 1px solid #dbe3ef;
+  border-radius: 7px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+  font-weight: 700;
+}
+.managed-lecture-order button { width: 32px; height: 28px; }
+.managed-ai-actions button { padding: 6px 9px; }
+.managed-lecture-order button:disabled,
+.managed-ai-actions button:disabled { cursor: not-allowed; opacity: .45; }
+.managed-lecture-main { display: grid; gap: 13px; min-width: 0; }
+.managed-content-status { display: flex; flex-wrap: wrap; gap: 7px; }
+.managed-content-status span {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 800;
+}
+.managed-content-status span.ready { background: #ecfdf5; color: #047857; }
+.managed-lecture-actions { justify-content: flex-end; }
+.visibility-toggle { margin-right: auto; color: #475569; font-size: 13px; font-weight: 700; }
+.managed-ai-actions { padding-top: 12px; border-top: 1px dashed #dbe3ef; }
+.managed-ai-actions > span { color: #64748b; font-size: 12px; font-weight: 800; }
+.managed-transcript-editor {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dbe3ef;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.managed-transcript-editor textarea { min-height: 220px; font-family: inherit; line-height: 1.7; }
+.managed-transcript-editor small { color: #64748b; }
+.managed-transcript-editor > button { justify-self: end; }
+
+@media (max-width: 760px) {
+  .course-management-page { width: min(100% - 24px, 1180px); }
+  .managed-lecture-card { grid-template-columns: 1fr; }
+  .managed-lecture-order { flex-direction: row; }
+  .managed-lecture-actions { justify-content: flex-start; }
+  .visibility-toggle { width: 100%; margin-right: 0; }
+}
+
 .final-management-page { width: min(1180px, calc(100% - 40px)); }
 
 .final-status-strip {

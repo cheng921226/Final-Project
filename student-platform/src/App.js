@@ -16,6 +16,7 @@ import CreditSettings from './CreditSettings';
 import FinalAssessment from './FinalAssessment';
 import TeacherFinalAssessment from './TeacherFinalAssessment';
 import Certificate from './Certificate';
+import CourseManagement from './CourseManagement';
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem("access_token"));
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="teacher/questions" element={<QuestionReview />} />
           <Route path="teacher/final-assessment" element={<TeacherFinalAssessment />} />
           <Route path="teacher/credits" element={<CreditSettings />} />
+          <Route path="teacher/courses" element={<CourseManagement />} />
         </Route>
       </Routes>
     </Router>

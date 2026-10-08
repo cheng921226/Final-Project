@@ -30,12 +30,13 @@ router = APIRouter()
 
 class CourseCreate(BaseModel):
     title: str
+    description: str | None = None
     teacher_id: int | None = None
 
 
 @router.get("/courses")
 def get_courses(keyword: str = None):
-    query = supabase.table("courses").select("*")
+    query = supabase.table("courses").select("*").eq("status", "published")
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
@@ -45,12 +46,27 @@ def get_courses(keyword: str = None):
 @router.post("/courses")
 def create_course(body: CourseCreate, user=Depends(get_current_user)):
     teacher = require_teacher(user)
+    owner_id = course_owner_for_creation(teacher, body.teacher_id)
+    if teacher.get("role") == "campus" and owner_id is not None:
+        assigned = (
+            supabase_admin.table("users")
+            .select("id,role")
+            .eq("id", owner_id)
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if not assigned or assigned.get("role") != "teacher":
+            raise HTTPException(status_code=422, detail="授課教師帳號不存在或角色不正確")
     res = (
         supabase_admin.table("courses")
         .insert(
             {
                 "title": body.title,
-                "teacher_id": course_owner_for_creation(teacher, body.teacher_id),
+                "description": body.description,
+                "teacher_id": owner_id,
+                "created_by_user_id": teacher["id"],
+                "status": "draft",
             }
         )
         .execute()
@@ -66,6 +82,8 @@ def get_lectures_by_course(course_id: int):
         supabase.table("lectures")
         .select("*")
         .eq("course_id", course_id)
+        .eq("is_visible", True)
+        .order("sort_order")
         .order("id")
         .execute()
     )
@@ -100,6 +118,17 @@ def get_selected_lecture(lecture_id: int):
 def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
     teacher = require_teacher(user)
     require_course_manager(body.course_id, teacher)
+    existing = (
+        supabase_admin.table("lectures")
+        .select("sort_order")
+        .eq("course_id", body.course_id)
+        .order("sort_order", desc=True)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    next_sort_order = int(existing[0].get("sort_order") or 0) + 1 if existing else 0
     is_youtube = "youtube.com" in body.media_url or "youtu.be" in body.media_url
     duration_seconds = body.duration_seconds
     if duration_seconds is None and is_youtube:
@@ -120,6 +149,8 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
                 "course_id": body.course_id,
                 "status": body.status,
                 "duration_seconds": duration_seconds,
+                "sort_order": next_sort_order,
+                "is_visible": True,
             }
         )
         .execute()
@@ -191,6 +222,7 @@ def get_lecture_knowledge_points(lecture_id: int):
         supabase.table("knowledge_points")
         .select("*")
         .eq("lecture_id", lecture_id)
+        .eq("is_active", True)
         .execute()
     )
     return res.data
