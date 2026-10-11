@@ -1,3 +1,4 @@
+import logging
 import os
 import tempfile
 
@@ -22,6 +23,7 @@ from .teacher_access import (
 from .users import get_student_id_from_auth
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 # =====================================================================
 # 🗂️ 課程總表相關 (Courses)
@@ -164,6 +166,7 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
     if not body.auto_process or not is_youtube:
         return lecture
 
+    logger.info("Starting automatic lecture pipeline lecture_id=%s", lecture["id"])
     try:
         pipeline_result = run_youtube_ai_pipeline(
             lecture["id"],
@@ -174,6 +177,11 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
             skip_existing_ai=body.skip_existing_ai,
         )
     except PipelineStepError as exc:
+        logger.error(
+            "Automatic lecture pipeline failed lecture_id=%s step=%s",
+            lecture["id"],
+            exc.code,
+        )
         raise HTTPException(
             status_code=500,
             detail={
@@ -183,6 +191,10 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
             },
         ) from exc
     except Exception as exc:
+        logger.exception(
+            "Automatic lecture pipeline failed lecture_id=%s",
+            lecture["id"],
+        )
         raise HTTPException(
             status_code=500,
             detail={
@@ -192,6 +204,11 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
             },
         ) from exc
 
+    logger.info(
+        "Automatic lecture pipeline completed lecture_id=%s status=%s",
+        lecture["id"],
+        pipeline_result.get("status", "unknown"),
+    )
     supabase_admin.table("lectures").update({"status": "generated"}).eq(
         "id", lecture["id"]
     ).execute()
@@ -488,8 +505,18 @@ async def transcribe_lecture_media(
             **db_result,
         }
     except RuntimeError as exc:
+        logger.exception(
+            "Manual transcription failed lecture_id=%s error_type=%s",
+            lecture_id,
+            type(exc).__name__,
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception(
+            "Manual transcription failed lecture_id=%s error_type=%s",
+            lecture_id,
+            type(exc).__name__,
+        )
         raise HTTPException(
             status_code=500, detail=f"Transcription failed: {exc}"
         ) from exc

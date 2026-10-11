@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import Any
 
@@ -6,6 +7,8 @@ from google import genai
 
 from database.supabase import supabase_admin
 
+
+logger = logging.getLogger(__name__)
 
 gemini_client = genai.Client()
 CONTENT_GENERATION_MODEL = os.getenv("GEMINI_CONTENT_MODEL", "gemini-3.5-flash")
@@ -441,6 +444,9 @@ def run_ai_generation_pipeline(
             lecture_id, transcript_text, skip_existing=skip_existing
         )
     except Exception as exc:
+        logger.exception(
+            "AI generation failed for lecture_id=%s component=summary", lecture_id
+        )
         steps["summary"] = {"status": "failed", "error": str(exc)}
 
     try:
@@ -448,6 +454,10 @@ def run_ai_generation_pipeline(
             lecture_id, transcript_text, skip_existing=skip_existing
         )
     except Exception as exc:
+        logger.exception(
+            "AI generation failed for lecture_id=%s component=knowledge_points",
+            lecture_id,
+        )
         steps["knowledge_points"] = {"status": "failed", "error": str(exc)}
 
     knowledge_points = steps["knowledge_points"].get("inserted") or existing_rows(
@@ -459,6 +469,9 @@ def run_ai_generation_pipeline(
             lecture_id, transcript_text, skip_existing=skip_existing
         )
     except Exception as exc:
+        logger.exception(
+            "AI generation failed for lecture_id=%s component=mindmap", lecture_id
+        )
         steps["mindmap"] = {"status": "failed", "error": str(exc)}
 
     try:
@@ -469,6 +482,9 @@ def run_ai_generation_pipeline(
             skip_existing=skip_existing,
         )
     except Exception as exc:
+        logger.exception(
+            "AI generation failed for lecture_id=%s component=questions", lecture_id
+        )
         steps["questions"] = {"status": "failed", "error": str(exc)}
 
     return steps

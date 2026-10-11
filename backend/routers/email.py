@@ -1,3 +1,4 @@
+import logging
 import os
 import smtplib
 from email.message import EmailMessage
@@ -9,6 +10,7 @@ from routers.security import get_current_user
 from routers.teacher_access import require_teacher
 
 router = APIRouter(prefix="/email", tags=["email"])
+logger = logging.getLogger(__name__)
 
 
 class EmailSendRequest(BaseModel):
@@ -85,8 +87,12 @@ def send_email(
             smtp.login(config["username"], config["password"])
             smtp.send_message(message, to_addrs=all_recipients)
     except Exception as exc:
+        logger.exception(
+            "Email delivery failed recipients_count=%s", len(all_recipients)
+        )
         raise HTTPException(status_code=500, detail=f"送信失敗: {str(exc)}") from exc
 
+    logger.info("Email sent successfully recipients_count=%s", len(all_recipients))
     return {"message": "email sent", "recipients": recipients}
 
 

@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 import re
 from typing import Any, Literal
@@ -23,6 +24,7 @@ from .teacher_access import (
 )
 
 router = APIRouter(prefix="/teacher/course-management", tags=["course management"])
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -432,65 +434,84 @@ def regenerate_lecture_content(
     if not transcript_text:
         raise HTTPException(status_code=400, detail="這個小節沒有逐字稿，無法重新產生")
 
+    logger.info(
+        "Starting lecture content regeneration lecture_id=%s components=%s",
+        lecture_id,
+        ",".join(components),
+    )
     results: dict[str, Any] = {}
-    if "summary" in components:
-        results["summary"] = generate_summary(
-            lecture_id, transcript_text, skip_existing=False
-        )
-    if "knowledge_points" in components:
-        old_rows = (
-            supabase_admin.table("knowledge_points")
-            .select("id")
-            .eq("lecture_id", lecture_id)
-            .eq("is_active", True)
-            .execute()
-            .data
-            or []
-        )
-        results["knowledge_points"] = generate_knowledge_points(
-            lecture_id, transcript_text, skip_existing=False
-        )
-        old_ids = [row["id"] for row in old_rows]
-        if old_ids and results["knowledge_points"].get("inserted"):
-            supabase_admin.table("knowledge_points").update({"is_active": False}).in_(
-                "id", old_ids
-            ).execute()
-    if "mindmap" in components:
-        results["mindmap"] = generate_mindmap(
-            lecture_id, transcript_text, skip_existing=False
-        )
-    if "questions" in components:
-        old_rows = (
-            supabase_admin.table("questions")
-            .select("id")
-            .eq("lecture_id", lecture_id)
-            .eq("is_active", True)
-            .execute()
-            .data
-            or []
-        )
-        knowledge_points = (
-            supabase_admin.table("knowledge_points")
-            .select("*")
-            .eq("lecture_id", lecture_id)
-            .eq("is_active", True)
-            .execute()
-            .data
-            or []
-        )
-        results["questions"] = generate_questions(
-            lecture_id,
-            transcript_text,
-            knowledge_points,
-            skip_existing=False,
-        )
-        old_ids = [row["id"] for row in old_rows]
-        if old_ids and results["questions"].get("inserted"):
-            supabase_admin.table("questions").update({"is_active": False}).in_(
-                "id", old_ids
-            ).execute()
+    try:
+        if "summary" in components:
+            results["summary"] = generate_summary(
+                lecture_id, transcript_text, skip_existing=False
+            )
+        if "knowledge_points" in components:
+            old_rows = (
+                supabase_admin.table("knowledge_points")
+                .select("id")
+                .eq("lecture_id", lecture_id)
+                .eq("is_active", True)
+                .execute()
+                .data
+                or []
+            )
+            results["knowledge_points"] = generate_knowledge_points(
+                lecture_id, transcript_text, skip_existing=False
+            )
+            old_ids = [row["id"] for row in old_rows]
+            if old_ids and results["knowledge_points"].get("inserted"):
+                supabase_admin.table("knowledge_points").update(
+                    {"is_active": False}
+                ).in_("id", old_ids).execute()
+        if "mindmap" in components:
+            results["mindmap"] = generate_mindmap(
+                lecture_id, transcript_text, skip_existing=False
+            )
+        if "questions" in components:
+            old_rows = (
+                supabase_admin.table("questions")
+                .select("id")
+                .eq("lecture_id", lecture_id)
+                .eq("is_active", True)
+                .execute()
+                .data
+                or []
+            )
+            knowledge_points = (
+                supabase_admin.table("knowledge_points")
+                .select("*")
+                .eq("lecture_id", lecture_id)
+                .eq("is_active", True)
+                .execute()
+                .data
+                or []
+            )
+            results["questions"] = generate_questions(
+                lecture_id,
+                transcript_text,
+                knowledge_points,
+                skip_existing=False,
+            )
+            old_ids = [row["id"] for row in old_rows]
+            if old_ids and results["questions"].get("inserted"):
+                supabase_admin.table("questions").update({"is_active": False}).in_(
+                    "id", old_ids
+                ).execute()
 
-    supabase_admin.table("lectures").update(
-        {"status": "generated", "updated_at": _now()}
-    ).eq("id", lecture_id).execute()
+        supabase_admin.table("lectures").update(
+            {"status": "generated", "updated_at": _now()}
+        ).eq("id", lecture_id).execute()
+    except Exception:
+        logger.exception(
+            "Lecture content regeneration failed lecture_id=%s components=%s",
+            lecture_id,
+            ",".join(components),
+        )
+        raise
+
+    logger.info(
+        "Completed lecture content regeneration lecture_id=%s components=%s",
+        lecture_id,
+        ",".join(components),
+    )
     return {"lecture_id": lecture_id, "components": components, "results": results}
