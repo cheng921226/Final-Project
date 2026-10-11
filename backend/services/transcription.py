@@ -1,9 +1,11 @@
 import os
 import shutil
 import tempfile
+import hashlib
+import time
 from functools import lru_cache
 from typing import Any
-from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, urlparse
 
 from database.supabase import supabase_admin
 
@@ -11,6 +13,14 @@ from database.supabase import supabase_admin
 DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")
 DEFAULT_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+
+
+def calculate_file_sha256(file_path: str, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with open(file_path, "rb") as source:
+        while chunk := source.read(chunk_size):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 @lru_cache(maxsize=2)
@@ -76,6 +86,7 @@ def transcribe_media(
 def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str, Any]:
     try:
         from yt_dlp import YoutubeDL
+        from yt_dlp.utils import DownloadError
     except ImportError as exc:
         raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
 
@@ -89,6 +100,8 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
         "quiet": True,
         "no_warnings": True,
         "retries": 3,
+        "extractor_retries": 3,
+        "file_access_retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
         "http_chunk_size": 10 * 1024 * 1024,
@@ -126,6 +139,9 @@ def get_youtube_metadata(url: str) -> dict[str, Any]:
         "skip_download": True,
         "socket_timeout": 20,
     }
+    node_path = shutil.which("node")
+    if node_path:
+        options["js_runtimes"] = {"node": {"path": node_path}}
     with YoutubeDL(options) as ydl:
         info = ydl.extract_info(clean_url, download=False)
 
@@ -133,6 +149,88 @@ def get_youtube_metadata(url: str) -> dict[str, Any]:
         "title": info.get("title"),
         "webpage_url": info.get("webpage_url") or url,
         "duration": round(float(info["duration"])) if info.get("duration") else None,
+        "video_id": info.get("id") or extract_youtube_video_id(url),
+    }
+
+
+def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str, Any]:
+    """Download a normal, accessible YouTube video without bypassing access controls."""
+    try:
+        from yt_dlp import YoutubeDL
+    except ImportError as exc:
+        raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
+
+    target_dir = output_dir or tempfile.mkdtemp(prefix="youtube_video_")
+    clean_url = normalize_youtube_url(url)
+    ffmpeg_path = shutil.which("ffmpeg")
+    if not ffmpeg_path:
+        try:
+            import imageio_ffmpeg
+
+            ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
+        except (ImportError, RuntimeError):
+            ffmpeg_path = None
+    options = {
+        # Separate video/audio streams require FFmpeg to merge. Use a combined
+        # stream on lightweight local setups where FFmpeg is unavailable.
+        "format": (
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+            if ffmpeg_path
+            else "best[ext=mp4]/best"
+        ),
+        "noplaylist": True,
+        "outtmpl": os.path.join(target_dir, "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "retries": 3,
+        "fragment_retries": 3,
+        "socket_timeout": 30,
+        "continuedl": True,
+        "max_filesize": int(
+            os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3))
+        ),
+    }
+    if ffmpeg_path:
+        options["merge_output_format"] = "mp4"
+        options["ffmpeg_location"] = ffmpeg_path
+    node_path = shutil.which("node")
+    if node_path:
+        options["js_runtimes"] = {"node": {"path": node_path}}
+
+    download_attempts = max(1, int(os.getenv("YOUTUBE_DOWNLOAD_ATTEMPTS", "3")))
+    last_error: Exception | None = None
+    for attempt in range(download_attempts):
+        try:
+            with YoutubeDL(options) as ydl:
+                info = ydl.extract_info(clean_url, download=True)
+                requested = info.get("requested_downloads") or []
+                candidates = [
+                    item.get("filepath") for item in requested if item.get("filepath")
+                ]
+                candidates.extend(
+                    os.path.join(target_dir, name) for name in os.listdir(target_dir)
+                )
+                file_path = next(
+                    (path for path in candidates if path and os.path.isfile(path)),
+                    ydl.prepare_filename(info),
+                )
+            break
+        except DownloadError as exc:
+            last_error = exc
+            if attempt + 1 >= download_attempts:
+                raise
+            shutil.rmtree(target_dir, ignore_errors=True)
+            os.makedirs(target_dir, exist_ok=True)
+            time.sleep(attempt + 1)
+    else:
+        raise RuntimeError("Unable to download YouTube video") from last_error
+
+    return {
+        "file_path": file_path,
+        "title": info.get("title"),
+        "webpage_url": info.get("webpage_url") or url,
+        "duration": info.get("duration"),
+        "video_id": info.get("id") or extract_youtube_video_id(url),
     }
 
 
@@ -152,17 +250,35 @@ def save_lecture_duration(lecture_id: int, duration: float | int | None) -> int 
 
 
 def normalize_youtube_url(url: str) -> str:
-    parsed = urlparse(url)
-    if "youtube.com" not in parsed.netloc:
-        return url
-
-    video_id = parse_qs(parsed.query).get("v", [None])[0]
+    video_id = extract_youtube_video_id(url)
     if not video_id:
         return url
+    return f"https://www.youtube.com/watch?v={video_id}"
 
-    return urlunparse(
-        (parsed.scheme, parsed.netloc, parsed.path, "", urlencode({"v": video_id}), "")
-    )
+
+def extract_youtube_video_id(url: str) -> str | None:
+    if not url:
+        return None
+    raw = str(url).strip()
+    parsed = urlparse(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower().split(":")[0]
+    if host.startswith("www."):
+        host = host[4:]
+
+    video_id: str | None = None
+    if host == "youtu.be":
+        video_id = next((part for part in parsed.path.split("/") if part), None)
+    elif host in {"youtube.com", "m.youtube.com", "music.youtube.com"}:
+        video_id = parse_qs(parsed.query).get("v", [None])[0]
+        if not video_id:
+            parts = [part for part in parsed.path.split("/") if part]
+            if len(parts) >= 2 and parts[0] in {"embed", "shorts", "live"}:
+                video_id = parts[1]
+
+    if not video_id:
+        return None
+    normalized = "".join(ch for ch in video_id if ch.isalnum() or ch in "-_")
+    return normalized if len(normalized) == 11 else None
 
 
 def save_transcript_segments(

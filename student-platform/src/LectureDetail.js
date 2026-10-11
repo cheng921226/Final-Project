@@ -5,6 +5,7 @@ import { Markmap } from 'markmap-view';
 
 const API_URL = 'http://127.0.0.1:8000';
 const COMPLETION_THRESHOLD = 0.8;
+const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 };
 
 // =====================================================================
 // 工具函式
@@ -154,6 +155,8 @@ function LectureDetail() {
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
   const [videoError, setVideoError] = useState('');
+  const [playerMode, setPlayerMode] = useState('youtube');
+  const [backupInfo, setBackupInfo] = useState(null);
   const [mindmapMarkdown, setMindmapMarkdown] = useState('');
   const [notes, setNotes] = useState([]);
   const [noteTitle, setNoteTitle] = useState('');
@@ -186,6 +189,8 @@ function LectureDetail() {
 
   const mindmapSvgRef = useRef(null);
   const playerRef = useRef(null);
+  const htmlVideoRef = useRef(null);
+  const switchPositionRef = useRef(null);
   const playerReadyRef = useRef(false);
   const pauseCountRef = useRef(0);
   const suppressNextPauseEventRef = useRef(false);
@@ -271,9 +276,9 @@ function LectureDetail() {
 
     const state = player.getPlayerState();
 
-    setWasPlayingBeforeNote(state === window.YT.PlayerState.PLAYING);
+    setWasPlayingBeforeNote(state === PLAYER_STATE.PLAYING);
 
-    if (state === window.YT.PlayerState.PLAYING) {
+    if (state === PLAYER_STATE.PLAYING) {
       player.pauseVideo();
     }
   }
@@ -284,6 +289,19 @@ function LectureDetail() {
     }
 
     setWasPlayingBeforeNote(false);
+  }
+
+  function switchPlayer(nextMode) {
+    if (nextMode === playerMode) return;
+    const currentTime = getPlayerCurrentTime();
+    switchPositionRef.current = currentTime;
+    logEvent(lectureId, 'player_switched', {
+      from: playerMode,
+      to: nextMode,
+      timestamp: Math.floor(currentTime),
+    });
+    setVideoError('');
+    setPlayerMode(nextMode);
   }
 
   // 新增筆記
@@ -458,7 +476,8 @@ function LectureDetail() {
         const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
-          const raw = lectureData[0]?.media_url;
+          const lecture = lectureData[0] || {};
+          const raw = lecture.media_url;
           if (raw) {
             const vid = extractYouTubeVideoId(raw);
             if (vid) {
@@ -467,6 +486,14 @@ function LectureDetail() {
             } else {
               setVideoError('影片連結格式無法解析');
             }
+          }
+          setPlayerMode('youtube');
+          setBackupInfo({ status: lecture.backup_status || 'not_requested' });
+          if (token && lecture.backup_status === 'completed') {
+            const backupRes = await fetch(`${API_URL}/lectures/${lectureId}/backup`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (backupRes.ok) setBackupInfo(await backupRes.json());
           }
         }
 
@@ -631,7 +658,8 @@ function LectureDetail() {
 
   // 初始化 YouTube IFrame API
   useEffect(() => {
-    if (!videoId) return;
+    if (!videoId || playerMode !== 'youtube') return;
+    const watchedSegments = watchedSegmentsRef.current;
     setVideoError('');
     playerReadyRef.current = false;
 
@@ -648,7 +676,7 @@ function LectureDetail() {
       ) {
         const elapsedSeconds = (now - previousAt) / 1000;
         const expectedAdvance =
-          previousState === window.YT.PlayerState.PLAYING ? elapsedSeconds : 0;
+          previousState === PLAYER_STATE.PLAYING ? elapsedSeconds : 0;
         const expectedTime = previousTime + expectedAdvance;
 
         // A sizeable discontinuity from the expected playback position means
@@ -658,6 +686,7 @@ function LectureDetail() {
             from: Math.floor(expectedTime),
             to: Math.floor(currentTime),
             triggered_by: 'player_controls',
+              player_type: 'youtube',
           });
         }
       }
@@ -698,8 +727,16 @@ function LectureDetail() {
             }
             totalDurationRef.current = event.target.getDuration();
 
+            const switchedPosition = switchPositionRef.current;
+            if (Number.isFinite(switchedPosition)) {
+              const bounded = Math.min(switchedPosition, totalDurationRef.current || switchedPosition);
+              ignoreSeekUntilRef.current = Date.now() + 3000;
+              event.target.seekTo(bounded, true);
+              lastObservedTimeRef.current = bounded;
+              lastObservedAtRef.current = Date.now();
+              switchPositionRef.current = null;
             // onReady 只負責續播，prevWatchedSecondsRef 已在 fetchData 設好
-            if (token) {
+            } else if (token) {
               try {
                 const res = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
                   headers: { Authorization: `Bearer ${token}` },
@@ -723,7 +760,7 @@ function LectureDetail() {
             trackingIntervalRef.current = setInterval(() => {
               if (!playerRef.current || !playerReadyRef.current) return;
               const state = playerRef.current.getPlayerState?.();
-              if (state === window.YT.PlayerState.PLAYING) {
+              if (state === PLAYER_STATE.PLAYING) {
                 const currentTime = getPlayerCurrentTime();
                 observePlaybackPosition(currentTime, state);
                 watchedSegmentsRef.current.push({
@@ -750,12 +787,16 @@ function LectureDetail() {
             const currentTime = getPlayerCurrentTime();
             observePlaybackPosition(currentTime, state);
 
-            if (state === window.YT.PlayerState.PLAYING) {
+            if (state === PLAYER_STATE.PLAYING) {
               segmentStartRef.current = currentTime;
+              logEvent(lectureId, 'play', {
+                timestamp: Math.floor(currentTime),
+                player_type: 'youtube',
+              });
               maybeShowTimedQuestion(currentTime);
             }
 
-            if (state === window.YT.PlayerState.PAUSED) {
+            if (state === PLAYER_STATE.PAUSED) {
               if (segmentStartRef.current < currentTime) {
                 watchedSegmentsRef.current.push({
                   start: segmentStartRef.current,
@@ -769,6 +810,7 @@ function LectureDetail() {
                 logEvent(lectureId, 'pause', {
                   timestamp: Math.floor(currentTime),
                   pause_count: pauseCountRef.current,
+                  player_type: 'youtube',
                 });
               }
               const totalWatched = getTotalWatched();
@@ -776,7 +818,7 @@ function LectureDetail() {
               updateProgressDisplay(totalWatched, totalDurationRef.current);
             }
 
-            if (state === window.YT.PlayerState.ENDED) {
+            if (state === PLAYER_STATE.ENDED) {
               if (segmentStartRef.current < currentTime) {
                 watchedSegmentsRef.current.push({
                   start: segmentStartRef.current,
@@ -791,6 +833,7 @@ function LectureDetail() {
                 watched_seconds: Math.floor(totalWatched),
                 total_duration: Math.floor(totalDurationRef.current),
                 completed: totalWatched / totalDurationRef.current >= COMPLETION_THRESHOLD,
+                player_type: 'youtube',
               });
             }
           },
@@ -821,7 +864,7 @@ function LectureDetail() {
     }
 
     return () => {
-      const segments = watchedSegmentsRef.current;
+      const segments = watchedSegments;
       const prevWatched = prevWatchedSecondsRef.current;
       if (playerRef.current && playerReadyRef.current) {
         const currentTime = getPlayerCurrentTime();
@@ -842,7 +885,150 @@ function LectureDetail() {
       playerRef.current?.destroy?.();
       playerRef.current = null;
     };
-  }, [videoId, lectureId, token, maybeShowTimedQuestion, getPlayerCurrentTime]);
+  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime]);
+
+  // 備份影片 adapter：提供與 YouTube Player 相同的控制方法。
+  useEffect(() => {
+    if (playerMode !== 'backup' || !backupInfo?.playback_url) return;
+    const video = htmlVideoRef.current;
+    if (!video) return;
+    const watchedSegments = watchedSegmentsRef.current;
+
+    const adapter = {
+      playVideo: () => video.play(),
+      pauseVideo: () => video.pause(),
+      seekTo: seconds => { video.currentTime = Math.max(0, Math.min(Number(seconds) || 0, video.duration || Number(seconds) || 0)); },
+      getCurrentTime: () => video.currentTime || 0,
+      getDuration: () => video.duration || 0,
+      getPlayerState: () => video.ended ? PLAYER_STATE.ENDED : video.paused ? PLAYER_STATE.PAUSED : PLAYER_STATE.PLAYING,
+      destroy: () => {},
+    };
+    playerRef.current = adapter;
+    playerReadyRef.current = false;
+
+    const getTotalWatched = () => (
+      prevWatchedSecondsRef.current + calcWatchedSeconds(mergeSegments(watchedSegmentsRef.current))
+    );
+
+    const startIntervals = () => {
+      if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
+      if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
+      trackingIntervalRef.current = setInterval(() => {
+        if (video.paused || video.ended) return;
+        const currentTime = video.currentTime || 0;
+        watchedSegmentsRef.current.push({ start: Math.max(0, currentTime - 2), end: currentTime });
+        updateProgressDisplay(getTotalWatched(), totalDurationRef.current);
+        maybeShowTimedQuestion(currentTime);
+      }, 2000);
+      saveIntervalRef.current = setInterval(() => {
+        const totalWatched = getTotalWatched();
+        saveProgress(lectureId, video.currentTime || 0, totalWatched, totalDurationRef.current);
+      }, 30000);
+    };
+
+    const onLoadedMetadata = async () => {
+      playerReadyRef.current = true;
+      totalDurationRef.current = video.duration || totalDurationRef.current;
+      let resumeAt = switchPositionRef.current;
+      if (!Number.isFinite(resumeAt) && token) {
+        try {
+          const response = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (response.ok) resumeAt = (await response.json())?.last_position;
+        } catch (e) { }
+      }
+      if (Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
+        video.currentTime = Math.min(Number(resumeAt), video.duration || Number(resumeAt));
+        lastObservedTimeRef.current = video.currentTime;
+        lastObservedAtRef.current = Date.now();
+      }
+      switchPositionRef.current = null;
+      updateProgressDisplay(getTotalWatched(), totalDurationRef.current);
+      startIntervals();
+    };
+    const onPlay = () => {
+      segmentStartRef.current = video.currentTime || 0;
+      lastPlayerStateRef.current = PLAYER_STATE.PLAYING;
+      logEvent(lectureId, 'play', {
+        timestamp: Math.floor(video.currentTime || 0),
+        player_type: 'html5',
+      });
+      maybeShowTimedQuestion(video.currentTime || 0);
+    };
+    const onPause = () => {
+      const currentTime = video.currentTime || 0;
+      if (segmentStartRef.current < currentTime) {
+        watchedSegments.push({ start: segmentStartRef.current, end: currentTime });
+      }
+      if (suppressNextPauseEventRef.current) {
+        suppressNextPauseEventRef.current = false;
+      } else if (!video.ended) {
+        pauseCountRef.current += 1;
+        logEvent(lectureId, 'pause', {
+          timestamp: Math.floor(currentTime),
+          pause_count: pauseCountRef.current,
+          player_type: 'html5',
+        });
+      }
+      const totalWatched = getTotalWatched();
+      saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+      updateProgressDisplay(totalWatched, totalDurationRef.current);
+      lastPlayerStateRef.current = PLAYER_STATE.PAUSED;
+    };
+    const onSeeked = () => {
+      const currentTime = video.currentTime || 0;
+      const previousTime = lastObservedTimeRef.current;
+      if (previousTime !== null && Math.abs(currentTime - previousTime) >= 3) {
+        logEvent(lectureId, 'seek', {
+          from: Math.floor(previousTime),
+          to: Math.floor(currentTime),
+          triggered_by: 'player_controls',
+          player_type: 'html5',
+        });
+      }
+      lastObservedTimeRef.current = currentTime;
+      lastObservedAtRef.current = Date.now();
+      maybeShowTimedQuestion(currentTime);
+    };
+    const onEnded = () => {
+      const currentTime = video.currentTime || 0;
+      const totalWatched = getTotalWatched();
+      saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+      logEvent(lectureId, 'watch_progress', {
+        last_position: Math.floor(currentTime),
+        watched_seconds: Math.floor(totalWatched),
+        total_duration: Math.floor(totalDurationRef.current),
+        completed: totalWatched / totalDurationRef.current >= COMPLETION_THRESHOLD,
+        player_type: 'html5',
+      });
+    };
+
+    video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('play', onPlay);
+    video.addEventListener('pause', onPause);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('ended', onEnded);
+    if (video.readyState >= 1) onLoadedMetadata();
+
+    return () => {
+      const currentTime = video.currentTime || 0;
+      if (segmentStartRef.current < currentTime && !video.paused) {
+        watchedSegments.push({ start: segmentStartRef.current, end: currentTime });
+      }
+      const totalWatched = getTotalWatched();
+      saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+      if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
+      if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
+      video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('play', onPlay);
+      video.removeEventListener('pause', onPause);
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('ended', onEnded);
+      if (playerRef.current === adapter) playerRef.current = null;
+      playerReadyRef.current = false;
+    };
+  }, [playerMode, backupInfo?.playback_url, lectureId, token, maybeShowTimedQuestion]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -864,6 +1050,7 @@ function LectureDetail() {
       from: Math.floor(currentTime),
       to: seconds,
       triggered_by: triggeredBy,
+      player_type: playerMode === 'backup' ? 'html5' : 'youtube',
     });
 
     ignoreSeekUntilRef.current = Date.now() + 3000;
@@ -1121,24 +1308,39 @@ function LectureDetail() {
 
         {/* 中間：影片 + Tab 面板 */}
         <main className="learning-main flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
-          <div className="flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
-            {videoId ? (
+          {error && <div className="auth-error">{error}</div>}
+          <div className="lecture-player-shell flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
+            {(videoId || backupInfo?.playback_url) ? (
               <div className="relative w-full h-full">
-                <div id="yt-player" style={{ width: '100%', height: '100%' }} />
-                {videoError && (
+                {playerMode === 'youtube' ? (
+                  <div id="yt-player" style={{ width: '100%', height: '100%' }} />
+                ) : (
+                  <video
+                    ref={htmlVideoRef}
+                    src={backupInfo?.playback_url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    className="w-full h-full bg-black"
+                  >
+                    你的瀏覽器不支援備份影片播放器。
+                  </video>
+                )}
+                {backupInfo?.status === 'completed' && backupInfo?.playback_url && !videoError && (
+                  <button type="button" className="player-source-switch" onClick={() => switchPlayer(playerMode === 'youtube' ? 'backup' : 'youtube')}>
+                    {playerMode === 'youtube' ? '切換至備份影片' : '切換至 YouTube'}
+                  </button>
+                )}
+                {videoError && playerMode === 'youtube' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center text-white">
                     <p className="text-sm font-semibold">{videoError}</p>
                     <p className="max-w-md text-xs text-slate-300">
-                      目前課程資料有讀到，但 YouTube 嵌入播放器沒有成功載入。可以先用 YouTube 開啟確認影片內容。
+                      {backupInfo?.playback_url ? 'YouTube 目前無法播放，可以改用系統備份影片。' : '目前沒有可用的備份影片，可以先用 YouTube 開啟確認影片狀態。'}
                     </p>
-                    <a
-                      href={`https://www.youtube.com/watch?v=${videoId}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-full bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100"
-                    >
-                      用 YouTube 開啟
-                    </a>
+                    <div className="player-error-actions">
+                      {backupInfo?.playback_url && <button type="button" onClick={() => switchPlayer('backup')}>切換至備份影片</button>}
+                      <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer">用 YouTube 開啟</a>
+                    </div>
                   </div>
                 )}
               </div>

@@ -3,14 +3,21 @@ import os
 import tempfile
 
 from database.supabase import supabase, supabase_admin
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, Depends
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, Depends
 from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
+    extract_youtube_video_id,
     get_youtube_metadata,
     save_lecture_duration,
     save_transcript_segments,
     transcribe_media,
+)
+from services.lecture_processing import GENERATION_COMPONENTS, set_generation_status
+from services.video_backup import (
+    backup_file_exists,
+    backup_lecture_video,
+    create_backup_signed_url,
 )
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
 from .security import get_current_user
@@ -110,16 +117,25 @@ class LectureCreate(BaseModel):
     model_size: str = "tiny"
     skip_existing_transcript: bool = True
     skip_existing_ai: bool = True
+    backup_video: bool = False
+    source_file_hash: str | None = Field(default=None, min_length=32, max_length=128)
 
 
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
     res = supabase.table("lectures").select("*").eq("id", lecture_id).execute()
-    return res.data
+    return [
+        {key: value for key, value in row.items() if key != "backup_storage_path"}
+        for row in (res.data or [])
+    ]
 
 
 @router.post("/lectures")
-def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
+def create_lecture(
+    body: LectureCreate,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
     teacher = require_teacher(user)
     require_course_manager(body.course_id, teacher)
     existing = (
@@ -133,7 +149,62 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
         or []
     )
     next_sort_order = int(existing[0].get("sort_order") or 0) + 1 if existing else 0
-    is_youtube = "youtube.com" in body.media_url or "youtu.be" in body.media_url
+    youtube_video_id = extract_youtube_video_id(body.media_url)
+    is_youtube = youtube_video_id is not None
+    if body.backup_video and not is_youtube:
+        raise HTTPException(status_code=422, detail="只有 YouTube 影片可以啟用備份")
+    if is_youtube:
+        duplicate = (
+            supabase_admin.table("lectures")
+            .select("id,title,course_id,status,media_url,youtube_video_id")
+            .eq("course_id", body.course_id)
+            .execute()
+            .data
+            or []
+        )
+        duplicate = next(
+            (
+                row for row in duplicate
+                if row.get("youtube_video_id") == youtube_video_id
+                or extract_youtube_video_id(row.get("media_url") or "") == youtube_video_id
+            ),
+            None,
+        )
+        if duplicate:
+            if not duplicate.get("youtube_video_id"):
+                try:
+                    supabase_admin.table("lectures").update(
+                        {"youtube_video_id": youtube_video_id}
+                    ).eq("id", duplicate["id"]).execute()
+                except Exception:
+                    pass
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_LECTURE",
+                    "message": "此影片已存在於目前課程中。",
+                    "lecture": duplicate,
+                },
+            )
+    elif body.source_file_hash:
+        duplicate = (
+            supabase_admin.table("lectures")
+            .select("id,title,course_id,status")
+            .eq("course_id", body.course_id)
+            .eq("source_file_hash", body.source_file_hash)
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_LECTURE",
+                    "message": "此影片檔案已存在於目前課程中。",
+                    "lecture": duplicate,
+                },
+            )
     duration_seconds = body.duration_seconds
     if duration_seconds is None and is_youtube:
         try:
@@ -144,25 +215,55 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
                 detail=f"無法讀取 YouTube 影片長度：{exc}",
             ) from exc
 
-    res = (
-        supabase_admin.table("lectures")
-        .insert(
-            {
+    try:
+        res = (
+            supabase_admin.table("lectures")
+            .insert(
+                {
                 "title": body.title,
                 "media_url": body.media_url,
                 "course_id": body.course_id,
                 "status": body.status,
                 "duration_seconds": duration_seconds,
+                "youtube_video_id": youtube_video_id,
+                "source_file_hash": body.source_file_hash,
+                "backup_status": "pending" if body.backup_video else "not_requested",
                 "sort_order": next_sort_order,
                 "is_visible": True,
-            }
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
+    except Exception as exc:
+        if is_youtube and "duplicate" in str(exc).lower():
+            duplicate = (
+                supabase_admin.table("lectures")
+                .select("id,title,course_id,status")
+                .eq("course_id", body.course_id)
+                .eq("youtube_video_id", youtube_video_id)
+                .maybe_single()
+                .execute()
+                .data
+            )
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_LECTURE",
+                    "message": "此影片已存在於目前課程中。",
+                    "lecture": duplicate,
+                },
+            ) from exc
+        raise
     if not res.data:
         raise HTTPException(status_code=500, detail="新增小節失敗")
 
     lecture = res.data[0]
+    for component in GENERATION_COMPONENTS:
+        set_generation_status(lecture["id"], component, "pending")
+    if body.backup_video and is_youtube:
+        background_tasks.add_task(
+            backup_lecture_video, lecture["id"], body.media_url
+        )
     if not body.auto_process or not is_youtube:
         return lecture
 
@@ -182,27 +283,27 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
             lecture["id"],
             exc.code,
         )
-        raise HTTPException(
-            status_code=500,
-            detail={
+        return {
+            **lecture,
+            "pipeline": {
+                "status": "failed",
                 "code": exc.code,
                 "message": str(exc),
-                "lecture": lecture,
             },
-        ) from exc
+        }
     except Exception as exc:
         logger.exception(
             "Automatic lecture pipeline failed lecture_id=%s",
             lecture["id"],
         )
-        raise HTTPException(
-            status_code=500,
-            detail={
+        return {
+            **lecture,
+            "pipeline": {
+                "status": "failed",
                 "code": "PIPELINE_FAILED",
                 "message": f"新增小節成功，但自動生成流程失敗：{exc}",
-                "lecture": lecture,
             },
-        ) from exc
+        }
 
     logger.info(
         "Automatic lecture pipeline completed lecture_id=%s status=%s",
@@ -213,6 +314,40 @@ def create_lecture(body: LectureCreate, user=Depends(get_current_user)):
         "id", lecture["id"]
     ).execute()
     return {**lecture, "status": "generated", "pipeline": pipeline_result}
+
+
+@router.get("/lectures/{lecture_id}/backup")
+def get_lecture_backup(lecture_id: int, user=Depends(get_current_user)):
+    row = (
+        supabase_admin.table("lectures")
+        .select("id,backup_status,backup_storage_path,backup_error,backup_updated_at")
+        .eq("id", lecture_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not row:
+        raise HTTPException(status_code=404, detail="找不到課程小節")
+    result = {
+        "lecture_id": lecture_id,
+        "status": row.get("backup_status") or "not_requested",
+        "error": row.get("backup_error"),
+        "updated_at": row.get("backup_updated_at"),
+        "playback_url": None,
+    }
+    if row.get("backup_status") == "completed" and row.get("backup_storage_path"):
+        try:
+            if not backup_file_exists(row["backup_storage_path"]):
+                raise RuntimeError("備份狀態已完成，但 Storage 中找不到影片檔案")
+            result["playback_url"] = create_backup_signed_url(
+                row["backup_storage_path"]
+            )
+        except Exception as exc:
+            result.update({"status": "failed", "error": str(exc)})
+            supabase_admin.table("lectures").update(
+                {"backup_status": "failed", "backup_error": str(exc)[:2000]}
+            ).eq("id", lecture_id).execute()
+    return result
 
 
 @router.get("/lectures/{lecture_id}/transcripts")

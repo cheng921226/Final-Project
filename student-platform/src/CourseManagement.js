@@ -16,6 +16,33 @@ const AI_COMPONENTS = [
   ['questions', '課堂題目'],
 ];
 
+const GENERATION_LABELS = {
+  transcript: '逐字稿',
+  summary: '摘要',
+  knowledge_points: '知識點',
+  mindmap: '心智圖',
+  questions: '題目',
+};
+
+const PROCESS_LABELS = {
+  pending: '等待處理',
+  processing: '處理中',
+  completed: '已完成',
+  failed: '失敗',
+};
+
+const BACKUP_LABELS = {
+  not_requested: '未要求備份',
+  pending: '等待備份',
+  processing: '備份中',
+  completed: '已完成',
+  failed: '備份失敗',
+};
+
+function isYouTubeUrl(value) {
+  return /(?:youtube\.com|youtu\.be)\//i.test(value || '');
+}
+
 function courseForm(course = {}) {
   return {
     title: course.title || '',
@@ -41,6 +68,17 @@ export default function CourseManagement() {
   const selectedCourse = useMemo(
     () => data?.courses?.find(course => String(course.id) === String(courseId)),
     [courseId, data]
+  );
+  const hasActiveJobs = useMemo(
+    () => (data?.courses || []).some(course =>
+      (course.lectures || []).some(lecture =>
+        ['pending', 'processing'].includes(lecture.backup_status)
+        || Object.values(lecture.generation_status || {}).some(
+          status => status?.status === 'processing'
+        )
+      )
+    ),
+    [data]
   );
   const isCampus = data?.actor?.role === 'campus';
 
@@ -80,6 +118,22 @@ export default function CourseManagement() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !hasActiveJobs) return undefined;
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${API_URL}/teacher/course-management`, { headers });
+        const body = await response.json().catch(() => ({}));
+        if (response.ok) setData(body);
+      } catch (_) {
+        // Keep the current screen usable; the next poll can recover naturally.
+      }
+    }, 3000);
+
+    return () => window.clearInterval(intervalId);
+  }, [hasActiveJobs, headers, token]);
 
   function chooseCourse(nextId) {
     const course = data?.courses?.find(item => String(item.id) === String(nextId));
@@ -237,6 +291,46 @@ export default function CourseManagement() {
     }
   }
 
+  async function retryFailed(lecture) {
+    if (busyKey) return;
+    setBusyKey(`retry-${lecture.id}`);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}/retry-failed`, {
+        method: 'POST',
+        headers,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '重新執行失敗項目失敗');
+      setMessage(body.message || `${lecture.title}的失敗項目已重新執行。`);
+      await load(selectedCourse.id);
+    } catch (err) {
+      setMessage(err.message || '重新執行失敗項目失敗');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
+  async function requestBackup(lecture) {
+    if (busyKey) return;
+    setBusyKey(`backup-${lecture.id}`);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}/backup`, {
+        method: 'POST',
+        headers,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '影片備份啟動失敗');
+      setMessage(`${lecture.title}已排入影片備份。稍後重新整理可查看結果。`);
+      await load(selectedCourse.id);
+    } catch (err) {
+      setMessage(err.message || '影片備份啟動失敗');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   if (loading) return <div className="teacher-state"><div className="teacher-loader" /><p>正在載入課程管理...</p></div>;
   if (error) return <div className="teacher-state"><h1>無法開啟課程管理</h1><p>{error}</p><Link to="/login" className="primary-link">前往登入</Link></div>;
 
@@ -283,6 +377,8 @@ export default function CourseManagement() {
             {(selectedCourse.lectures || []).map((lecture, index) => {
               const lectureForm = lectureForms[lecture.id] || {};
               const content = lecture.content_status || {};
+              const generation = content.generation_status || {};
+              const hasFailedGeneration = Object.values(generation).some(item => item.status === 'failed');
               return <article className="managed-lecture-card" key={lecture.id}>
                 <div className="managed-lecture-order"><strong>{index + 1}</strong><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
                 <div className="managed-lecture-main">
@@ -290,12 +386,20 @@ export default function CourseManagement() {
                     <label className="review-field"><span>小節名稱</span><input value={lectureForm.title || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], title: event.target.value } }))} /></label>
                     <label className="review-field"><span>影片連結</span><input value={lectureForm.media_url || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], media_url: event.target.value } }))} /></label>
                   </div>
-                  <div className="managed-content-status"><span className={content.transcript ? 'ready' : ''}>逐字稿</span><span className={content.summary ? 'ready' : ''}>摘要</span><span className={content.knowledge_points ? 'ready' : ''}>知識點 {content.knowledge_points || 0}</span><span className={content.mindmap ? 'ready' : ''}>心智圖</span><span className={content.questions ? 'ready' : ''}>題目 {content.questions || 0}</span><span className={lecture.status === 'generated' ? 'ready' : ''}>處理狀態：{lecture.status || 'uploaded'}</span></div>
+                  <div className="managed-content-status">
+                    {Object.entries(GENERATION_LABELS).map(([key, label]) => {
+                      const status = generation[key]?.status || 'pending';
+                      return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
+                    })}
+                    <span className={lecture.backup_status === 'completed' ? 'ready' : lecture.backup_status === 'failed' ? 'failed' : lecture.backup_status === 'processing' ? 'processing' : ''}>影片備份：{BACKUP_LABELS[lecture.backup_status || 'not_requested']}</span>
+                  </div>
                   <div className="managed-lecture-actions">
                     <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
                     <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
                     {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
                     <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
+                    {isYouTubeUrl(lecture.media_url) && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey) || ['pending', 'processing'].includes(lecture.backup_status)} onClick={() => requestBackup(lecture)}>{busyKey === `backup-${lecture.id}` ? '啟動中...' : lecture.backup_status === 'completed' ? '重新備份' : '備份影片'}</button>}
+                    {hasFailedGeneration && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey)} onClick={() => retryFailed(lecture)}>{busyKey === `retry-${lecture.id}` ? '重試中...' : '重新執行失敗項目'}</button>}
                   </div>
                   {openTranscriptId === lecture.id && <div className="managed-transcript-editor"><label className="review-field"><span>逐字稿內容</span><textarea rows={10} value={lectureForm.transcript_content || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], transcript_content: event.target.value } }))} /><small>若內容包含（分:秒）時間標記，儲存後會保留為可供 AI 使用的時間片段。</small></label><button type="button" className="question-save-button compact" disabled={!lectureForm.transcript_content?.trim() || Boolean(busyKey)} onClick={() => saveTranscript(lecture.id)}>{busyKey === `transcript-${lecture.id}` ? '儲存中...' : '儲存逐字稿'}</button></div>}
                   <div className="managed-ai-actions"><span>重新產生：</span>{AI_COMPONENTS.map(([component, label]) => <button type="button" key={component} disabled={!content.transcript || Boolean(busyKey)} onClick={() => regenerate(lecture, component, label)}>{busyKey === `ai-${lecture.id}-${component}` ? '處理中...' : label}</button>)}</div>

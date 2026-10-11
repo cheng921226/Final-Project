@@ -5,6 +5,7 @@ from typing import Any
 
 from database.supabase import supabase_admin
 from services.ai_generation import run_ai_generation_pipeline
+from services.lecture_processing import set_generation_status
 from services.transcription import (
     download_youtube_audio,
     get_youtube_metadata,
@@ -71,9 +72,11 @@ def run_youtube_ai_pipeline(
                     "YouTube metadata lookup failed lecture_id=%s",
                     lecture_id,
                 )
-                raise PipelineStepError(
-                    "YOUTUBE_METADATA_FAILED", f"無法取得 YouTube 資訊：{exc}"
-                ) from exc
+                youtube_info = {
+                    "title": None,
+                    "webpage_url": url,
+                    "duration": None,
+                }
 
             transcript_result = {
                 "language": language,
@@ -92,7 +95,9 @@ def run_youtube_ai_pipeline(
                 "db_error": None,
                 "status": "cached",
             }
+            set_generation_status(lecture_id, "transcript", "completed")
         else:
+            set_generation_status(lecture_id, "transcript", "processing")
             download_dir = tempfile.mkdtemp(prefix="youtube_pipeline_")
             try:
                 youtube_info = download_youtube_audio(url, output_dir=download_dir)
@@ -100,6 +105,7 @@ def run_youtube_ai_pipeline(
                 logger.exception(
                     "YouTube audio download failed lecture_id=%s", lecture_id
                 )
+                set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
                 raise PipelineStepError(
                     "DOWNLOAD_FAILED", f"無法下載 YouTube 音訊：{exc}"
                 ) from exc
@@ -128,6 +134,7 @@ def run_youtube_ai_pipeline(
                 )
             except Exception as exc:
                 logger.exception("Transcription failed lecture_id=%s", lecture_id)
+                set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
                 raise PipelineStepError(
                     "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
                 ) from exc
@@ -144,6 +151,12 @@ def run_youtube_ai_pipeline(
                         len(transcript_result["segments"]),
                         db_result.get("db_error"),
                     )
+                    set_generation_status(
+                        lecture_id,
+                        "transcript",
+                        "failed",
+                        error=str(db_result.get("db_error")),
+                    )
                     raise PipelineStepError(
                         "TRANSCRIPT_SAVE_FAILED",
                         f"逐字稿寫入資料庫失敗：{db_result.get('db_error')}",
@@ -154,6 +167,7 @@ def run_youtube_ai_pipeline(
                     len(transcript_result["segments"]),
                     db_result.get("inserted", 0),
                 )
+            set_generation_status(lecture_id, "transcript", "completed")
 
         if youtube_info.get("duration") is not None:
             try:

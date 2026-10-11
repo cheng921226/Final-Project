@@ -4,14 +4,37 @@ import os
 from typing import Any
 
 from google import genai
+from google.genai import errors, types
 
 from database.supabase import supabase_admin
+from services.lecture_processing import claim_generation, set_generation_status
 
 
 logger = logging.getLogger(__name__)
 
-gemini_client = genai.Client()
+AI_REQUEST_TIMEOUT_MS = int(os.getenv("AI_REQUEST_TIMEOUT_MS", "120000"))
+gemini_client = genai.Client(
+    http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
+)
 CONTENT_GENERATION_MODEL = os.getenv("GEMINI_CONTENT_MODEL", "gemini-3.5-flash")
+CONTENT_FALLBACK_MODEL = os.getenv("GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash")
+
+
+def generate_json_content(prompt: str):
+    models = list(dict.fromkeys([CONTENT_GENERATION_MODEL, CONTENT_FALLBACK_MODEL]))
+    last_error: Exception | None = None
+    for index, model in enumerate(models):
+        try:
+            return gemini_client.models.generate_content(
+                model=model,
+                contents=prompt,
+                config={"response_mime_type": "application/json"},
+            )
+        except errors.ServerError as exc:
+            last_error = exc
+            if index + 1 >= len(models):
+                raise
+    raise RuntimeError("AI content generation failed") from last_error
 
 
 def format_transcript_for_prompt(segments: list[dict[str, Any]]) -> str:
@@ -116,11 +139,7 @@ JSON 格式：
 {transcript_text}
 """
 
-    ai_response = gemini_client.models.generate_content(
-        model=CONTENT_GENERATION_MODEL,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
+    ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
 
     response = (
@@ -154,11 +173,7 @@ JSON 格式：
 {transcript_text}
 """
 
-    ai_response = gemini_client.models.generate_content(
-        model=CONTENT_GENERATION_MODEL,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
+    ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
     knowledge_points = result_json.get("knowledge_points", [])
 
@@ -210,11 +225,7 @@ JSON 格式：
 {transcript_text}
 """
 
-    ai_response = gemini_client.models.generate_content(
-        model=CONTENT_GENERATION_MODEL,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
+    ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
 
     response = (
@@ -323,11 +334,7 @@ JSON 格式：
 {kp_text}
 """
 
-    ai_response = gemini_client.models.generate_content(
-        model=CONTENT_GENERATION_MODEL,
-        contents=prompt,
-        config={"response_mime_type": "application/json"},
-    )
+    ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
     questions = result_json.get("questions", [])
 
@@ -439,52 +446,55 @@ def run_ai_generation_pipeline(
 
     steps: dict[str, Any] = {}
 
-    try:
-        steps["summary"] = generate_summary(
-            lecture_id, transcript_text, skip_existing=skip_existing
-        )
-    except Exception as exc:
-        logger.exception(
-            "AI generation failed for lecture_id=%s component=summary", lecture_id
-        )
-        steps["summary"] = {"status": "failed", "error": str(exc)}
+    def run_step(component: str, callback):
+        if not claim_generation(lecture_id, component):
+            return {"status": "failed", "error": "此項目目前正在處理中"}
+        try:
+            result = callback()
+            set_generation_status(lecture_id, component, "completed")
+            return result
+        except Exception as exc:
+            logger.exception(
+                "AI generation failed for lecture_id=%s component=%s",
+                lecture_id,
+                component,
+            )
+            set_generation_status(lecture_id, component, "failed", error=str(exc))
+            return {"status": "failed", "error": str(exc)}
 
-    try:
-        steps["knowledge_points"] = generate_knowledge_points(
+    steps["summary"] = run_step(
+        "summary",
+        lambda: generate_summary(
             lecture_id, transcript_text, skip_existing=skip_existing
-        )
-    except Exception as exc:
-        logger.exception(
-            "AI generation failed for lecture_id=%s component=knowledge_points",
-            lecture_id,
-        )
-        steps["knowledge_points"] = {"status": "failed", "error": str(exc)}
+        ),
+    )
+
+    steps["knowledge_points"] = run_step(
+        "knowledge_points",
+        lambda: generate_knowledge_points(
+            lecture_id, transcript_text, skip_existing=skip_existing
+        ),
+    )
 
     knowledge_points = steps["knowledge_points"].get("inserted") or existing_rows(
         "knowledge_points", lecture_id
     )
 
-    try:
-        steps["mindmap"] = generate_mindmap(
+    steps["mindmap"] = run_step(
+        "mindmap",
+        lambda: generate_mindmap(
             lecture_id, transcript_text, skip_existing=skip_existing
-        )
-    except Exception as exc:
-        logger.exception(
-            "AI generation failed for lecture_id=%s component=mindmap", lecture_id
-        )
-        steps["mindmap"] = {"status": "failed", "error": str(exc)}
+        ),
+    )
 
-    try:
-        steps["questions"] = generate_questions(
+    steps["questions"] = run_step(
+        "questions",
+        lambda: generate_questions(
             lecture_id,
             transcript_text,
             knowledge_points,
             skip_existing=skip_existing,
-        )
-    except Exception as exc:
-        logger.exception(
-            "AI generation failed for lecture_id=%s component=questions", lecture_id
-        )
-        steps["questions"] = {"status": "failed", "error": str(exc)}
+        ),
+    )
 
     return steps

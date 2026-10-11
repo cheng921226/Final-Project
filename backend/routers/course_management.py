@@ -4,7 +4,7 @@ import re
 from typing import Any, Literal
 
 from database.supabase import supabase_admin
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE
@@ -15,6 +15,15 @@ from services.ai_generation import (
     generate_questions,
     generate_summary,
 )
+from services.lecture_processing import (
+    claim_generation,
+    ensure_generation_statuses,
+    get_generation_statuses,
+    set_generation_status,
+)
+from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
+from services.transcription import extract_youtube_video_id
+from services.video_backup import backup_lecture_video, claim_lecture_backup
 
 from .security import get_current_user
 from .teacher_access import (
@@ -125,6 +134,8 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
             and (row.get("question_type") or "original") == "original"
         ):
             result[row["lecture_id"]]["questions"] += 1
+    for lecture_id, status in result.items():
+        status["generation_status"] = ensure_generation_statuses(lecture_id, status)
     return result
 
 
@@ -368,6 +379,7 @@ def update_transcript(
     )
     if not response.data:
         raise HTTPException(status_code=500, detail="逐字稿更新失敗")
+    set_generation_status(lecture_id, "transcript", "completed")
     return {
         "lecture_id": lecture_id,
         "content": content,
@@ -430,6 +442,12 @@ def regenerate_lecture_content(
     components = list(dict.fromkeys(payload.components))
     if not components:
         raise HTTPException(status_code=422, detail="請至少選擇一種要重新產生的內容")
+    return _regenerate_components(lecture_id, components)
+
+
+def _regenerate_components(
+    lecture_id: int, components: list[str]
+) -> dict[str, Any]:
     transcript_text = _transcript_text(lecture_id)
     if not transcript_text:
         raise HTTPException(status_code=400, detail="這個小節沒有逐字稿，無法重新產生")
@@ -442,8 +460,12 @@ def regenerate_lecture_content(
     results: dict[str, Any] = {}
     try:
         if "summary" in components:
-            results["summary"] = generate_summary(
-                lecture_id, transcript_text, skip_existing=False
+            results["summary"] = _run_regeneration_step(
+                lecture_id,
+                "summary",
+                lambda: generate_summary(
+                    lecture_id, transcript_text, skip_existing=False
+                ),
             )
         if "knowledge_points" in components:
             old_rows = (
@@ -455,8 +477,12 @@ def regenerate_lecture_content(
                 .data
                 or []
             )
-            results["knowledge_points"] = generate_knowledge_points(
-                lecture_id, transcript_text, skip_existing=False
+            results["knowledge_points"] = _run_regeneration_step(
+                lecture_id,
+                "knowledge_points",
+                lambda: generate_knowledge_points(
+                    lecture_id, transcript_text, skip_existing=False
+                ),
             )
             old_ids = [row["id"] for row in old_rows]
             if old_ids and results["knowledge_points"].get("inserted"):
@@ -464,8 +490,12 @@ def regenerate_lecture_content(
                     {"is_active": False}
                 ).in_("id", old_ids).execute()
         if "mindmap" in components:
-            results["mindmap"] = generate_mindmap(
-                lecture_id, transcript_text, skip_existing=False
+            results["mindmap"] = _run_regeneration_step(
+                lecture_id,
+                "mindmap",
+                lambda: generate_mindmap(
+                    lecture_id, transcript_text, skip_existing=False
+                ),
             )
         if "questions" in components:
             old_rows = (
@@ -486,11 +516,15 @@ def regenerate_lecture_content(
                 .data
                 or []
             )
-            results["questions"] = generate_questions(
+            results["questions"] = _run_regeneration_step(
                 lecture_id,
-                transcript_text,
-                knowledge_points,
-                skip_existing=False,
+                "questions",
+                lambda: generate_questions(
+                    lecture_id,
+                    transcript_text,
+                    knowledge_points,
+                    skip_existing=False,
+                ),
             )
             old_ids = [row["id"] for row in old_rows]
             if old_ids and results["questions"].get("inserted"):
@@ -515,3 +549,77 @@ def regenerate_lecture_content(
         ",".join(components),
     )
     return {"lecture_id": lecture_id, "components": components, "results": results}
+
+
+def _run_regeneration_step(lecture_id: int, component: str, callback):
+    if not claim_generation(lecture_id, component):
+        raise HTTPException(status_code=409, detail=f"{component} 目前正在產生中")
+    try:
+        result = callback()
+    except Exception as exc:
+        set_generation_status(lecture_id, component, "failed", error=str(exc))
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    set_generation_status(lecture_id, component, "completed")
+    return result
+
+
+@router.get("/lectures/{lecture_id}/generation-status")
+def get_lecture_generation_status(
+    lecture_id: int,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    require_lecture_manager(lecture_id, teacher)
+    return {
+        "lecture_id": lecture_id,
+        "components": get_generation_statuses(lecture_id),
+    }
+
+
+@router.post("/lectures/{lecture_id}/retry-failed")
+def retry_failed_generation(
+    lecture_id: int,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    lecture = require_lecture_manager(lecture_id, teacher)
+    statuses = get_generation_statuses(lecture_id)
+    failed = [name for name, value in statuses.items() if value.get("status") == "failed"]
+    if not failed:
+        return {"lecture_id": lecture_id, "retried": [], "message": "目前沒有失敗項目"}
+
+    if "transcript" in failed:
+        if not extract_youtube_video_id(lecture.get("media_url") or ""):
+            raise HTTPException(status_code=400, detail="只有 YouTube 小節可自動重試逐字稿")
+        try:
+            result = run_youtube_ai_pipeline(
+                lecture_id,
+                lecture["media_url"],
+                skip_existing_transcript=True,
+                skip_existing_ai=True,
+            )
+        except PipelineStepError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return {"lecture_id": lecture_id, "retried": failed, "pipeline": result}
+
+    components = [
+        name for name in failed
+        if name in {"summary", "knowledge_points", "mindmap", "questions"}
+    ]
+    return _regenerate_components(lecture_id, components)
+
+
+@router.post("/lectures/{lecture_id}/backup", status_code=202)
+def request_lecture_backup(
+    lecture_id: int,
+    background_tasks: BackgroundTasks,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    lecture = require_lecture_manager(lecture_id, teacher)
+    if not extract_youtube_video_id(lecture.get("media_url") or ""):
+        raise HTTPException(status_code=400, detail="這個小節不是可備份的 YouTube 影片")
+    if not claim_lecture_backup(lecture_id):
+        raise HTTPException(status_code=409, detail="影片備份目前正在處理中")
+    background_tasks.add_task(backup_lecture_video, lecture_id, lecture["media_url"])
+    return {"lecture_id": lecture_id, "status": "pending"}

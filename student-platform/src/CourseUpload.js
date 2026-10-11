@@ -15,6 +15,7 @@ export default function CourseUpload() {
   const [lectureTitle, setLectureTitle] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [modelSize, setModelSize] = useState('tiny');
+  const [backupVideo, setBackupVideo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
@@ -116,10 +117,15 @@ export default function CourseUpload() {
           model_size: modelSize,
           skip_existing_transcript: true,
           skip_existing_ai: true,
+          backup_video: backupVideo,
         }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (body.detail?.code === 'DUPLICATE_LECTURE' && body.detail?.lecture) {
+          setResult({ duplicate: true, ...body.detail.lecture });
+          throw new Error(body.detail.message);
+        }
         const message = typeof body.detail === 'object'
           ? body.detail.message || JSON.stringify(body.detail)
           : body.detail;
@@ -128,6 +134,7 @@ export default function CourseUpload() {
       setResult(body);
       setLectureTitle('');
       setYoutubeUrl('');
+      setBackupVideo(false);
       if (courseMode === 'new') {
         setNewCourseTitle('');
         setCourseMode('existing');
@@ -206,6 +213,16 @@ export default function CourseUpload() {
           <input value={youtubeUrl} onChange={event => setYoutubeUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
         </label>
 
+        <label className="visibility-toggle upload-backup-toggle">
+          <input
+            type="checkbox"
+            checked={backupVideo}
+            onChange={event => setBackupVideo(event.target.checked)}
+          />
+          下載並備份影片
+          <small>備份會獨立處理；即使備份失敗，也不會中斷逐字稿與 AI 教材生成。</small>
+        </label>
+
         {error && <p className="auth-error">{error}</p>}
         <div className="question-editor-actions">
           <button className="question-save-button" type="submit" disabled={!canSubmit}>
@@ -214,7 +231,12 @@ export default function CourseUpload() {
         </div>
       </form>
 
-      {result && (
+      {result?.duplicate ? (
+        <section className="teacher-panel upload-result">
+          <div className="panel-title"><div><h3>影片已存在</h3><p>此影片已存在於目前課程中，請直接前往原本小節重試失敗內容。</p></div></div>
+          <Link className="primary-link inline-action" to={`/course/${result.course_id}/lecture/${result.id}`}>前往現有小節</Link>
+        </section>
+      ) : result && (
         <section className="teacher-panel upload-result">
           <div className="panel-title">
             <div>
@@ -226,6 +248,7 @@ export default function CourseUpload() {
             <span>小節 ID：{result.id}</span>
             <span>狀態：{result.status}</span>
             <span>逐字稿：{result.pipeline?.transcription?.saved_to_db ? '已寫入' : '使用既有資料或未寫入'}</span>
+            <span>影片備份：{result.backup_status === 'pending' ? '已排入處理' : '未要求'}</span>
           </div>
           <Link className="primary-link inline-action" to={`/course/${result.course_id}/lecture/${result.id}`}>前往小節</Link>
         </section>
