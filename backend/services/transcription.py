@@ -186,9 +186,7 @@ def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str,
         "fragment_retries": 3,
         "socket_timeout": 30,
         "continuedl": True,
-        "max_filesize": int(
-            os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3))
-        ),
+        "max_filesize": int(os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3))),
     }
     if ffmpeg_path:
         options["merge_output_format"] = "mp4"
