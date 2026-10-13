@@ -32,6 +32,44 @@ from .users import get_student_id_from_auth
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
+
+def run_automatic_lecture_pipeline(
+    lecture_id: int,
+    *,
+    url: str,
+    language: str,
+    model_size: str,
+    skip_existing_transcript: bool,
+    skip_existing_ai: bool,
+) -> None:
+    """Run generation after the create response so the browser can navigate away."""
+    logger.info("Starting automatic lecture pipeline lecture_id=%s", lecture_id)
+    try:
+        pipeline_result = run_youtube_ai_pipeline(
+            lecture_id,
+            url=url,
+            language=language,
+            model_size=model_size,
+            skip_existing_transcript=skip_existing_transcript,
+            skip_existing_ai=skip_existing_ai,
+        )
+    except PipelineStepError as exc:
+        logger.error(
+            "Automatic lecture pipeline failed lecture_id=%s step=%s",
+            lecture_id,
+            exc.code,
+        )
+        return
+    except Exception:
+        logger.exception("Automatic lecture pipeline failed lecture_id=%s", lecture_id)
+        return
+
+    logger.info(
+        "Automatic lecture pipeline completed lecture_id=%s status=%s",
+        lecture_id,
+        pipeline_result.get("status", "unknown"),
+    )
+
 # =====================================================================
 # 🗂️ 課程總表相關 (Courses)
 # =====================================================================
@@ -283,57 +321,34 @@ def create_lecture(
     lecture = res.data[0]
     for component in GENERATION_COMPONENTS:
         set_generation_status(lecture["id"], component, "pending")
-    if body.backup_video and is_youtube:
+    if not body.auto_process or not is_youtube:
+        if body.backup_video and is_youtube:
+            background_tasks.add_task(
+                backup_lecture_video, lecture["id"], body.media_url
+            )
+        return lecture
+
+    background_tasks.add_task(
+        run_automatic_lecture_pipeline,
+        lecture["id"],
+        url=body.media_url,
+        language=body.language,
+        model_size=body.model_size,
+        skip_existing_transcript=body.skip_existing_transcript,
+        skip_existing_ai=body.skip_existing_ai,
+    )
+    if body.backup_video:
         background_tasks.add_task(
             backup_lecture_video, lecture["id"], body.media_url
         )
-    if not body.auto_process or not is_youtube:
-        return lecture
-
-    logger.info("Starting automatic lecture pipeline lecture_id=%s", lecture["id"])
-    try:
-        pipeline_result = run_youtube_ai_pipeline(
-            lecture["id"],
-            url=body.media_url,
-            language=body.language,
-            model_size=body.model_size,
-            skip_existing_transcript=body.skip_existing_transcript,
-            skip_existing_ai=body.skip_existing_ai,
-        )
-    except PipelineStepError as exc:
-        logger.error(
-            "Automatic lecture pipeline failed lecture_id=%s step=%s",
-            lecture["id"],
-            exc.code,
-        )
-        return {
-            **lecture,
-            "pipeline": {
-                "status": "failed",
-                "code": exc.code,
-                "message": str(exc),
-            },
-        }
-    except Exception as exc:
-        logger.exception(
-            "Automatic lecture pipeline failed lecture_id=%s",
-            lecture["id"],
-        )
-        return {
-            **lecture,
-            "pipeline": {
-                "status": "failed",
-                "code": "PIPELINE_FAILED",
-                "message": f"新增小節成功，但自動生成流程失敗：{exc}",
-            },
-        }
-
-    logger.info(
-        "Automatic lecture pipeline completed lecture_id=%s status=%s",
-        lecture["id"],
-        pipeline_result.get("status", "unknown"),
-    )
-    return {**lecture, "status": "uploaded", "pipeline": pipeline_result}
+    return {
+        **lecture,
+        "status": "uploaded",
+        "pipeline": {
+            "status": "processing",
+            "message": "教材已開始在背景產生，可以離開此頁面。",
+        },
+    }
 
 
 @router.get("/lectures/{lecture_id}/backup")

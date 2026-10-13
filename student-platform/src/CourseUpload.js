@@ -324,17 +324,18 @@ export default function CourseUpload() {
         <section className="teacher-panel upload-result">
           <div className="panel-title">
             <div>
-              <h3>處理完成</h3>
-              <p>資料已建立，AI pipeline 回傳狀態：{result.pipeline?.status || result.status}</p>
+              <h3>{result.pipeline?.status === 'processing' ? '教材正在背景產生' : '處理完成'}</h3>
+              <p>{result.pipeline?.message || `AI pipeline 回傳狀態：${result.pipeline?.status || result.status}`}</p>
             </div>
           </div>
           <div className="achievement-meta">
             <span>小節 ID：{result.id}</span>
             <span>狀態：{result.status}</span>
-            <span>逐字稿：{result.pipeline?.transcription?.saved_to_db ? '已寫入' : '使用既有資料或未寫入'}</span>
+            <span>逐字稿：{result.pipeline?.status === 'processing' ? '處理中' : result.pipeline?.transcription?.saved_to_db ? '已寫入' : '使用既有資料或未寫入'}</span>
             <span>影片備份：{result.backup_status === 'pending' ? '已排入處理' : '未要求'}</span>
           </div>
           <Link className="primary-link inline-action" to={`/course/${result.course_id}/lecture/${result.id}`}>前往小節</Link>
+          <Link className="secondary-button inline-action" to="/teacher/courses">前往課程管理查看進度</Link>
         </section>
       )}
     </div>
