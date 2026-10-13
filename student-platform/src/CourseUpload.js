@@ -1,16 +1,29 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
 
+function courseOptionLabel(course) {
+  const title = course.title || course.course_name || `課程 ${course.id}`;
+  const teacher = course.assigned_teacher?.name
+    || course.assigned_teacher?.email
+    || '尚未指派';
+  return `${title}｜${teacher}`;
+}
+
+function courseTitle(course) {
+  return course.title || course.course_name || `課程 ${course.id}`;
+}
+
 export default function CourseUpload() {
-  const location = useLocation();
-  const preferredCourseId = location.state?.courseId;
   const token = localStorage.getItem('access_token');
   const [courses, setCourses] = useState([]);
   const [teacherId, setTeacherId] = useState(null);
   const [courseMode, setCourseMode] = useState('existing');
   const [courseId, setCourseId] = useState('');
+  const [courseSearch, setCourseSearch] = useState('');
+  const [courseMenuOpen, setCourseMenuOpen] = useState(false);
+  const [activeCourseIndex, setActiveCourseIndex] = useState(0);
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [lectureTitle, setLectureTitle] = useState('');
   const [youtubeUrl, setYoutubeUrl] = useState('');
@@ -48,11 +61,8 @@ export default function CourseUpload() {
         setTeacherId(idData.id);
         const ownCourses = courseData.courses || [];
         setCourses(ownCourses);
-        const preferredCourse = ownCourses.find(
-          course => String(course.id) === String(preferredCourseId)
-        );
-        const initialCourse = preferredCourse || ownCourses[0];
-        if (initialCourse) setCourseId(String(initialCourse.id));
+        setCourseId('');
+        setCourseSearch('');
       } catch (err) {
         setError(err.message || '載入上傳資料失敗');
       } finally {
@@ -61,7 +71,50 @@ export default function CourseUpload() {
     }
 
     loadInitialData();
-  }, [preferredCourseId, token]);
+  }, [token]);
+
+  const courseOptions = useMemo(() => {
+    const keyword = courseSearch.trim().toLocaleLowerCase('zh-TW');
+    return courses
+      .filter(course => !keyword || courseTitle(course).toLocaleLowerCase('zh-TW').includes(keyword))
+      .map(course => ({
+        course,
+        label: courseOptionLabel(course),
+      }));
+  }, [courseSearch, courses]);
+
+  function searchCourse(value) {
+    setCourseSearch(value);
+    setCourseId('');
+    setActiveCourseIndex(0);
+    setCourseMenuOpen(true);
+  }
+
+  function selectCourse(course) {
+    setCourseId(String(course.id));
+    setCourseSearch(courseTitle(course));
+    setCourseMenuOpen(false);
+  }
+
+  function handleCourseSearchKeyDown(event) {
+    if (!courseMenuOpen && ['ArrowDown', 'ArrowUp'].includes(event.key)) {
+      setCourseMenuOpen(true);
+      return;
+    }
+    if (!courseOptions.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      setActiveCourseIndex(current => (current + 1) % courseOptions.length);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      setActiveCourseIndex(current => (current - 1 + courseOptions.length) % courseOptions.length);
+    } else if (event.key === 'Enter' && courseMenuOpen) {
+      event.preventDefault();
+      selectCourse(courseOptions[Math.min(activeCourseIndex, courseOptions.length - 1)].course);
+    } else if (event.key === 'Escape') {
+      setCourseMenuOpen(false);
+    }
+  }
 
   const canSubmit = useMemo(() => (
     lectureTitle.trim()
@@ -178,14 +231,45 @@ export default function CourseUpload() {
         </div>
 
         {courseMode === 'existing' ? (
-          <label className="review-field">
-            <span>課程</span>
-            <select value={courseId} onChange={event => setCourseId(event.target.value)}>
-              {courses.map(course => (
-                <option key={course.id} value={course.id}>{course.title || course.course_name || `課程 ${course.id}`}</option>
-              ))}
-            </select>
-          </label>
+          <div
+            className="review-field searchable-course-field"
+            onBlur={event => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setCourseMenuOpen(false);
+            }}
+          >
+            <label htmlFor="course-search"><span>課程</span></label>
+            <input
+              id="course-search"
+              type="search"
+              role="combobox"
+              aria-expanded={courseMenuOpen}
+              aria-controls="course-search-results"
+              aria-autocomplete="list"
+              value={courseSearch}
+              onFocus={() => setCourseMenuOpen(true)}
+              onChange={event => searchCourse(event.target.value)}
+              onKeyDown={handleCourseSearchKeyDown}
+              placeholder="輸入課程名稱"
+              autoComplete="off"
+            />
+            {courseMenuOpen && (
+              <div id="course-search-results" className="course-search-results" role="listbox">
+                {courseOptions.length ? courseOptions.map(({ course, label }, index) => (
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={String(course.id) === String(courseId)}
+                    className={index === activeCourseIndex ? 'active' : ''}
+                    key={course.id}
+                    onMouseEnter={() => setActiveCourseIndex(index)}
+                    onClick={() => selectCourse(course)}
+                  >
+                    {label}
+                  </button>
+                )) : <p>找不到符合的課程</p>}
+              </div>
+            )}
+          </div>
         ) : (
           <label className="review-field">
             <span>新課程名稱</span>

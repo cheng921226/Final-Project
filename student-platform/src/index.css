@@ -1865,6 +1865,51 @@ a {
   margin-top: 18px;
 }
 
+.searchable-course-field {
+  position: relative;
+  max-width: 620px;
+}
+
+.course-search-results {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% - 8px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  padding: 6px;
+  overflow-y: auto;
+  border: 1px solid #dde1eb;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 16px 36px rgba(46, 52, 84, .14);
+}
+
+.course-search-results button {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.course-search-results button:hover,
+.course-search-results button.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.course-search-results p {
+  margin: 0;
+  padding: 10px 12px;
+  color: #7a8294;
+  font-size: 12px;
+}
+
 .settings-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

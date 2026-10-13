@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import CourseUpload from './CourseUpload';
 
@@ -10,7 +10,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test('preselects the course passed from course management', async () => {
+test('starts empty and lets the teacher search for a course', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn(url => Promise.resolve({
     ok: true,
@@ -40,5 +40,11 @@ test('preselects the course passed from course management', async () => {
     </MemoryRouter>
   );
 
-  expect(await screen.findByDisplayValue('離散數學')).toBeInTheDocument();
+  const searchInput = await screen.findByRole('combobox', { name: '課程' });
+  expect(searchInput).toHaveValue('');
+
+  fireEvent.change(searchInput, { target: { value: '資料' } });
+  const result = screen.getByRole('option', { name: '資料結構｜尚未指派' });
+  fireEvent.click(result);
+  expect(searchInput).toHaveValue('資料結構');
 });

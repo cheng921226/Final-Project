@@ -4,8 +4,15 @@ import { Outlet, Link, useNavigate } from "react-router-dom";
 const API_URL = 'http://127.0.0.1:8000';
 const TOKEN_REFRESH_EARLY_MS = 60_000;
 const TOKEN_REFRESH_RETRY_MS = 30_000;
+const USER_LOAD_RETRY_MS = 3_000;
 const MAX_TIMER_DELAY = 2_147_000_000;
 let sessionRefreshPromise = null;
+
+function unauthorizedError() {
+    const error = new Error("Unauthorized");
+    error.code = "UNAUTHORIZED";
+    return error;
+}
 
 function clearStoredSession() {
     localStorage.removeItem("access_token");
@@ -39,8 +46,12 @@ async function refreshAccessToken() {
             body: JSON.stringify({ refresh_token: refreshToken }),
         })
             .then(async res => {
-                if (!res.ok) return null;
+                if ([401, 403].includes(res.status)) return null;
+                if (!res.ok) throw new Error("Session refresh service unavailable");
                 const data = await res.json();
+                if (!data.access_token || !data.refresh_token) {
+                    throw new Error("Invalid session refresh response");
+                }
                 localStorage.setItem("access_token", data.access_token);
                 localStorage.setItem("refresh_token", data.refresh_token);
                 return data.access_token;
@@ -127,19 +138,21 @@ export default function Layout({ token, setToken }) {
         }
 
         let cancelled = false;
+        let retryId;
 
         async function loadUser() {
             setLoading(true);
             let activeToken = token;
+            let retryScheduled = false;
 
             try {
                 let res = await fetch(`${API_URL}/name`, {
                     headers: { Authorization: `Bearer ${activeToken}` },
                 });
 
-                if (res.status === 401) {
+                if ([401, 403].includes(res.status)) {
                     activeToken = await refreshAccessToken();
-                    if (!activeToken) throw new Error("Unauthorized");
+                    if (!activeToken) throw unauthorizedError();
                     if (!cancelled) setToken(activeToken);
 
                     res = await fetch(`${API_URL}/name`, {
@@ -147,23 +160,33 @@ export default function Layout({ token, setToken }) {
                     });
                 }
 
-                if (!res.ok) throw new Error("Unauthorized");
+                if ([401, 403].includes(res.status)) throw unauthorizedError();
+                if (!res.ok) throw new Error(`Unable to load user (${res.status})`);
                 const data = await res.json();
                 if (!cancelled) setUser(data);
-            } catch {
-                clearStoredSession();
-                if (!cancelled) {
-                    setUser(null);
-                    setToken(null);
+            } catch (error) {
+                if (error?.code === "UNAUTHORIZED") {
+                    clearStoredSession();
+                    if (!cancelled) {
+                        setUser(null);
+                        setToken(null);
+                    }
+                } else {
+                    console.error("Unable to load user; keeping the current session", error);
+                    if (!cancelled) {
+                        retryScheduled = true;
+                        retryId = window.setTimeout(loadUser, USER_LOAD_RETRY_MS);
+                    }
                 }
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled && !retryScheduled) setLoading(false);
             }
         }
 
         loadUser();
         return () => {
             cancelled = true;
+            window.clearTimeout(retryId);
         };
     }, [token, setToken]);
 

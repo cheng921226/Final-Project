@@ -57,3 +57,35 @@ test('refreshes an idle session before its access token expires', async () => {
   expect(localStorage.getItem('refresh_token')).toBe('rotated-refresh-token');
   expect(screen.getByRole('button', { name: /教師功能/ })).toBeInTheDocument();
 });
+
+test('keeps the session when the backend is temporarily unavailable', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-10-13T10:00:00Z'));
+  const token = makeToken(Date.now() / 1000 + 3600);
+  localStorage.setItem('access_token', token);
+  localStorage.setItem('refresh_token', 'refresh-token');
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  global.fetch = jest.fn()
+    .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    .mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ name: '測試使用者', role: 'teacher' }),
+    });
+
+  render(<TestApp />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+
+  expect(localStorage.getItem('access_token')).toBe(token);
+
+  await act(async () => {
+    jest.advanceTimersByTime(3_000);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  expect(await screen.findByText('測試使用者')).toBeInTheDocument();
+  expect(localStorage.getItem('access_token')).toBe(token);
+});
