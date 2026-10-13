@@ -109,8 +109,9 @@ def backup_lecture_video(lecture_id: int, youtube_url: str) -> None:
 
 
 def create_backup_signed_url(storage_path: str, expires_in: int = 3600) -> str:
-    response = supabase_admin.storage.from_(BACKUP_BUCKET).create_signed_url(
-        storage_path, expires_in
+    response = (
+        supabase_admin.storage.from_(BACKUP_BUCKET)
+        .create_signed_url(storage_path, expires_in)
     )
     url = response.get("signedURL") or response.get("signedUrl")
     if not url:

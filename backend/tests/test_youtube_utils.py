@@ -35,9 +35,7 @@ class YoutubeUtilityTests(unittest.TestCase):
             second = Path(directory) / "renamed.mp4"
             first.write_bytes(b"same video bytes")
             second.write_bytes(b"same video bytes")
-            self.assertEqual(
-                calculate_file_sha256(first), calculate_file_sha256(second)
-            )
+            self.assertEqual(calculate_file_sha256(first), calculate_file_sha256(second))
 
 
 if __name__ == "__main__":

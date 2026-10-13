@@ -105,9 +105,7 @@ def run_youtube_ai_pipeline(
                 logger.exception(
                     "YouTube audio download failed lecture_id=%s", lecture_id
                 )
-                set_generation_status(
-                    lecture_id, "transcript", "failed", error=str(exc)
-                )
+                set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
                 raise PipelineStepError(
                     "DOWNLOAD_FAILED", f"無法下載 YouTube 音訊：{exc}"
                 ) from exc
@@ -136,9 +134,7 @@ def run_youtube_ai_pipeline(
                 )
             except Exception as exc:
                 logger.exception("Transcription failed lecture_id=%s", lecture_id)
-                set_generation_status(
-                    lecture_id, "transcript", "failed", error=str(exc)
-                )
+                set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
                 raise PipelineStepError(
                     "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
                 ) from exc

@@ -19,6 +19,7 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
+    "postinstall": "node scripts/fix-markdown-it-katex-sourcemap.js",
     "eject": "react-scripts eject"
   },
   "eslintConfig": {

@@ -3,15 +3,7 @@ import os
 import tempfile
 
 from database.supabase import supabase, supabase_admin
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    File,
-    Form,
-    HTTPException,
-    UploadFile,
-    Depends,
-)
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, Depends
 from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
@@ -172,11 +164,9 @@ def create_lecture(
         )
         duplicate = next(
             (
-                row
-                for row in duplicate
+                row for row in duplicate
                 if row.get("youtube_video_id") == youtube_video_id
-                or extract_youtube_video_id(row.get("media_url") or "")
-                == youtube_video_id
+                or extract_youtube_video_id(row.get("media_url") or "") == youtube_video_id
             ),
             None,
         )
@@ -230,18 +220,16 @@ def create_lecture(
             supabase_admin.table("lectures")
             .insert(
                 {
-                    "title": body.title,
-                    "media_url": body.media_url,
-                    "course_id": body.course_id,
-                    "status": body.status,
-                    "duration_seconds": duration_seconds,
-                    "youtube_video_id": youtube_video_id,
-                    "source_file_hash": body.source_file_hash,
-                    "backup_status": "pending"
-                    if body.backup_video
-                    else "not_requested",
-                    "sort_order": next_sort_order,
-                    "is_visible": True,
+                "title": body.title,
+                "media_url": body.media_url,
+                "course_id": body.course_id,
+                "status": body.status,
+                "duration_seconds": duration_seconds,
+                "youtube_video_id": youtube_video_id,
+                "source_file_hash": body.source_file_hash,
+                "backup_status": "pending" if body.backup_video else "not_requested",
+                "sort_order": next_sort_order,
+                "is_visible": True,
                 }
             )
             .execute()
@@ -273,7 +261,9 @@ def create_lecture(
     for component in GENERATION_COMPONENTS:
         set_generation_status(lecture["id"], component, "pending")
     if body.backup_video and is_youtube:
-        background_tasks.add_task(backup_lecture_video, lecture["id"], body.media_url)
+        background_tasks.add_task(
+            backup_lecture_video, lecture["id"], body.media_url
+        )
     if not body.auto_process or not is_youtube:
         return lecture
 
