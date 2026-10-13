@@ -87,7 +87,7 @@ test('selects students and sends the chosen recipients to the email API', async 
 
   try {
     render(<TeacherDashboard />);
-    const allCheckbox = await screen.findByRole('checkbox', { name: '全選學生' });
+    const allCheckbox = await screen.findByRole('checkbox', { name: '全選篩選結果' });
     expect(allCheckbox).not.toBeChecked();
     fireEvent.click(allCheckbox);
     expect(screen.getByRole('checkbox', { name: '選擇 Alice' })).toBeChecked();
@@ -124,6 +124,54 @@ test('selects students and sends the chosen recipients to the email API', async 
   } finally {
     global.fetch = originalFetch;
     alertSpy.mockRestore();
+    localStorage.removeItem('access_token');
+  }
+});
+
+test('filters students by class, credit status, learning status, and keyword', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '測試課程',
+        summary: { students: 3, active_students: 2, lectures: 2, completion_rate: 50, watched_hours: 2, question_accuracy: 70 },
+        lectures: [],
+        questions: [],
+        students: [
+          { id: 1, student_number: 'S001', name: '王小明', email: 'ming@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 2, total_lectures: 2, watched_minutes: 40, attempts: 3, accuracy: 90, last_active: '2024-01-01T00:00:00Z', course_passed: true, credits_earned: 2 },
+          { id: 2, student_number: 'S002', name: '陳小華', email: 'hua@example.com', classes: [{ id: 11, name: '資訊三乙' }], completed_lectures: 1, total_lectures: 2, watched_minutes: 20, attempts: 2, accuracy: 50, last_active: '2024-01-02T00:00:00Z', course_passed: false, credits_earned: 0 },
+          { id: 3, student_number: 'S003', name: '林小美', email: 'mei@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 0, total_lectures: 2, watched_minutes: 0, attempts: 0, accuracy: 0, last_active: null, course_passed: false, credits_earned: 0 },
+        ],
+      }],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    await screen.findByText('王小明');
+
+    fireEvent.change(screen.getByLabelText('班級'), { target: { value: '10' } });
+    expect(screen.getByText('王小明')).toBeInTheDocument();
+    expect(screen.getByText('林小美')).toBeInTheDocument();
+    expect(screen.queryByText('陳小華')).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('學分'), { target: { value: 'not_earned' } });
+    expect(screen.queryByText('王小明')).not.toBeInTheDocument();
+    expect(screen.getByText('林小美')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('學習狀態'), { target: { value: 'not_started' } });
+    expect(screen.getByText('林小美')).toBeInTheDocument();
+    expect(screen.getByText('顯示 1 / 3 人')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('搜尋學生'), { target: { value: 'S999' } });
+    expect(screen.getByText('沒有符合目前篩選條件的學生')).toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
     localStorage.removeItem('access_token');
   }
 });

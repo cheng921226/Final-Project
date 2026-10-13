@@ -189,25 +189,17 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     lecture_ids = [lecture["id"] for lecture in lectures]
     students = (
         supabase_admin.table("users")
-        .select("id,student_number,name,email,role")
+        .select("id,student_number,name,email,role,class_id")
         .eq("role", "student")
         .order("id")
         .execute()
     ).data or []
     all_student_ids = {row["id"] for row in students}
-    class_memberships = _rows("class_students", student_id=all_student_ids)
     class_ids = {
-        row["class_id"] for row in class_memberships if row.get("class_id") is not None
+        row["class_id"] for row in students if row.get("class_id") is not None
     }
     class_rows = _rows("classes", id=class_ids)
     class_map = {row["id"]: row for row in class_rows}
-    student_classes: dict[int, list[dict[str, Any]]] = defaultdict(list)
-    for membership in class_memberships:
-        class_row = class_map.get(membership.get("class_id"))
-        if class_row:
-            student_classes[membership["student_id"]].append(
-                {"id": class_row["id"], "name": class_row.get("name") or "未命名班級"}
-            )
     enrollments = (
         supabase_admin.table("student_courses")
         .select("student_id,course_id")
@@ -226,10 +218,17 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     certificates = [row for row in certificates if row.get("final_attempt_id")]
     final_questions = _rows("final_assessment_questions", course_id=course_ids)
 
-    student_map = {
-        row["id"]: {**row, "classes": student_classes.get(row["id"], [])}
-        for row in students
-    }
+    student_map = {}
+    for row in students:
+        class_row = class_map.get(row.get("class_id"))
+        student_map[row["id"]] = {
+            **row,
+            "classes": (
+                [{"id": class_row["id"], "name": class_row.get("name") or "未命名班級"}]
+                if class_row
+                else []
+            ),
+        }
     result_courses = []
 
     for course in courses:

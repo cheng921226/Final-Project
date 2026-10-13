@@ -6,16 +6,11 @@ create table if not exists public.classes (
   unique (created_by_user_id, name)
 );
 
-create table if not exists public.class_students (
-  class_id bigint not null references public.classes(id) on delete cascade,
-  student_id bigint not null references public.users(id) on delete cascade,
-  joined_at timestamptz not null default now(),
-  primary key (class_id, student_id),
-  unique (student_id)
-);
+alter table public.users
+add column if not exists class_id bigint references public.classes(id) on delete set null;
 
 create index if not exists classes_creator_idx
 on public.classes (created_by_user_id, name);
 
-create index if not exists class_students_class_idx
-on public.class_students (class_id, student_id);
+create index if not exists users_class_id_idx
+on public.users (class_id);

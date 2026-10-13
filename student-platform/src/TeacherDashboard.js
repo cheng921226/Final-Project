@@ -104,6 +104,10 @@ export default function TeacherDashboard() {
     setLearningFilter('all');
   }, [courseId, lectureId]);
 
+  useEffect(() => {
+    setSelectedStudentIds([]);
+  }, [studentKeyword, classFilter, creditFilter, learningFilter]);
+
   const course = useMemo(
     () => data?.courses?.find(item => String(item.id) === courseId),
     [data, courseId]
@@ -540,7 +544,7 @@ export default function TeacherDashboard() {
               <p>{selectedLecture ? `${selectedLecture.title}的小節進度與近期活動` : '依課程累積進度與近期活動整理'}</p>
             </div>
             <div className="student-panel-actions">
-              <span className="table-count">{selectedStudentIds.length} / {students.length} 已選</span>
+              <span className="table-count">{selectedStudentIds.length} / {filteredStudents.length} 已選</span>
               <button
                 type="button"
                 className="teacher-mail-button"
