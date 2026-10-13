@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -39,6 +39,8 @@ const BACKUP_LABELS = {
   failed: '備份失敗',
 };
 
+const UNSAVED_CHANGES_MESSAGE = '你有尚未儲存的變更，確定要離開嗎？';
+
 function isYouTubeUrl(value) {
   return /(?:youtube\.com|youtu\.be)\//i.test(value || '');
 }
@@ -50,6 +52,19 @@ function courseForm(course = {}) {
     status: course.status || 'draft',
     teacher_id: course.teacher_id ?? '',
   };
+}
+
+function lectureForm(lecture = {}) {
+  return {
+    title: lecture.title || '',
+    media_url: lecture.media_url || '',
+    is_visible: lecture.is_visible !== false,
+    transcript_content: lecture.content_status?.transcript_content || '',
+  };
+}
+
+function formsMatch(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export default function CourseManagement() {
@@ -64,6 +79,7 @@ export default function CourseManagement() {
   const [busyKey, setBusyKey] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const skipNextHistoryWarning = useRef(false);
 
   const selectedCourse = useMemo(
     () => data?.courses?.find(course => String(course.id) === String(courseId)),
@@ -81,6 +97,52 @@ export default function CourseManagement() {
     [data]
   );
   const isCampus = data?.actor?.role === 'campus';
+  const hasUnsavedChanges = useMemo(() => {
+    if (!selectedCourse) return false;
+    if (!formsMatch(form, courseForm(selectedCourse))) return true;
+    return (selectedCourse.lectures || []).some(lecture =>
+      !formsMatch(lectureForms[lecture.id] || lectureForm(), lectureForm(lecture))
+    );
+  }, [form, lectureForms, selectedCourse]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+
+    const warnBeforeUnload = event => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const warnBeforeLinkNavigation = event => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const link = event.target.closest?.('a[href]');
+      if (!link || link.target === '_blank' || link.hasAttribute('download')) return;
+      const destination = new URL(link.href, window.location.href);
+      if (destination.href === window.location.href) return;
+      if (!window.confirm(UNSAVED_CHANGES_MESSAGE)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+    const warnBeforeHistoryNavigation = () => {
+      if (skipNextHistoryWarning.current) {
+        skipNextHistoryWarning.current = false;
+        return;
+      }
+      if (!window.confirm(UNSAVED_CHANGES_MESSAGE)) {
+        skipNextHistoryWarning.current = true;
+        window.history.forward();
+      }
+    };
+
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    document.addEventListener('click', warnBeforeLinkNavigation, true);
+    window.addEventListener('popstate', warnBeforeHistoryNavigation);
+    return () => {
+      window.removeEventListener('beforeunload', warnBeforeUnload);
+      document.removeEventListener('click', warnBeforeLinkNavigation, true);
+      window.removeEventListener('popstate', warnBeforeHistoryNavigation);
+    };
+  }, [hasUnsavedChanges]);
 
   async function load(preferredId = courseId) {
     if (!token) {
@@ -95,12 +157,7 @@ export default function CourseManagement() {
     const nextCourse = body.courses?.find(item => String(item.id) === String(preferredId)) || body.courses?.[0];
     setCourseId(nextCourse ? String(nextCourse.id) : '');
     setForm(courseForm(nextCourse));
-    setLectureForms(Object.fromEntries((nextCourse?.lectures || []).map(lecture => [lecture.id, {
-      title: lecture.title || '',
-      media_url: lecture.media_url || '',
-      is_visible: lecture.is_visible !== false,
-      transcript_content: lecture.content_status?.transcript_content || '',
-    }])));
+    setLectureForms(Object.fromEntries((nextCourse?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
   }
 
   useEffect(() => {
@@ -136,15 +193,12 @@ export default function CourseManagement() {
   }, [hasActiveJobs, headers, token]);
 
   function chooseCourse(nextId) {
+    if (String(nextId) === String(courseId)) return;
+    if (hasUnsavedChanges && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return;
     const course = data?.courses?.find(item => String(item.id) === String(nextId));
     setCourseId(nextId);
     setForm(courseForm(course));
-    setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, {
-      title: lecture.title || '',
-      media_url: lecture.media_url || '',
-      is_visible: lecture.is_visible !== false,
-      transcript_content: lecture.content_status?.transcript_content || '',
-    }])));
+    setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
     setMessage('');
     setOpenTranscriptId(null);
   }

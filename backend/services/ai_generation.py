@@ -16,8 +16,12 @@ AI_REQUEST_TIMEOUT_MS = int(os.getenv("AI_REQUEST_TIMEOUT_MS", "120000"))
 gemini_client = genai.Client(
     http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
 )
-CONTENT_GENERATION_MODEL = os.getenv("GEMINI_CONTENT_MODEL", "gemini-3.5-flash")
-CONTENT_FALLBACK_MODEL = os.getenv("GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash")
+CONTENT_GENERATION_MODEL = os.getenv(
+    "GEMINI_CONTENT_MODEL", "gemini-3.1-flash-lite"
+)
+CONTENT_FALLBACK_MODEL = os.getenv(
+    "GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash-lite"
+)
 
 
 def generate_json_content(prompt: str):
@@ -30,7 +34,7 @@ def generate_json_content(prompt: str):
                 contents=prompt,
                 config={"response_mime_type": "application/json"},
             )
-        except errors.ServerError as exc:
+        except (errors.ClientError, errors.ServerError) as exc:
             last_error = exc
             if index + 1 >= len(models):
                 raise

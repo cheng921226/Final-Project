@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import CourseManagement from './CourseManagement';
 
 jest.mock('react-router-dom', () => ({ Link: ({ children, to, ...props }) => <a href={to} {...props}>{children}</a> }), { virtual: true });
@@ -70,4 +70,34 @@ test('campus sees and manages teacher courses alongside its own courses', async 
   expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '離散數學｜王老師' })).toBeInTheDocument();
+});
+
+test('warns before leaving or switching courses with unsaved changes', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 10, role: 'teacher' },
+      courses: [
+        baseCourse,
+        { ...baseCourse, id: 2, title: '演算法' },
+      ],
+      teachers: [],
+    }),
+  });
+  jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+  render(<CourseManagement />);
+  const titleInput = await screen.findByRole('textbox', { name: '課程名稱' });
+  fireEvent.change(titleInput, { target: { value: '尚未儲存的新名稱' } });
+
+  const unloadEvent = new Event('beforeunload', { cancelable: true });
+  window.dispatchEvent(unloadEvent);
+  expect(unloadEvent.defaultPrevented).toBe(true);
+
+  const courseSelect = screen.getByRole('combobox', { name: '課程' });
+  fireEvent.change(courseSelect, { target: { value: '2' } });
+  expect(window.confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
+  expect(courseSelect).toHaveValue('1');
+  expect(titleInput).toHaveValue('尚未儲存的新名稱');
 });
