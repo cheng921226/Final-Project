@@ -7,6 +7,7 @@ from services.transcription import (
     extract_youtube_video_id,
     normalize_youtube_url,
 )
+from services.video_backup import safe_storage_filename
 
 
 class YoutubeUtilityTests(unittest.TestCase):
@@ -36,6 +37,15 @@ class YoutubeUtilityTests(unittest.TestCase):
             first.write_bytes(b"same video bytes")
             second.write_bytes(b"same video bytes")
             self.assertEqual(calculate_file_sha256(first), calculate_file_sha256(second))
+
+    def test_backup_filename_keeps_names_and_removes_path_characters(self):
+        self.assertEqual(
+            safe_storage_filename('演算法／第一章: 搜尋?*', "未命名"),
+            "演算法-第一章-搜尋",
+        )
+
+    def test_backup_filename_uses_fallback_for_blank_names(self):
+        self.assertEqual(safe_storage_filename("  ", "小節-48"), "小節-48")
 
 
 if __name__ == "__main__":

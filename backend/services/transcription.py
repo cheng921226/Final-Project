@@ -157,6 +157,7 @@ def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str,
     """Download a normal, accessible YouTube video without bypassing access controls."""
     try:
         from yt_dlp import YoutubeDL
+        from yt_dlp.utils import DownloadError
     except ImportError as exc:
         raise RuntimeError("yt-dlp is not installed. Run: pip install yt-dlp") from exc
 
@@ -170,14 +171,15 @@ def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str,
             ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
         except (ImportError, RuntimeError):
             ffmpeg_path = None
+    if not ffmpeg_path:
+        raise RuntimeError(
+            "影片備份需要 FFmpeg 合併 YouTube 的影像與音訊。"
+            "請執行 pip install -r requirements.txt 後再試一次。"
+        )
     options = {
-        # Separate video/audio streams require FFmpeg to merge. Use a combined
-        # stream on lightweight local setups where FFmpeg is unavailable.
-        "format": (
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-            if ffmpeg_path
-            else "best[ext=mp4]/best"
-        ),
+        # Most YouTube videos expose video and audio as separate streams.
+        # Prefer MP4/M4A, then allow yt-dlp to choose any mergeable pair.
+        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         "noplaylist": True,
         "outtmpl": os.path.join(target_dir, "%(id)s.%(ext)s"),
         "quiet": True,
@@ -190,9 +192,8 @@ def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str,
             os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3))
         ),
     }
-    if ffmpeg_path:
-        options["merge_output_format"] = "mp4"
-        options["ffmpeg_location"] = ffmpeg_path
+    options["merge_output_format"] = "mp4"
+    options["ffmpeg_location"] = ffmpeg_path
     node_path = shutil.which("node")
     if node_path:
         options["js_runtimes"] = {"node": {"path": node_path}}

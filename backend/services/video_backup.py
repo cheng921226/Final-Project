@@ -1,16 +1,27 @@
 import os
+import re
 import shutil
 import tempfile
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from database.supabase import supabase_admin
-from services.transcription import download_youtube_video, extract_youtube_video_id
+from services.transcription import download_youtube_video
 
 
 BACKUP_BUCKET = os.getenv("SUPABASE_VIDEO_BACKUP_BUCKET", "lecture-video-backups")
 MAX_BACKUP_BYTES = int(os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3)))
+
+
+def safe_storage_filename(value: Any, fallback: str) -> str:
+    """Keep readable names while removing characters unsafe in object paths."""
+    name = unicodedata.normalize("NFKC", str(value or "")).strip()
+    name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "-", name)
+    name = re.sub(r"\s+", " ", name).strip(" .-_")
+    name = re.sub(r"\s*-+\s*", "-", name)
+    return (name or fallback)[:80].rstrip(" .-_") or fallback
 
 
 def claim_lecture_backup(lecture_id: int) -> bool:
@@ -34,7 +45,7 @@ def backup_lecture_video(lecture_id: int, youtube_url: str) -> None:
     storage_path: str | None = None
     existing = (
         supabase_admin.table("lectures")
-        .select("backup_storage_path")
+        .select("backup_storage_path,title,course_id")
         .eq("id", lecture_id)
         .maybe_single()
         .execute()
@@ -58,10 +69,33 @@ def backup_lecture_video(lecture_id: int, youtube_url: str) -> None:
                 f"影片大小 {file_size} bytes 超過備份上限 {MAX_BACKUP_BYTES} bytes"
             )
 
-        video_id = extract_youtube_video_id(youtube_url) or f"lecture-{lecture_id}"
+        course_id = existing.get("course_id")
+        course_title = None
+        if course_id is not None:
+            try:
+                course = (
+                    supabase_admin.table("courses")
+                    .select("title")
+                    .eq("id", course_id)
+                    .maybe_single()
+                    .execute()
+                    .data
+                    or {}
+                )
+                course_title = course.get("title")
+            except Exception:
+                course_title = None
+
+        course_name = safe_storage_filename(
+            course_title, f"課程-{course_id or '未知'}"
+        )
+        lecture_name = safe_storage_filename(
+            existing.get("title"), f"小節-{lecture_id}"
+        )
         extension = file_path.suffix.lower() or ".mp4"
         version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        storage_path = f"lectures/{lecture_id}/{video_id}-{version}{extension}"
+        filename = f"{course_name}-{lecture_name}-{version}{extension}"
+        storage_path = f"lectures/{lecture_id}/{filename}"
         content_type = "video/mp4" if extension == ".mp4" else "video/webm"
         with file_path.open("rb") as video_file:
             supabase_admin.storage.from_(BACKUP_BUCKET).upload(
