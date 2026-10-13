@@ -110,7 +110,6 @@ class LectureCreate(BaseModel):
     title: str
     media_url: str
     course_id: int
-    status: str = "uploaded"
     duration_seconds: int | None = None
     auto_process: bool = True
     language: str | None = "zh"
@@ -223,7 +222,7 @@ def create_lecture(
                 "title": body.title,
                 "media_url": body.media_url,
                 "course_id": body.course_id,
-                "status": body.status,
+                "status": "uploaded",
                 "duration_seconds": duration_seconds,
                 "youtube_video_id": youtube_video_id,
                 "source_file_hash": body.source_file_hash,
@@ -310,10 +309,7 @@ def create_lecture(
         lecture["id"],
         pipeline_result.get("status", "unknown"),
     )
-    supabase_admin.table("lectures").update({"status": "generated"}).eq(
-        "id", lecture["id"]
-    ).execute()
-    return {**lecture, "status": "generated", "pipeline": pipeline_result}
+    return {**lecture, "status": "uploaded", "pipeline": pipeline_result}
 
 
 @router.get("/lectures/{lecture_id}/backup")

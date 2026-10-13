@@ -532,9 +532,6 @@ def _regenerate_components(
                     "id", old_ids
                 ).execute()
 
-        supabase_admin.table("lectures").update(
-            {"status": "generated", "updated_at": _now()}
-        ).eq("id", lecture_id).execute()
     except Exception:
         logger.exception(
             "Lecture content regeneration failed lecture_id=%s components=%s",

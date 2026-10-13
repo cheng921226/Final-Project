@@ -116,7 +116,9 @@ function CourseDetail() {
                               </span>
                             )}
                           </div>
-                          <p className="lecture-subtitle">{lecture.status || `第 ${index + 1} 個學習單元`}</p>
+                          <p className="lecture-subtitle">
+                            {lecture.status === 'failed' ? '影片上傳失敗' : '影片已上傳'}
+                          </p>
                         </div>
                       </div>
 
