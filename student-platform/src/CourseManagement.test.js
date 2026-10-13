@@ -101,3 +101,33 @@ test('warns before leaving or switching courses with unsaved changes', async () 
   expect(courseSelect).toHaveValue('1');
   expect(titleInput).toHaveValue('尚未儲存的新名稱');
 });
+
+test('asks before replacing an existing video backup', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 10, role: 'teacher' },
+      courses: [{
+        ...baseCourse,
+        lectures: [{
+          id: 48,
+          title: '搜尋演算法',
+          media_url: 'https://www.youtube.com/watch?v=BUTSrY9K01c',
+          backup_status: 'completed',
+          content_status: { generation_status: {} },
+        }],
+      }],
+      teachers: [],
+    }),
+  });
+  jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+  render(<CourseManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: '重新備份' }));
+
+  expect(window.confirm).toHaveBeenCalledWith(
+    '這個小節已經有影片備份。確定要重新備份並覆蓋現有版本嗎？'
+  );
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+});

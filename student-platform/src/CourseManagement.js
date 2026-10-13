@@ -40,6 +40,7 @@ const BACKUP_LABELS = {
 };
 
 const UNSAVED_CHANGES_MESSAGE = '你有尚未儲存的變更，確定要離開嗎？';
+const REPLACE_BACKUP_MESSAGE = '這個小節已經有影片備份。確定要重新備份並覆蓋現有版本嗎？';
 
 function isYouTubeUrl(value) {
   return /(?:youtube\.com|youtu\.be)\//i.test(value || '');
@@ -367,6 +368,7 @@ export default function CourseManagement() {
 
   async function requestBackup(lecture) {
     if (busyKey) return;
+    if (lecture.backup_status === 'completed' && !window.confirm(REPLACE_BACKUP_MESSAGE)) return;
     setBusyKey(`backup-${lecture.id}`);
     setMessage('');
     try {
