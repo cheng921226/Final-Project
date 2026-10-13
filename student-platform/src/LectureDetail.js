@@ -109,8 +109,8 @@ async function logEvent(lectureId, eventType, eventData) {
   } catch (e) { }
 }
 
-async function fetchTimedQuestions(lectureId) {
-  const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`);
+async function fetchTimedQuestions(lectureId, signal) {
+  const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`, { signal });
   if (!questionRes.ok) {
     throw new Error('無法載入題目資料');
   }
@@ -468,12 +468,43 @@ function LectureDetail() {
 
   // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
-        let pendingQuestions = [];
-        const lectureRes = await fetch(`${API_URL}/lectures/${lectureId}`);
+        const authOptions = token
+          ? { headers: { Authorization: `Bearer ${token}` }, signal }
+          : null;
+        const [
+          lectureRes,
+          kpRes,
+          summaryRes,
+          mmRes,
+          pendingQuestions,
+          progressRes,
+          attemptsRes,
+          chatRes,
+        ] = await Promise.all([
+          fetch(`${API_URL}/lectures/${lectureId}`, { signal }),
+          fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`, { signal }),
+          fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal }),
+          fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal }),
+          fetchTimedQuestions(lectureId, signal),
+          authOptions
+            ? fetch(`${API_URL}/video_progresses/${lectureId}`, authOptions)
+            : Promise.resolve(null),
+          authOptions
+            ? fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, authOptions)
+            : Promise.resolve(null),
+          authOptions
+            ? fetch(`${API_URL}/lectures/${lectureId}/chats`, authOptions)
+            : Promise.resolve(null),
+        ]);
+
+        if (signal.aborted) return;
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const lecture = lectureData[0] || {};
@@ -492,18 +523,17 @@ function LectureDetail() {
           if (token && lecture.backup_status === 'completed') {
             const backupRes = await fetch(`${API_URL}/lectures/${lectureId}/backup`, {
               headers: { Authorization: `Bearer ${token}` },
+              signal,
             });
             if (backupRes.ok) setBackupInfo(await backupRes.json());
           }
         }
 
-        const kpRes = await fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`);
         if (kpRes.ok) {
           const kpData = await kpRes.json();
           if (Array.isArray(kpData)) setKnowledgePoints(kpData);
         }
 
-        const summaryRes = await fetch(`${API_URL}/lectures/${lectureId}/summaries`);
         if (summaryRes.ok) {
           const summaryData = await summaryRes.json();
           if (summaryData?.summary_text) {
@@ -516,7 +546,6 @@ function LectureDetail() {
           }
         }
 
-        const mmRes = await fetch(`${API_URL}/lectures/${lectureId}/mindmaps`);
         if (mmRes.ok) {
           const mmData = await mmRes.json();
           const mindmapJson = mmData?.[0]?.mindmap_json;
@@ -529,14 +558,7 @@ function LectureDetail() {
           }
         }
 
-        pendingQuestions = await fetchTimedQuestions(lectureId);
-
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
-        const progressRes = token
-          ? await fetch(`${API_URL}/video_progresses/${lectureId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          : null;
         if (progressRes?.ok) {
           const progressData = await progressRes.json();
           if (progressData?.watched_seconds > 0) {
@@ -548,11 +570,6 @@ function LectureDetail() {
           }
         }
 
-        const attemptsRes = token
-          ? await fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          : null;
         if (attemptsRes?.ok) {
           const attempts = await attemptsRes.json();
           shownQuestionIdsRef.current = new Set(
@@ -561,12 +578,6 @@ function LectureDetail() {
         } else {
           shownQuestionIdsRef.current = new Set();
         }
-
-        const chatRes = token
-          ? await fetch(`${API_URL}/lectures/${lectureId}/chats`, {
-            headers: { Authorization: `Bearer ${token}` },
-          })
-          : null;
 
         if (chatRes?.ok) {
           const chatData = await chatRes.json();
@@ -594,12 +605,13 @@ function LectureDetail() {
 
         setQuestions(pendingQuestions);
       } catch (err) {
-        setError(err.message || '取得資料失敗');
+        if (err.name !== 'AbortError') setError(err.message || '取得資料失敗');
       } finally {
-        setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
     }
     fetchData();
+    return () => controller.abort();
   }, [lectureId, token]);
 
   // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。

@@ -49,7 +49,31 @@ def get_courses(keyword: str = None):
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
-    return res.data
+    courses = res.data or []
+    teacher_ids = list(
+        {row.get("teacher_id") for row in courses if row.get("teacher_id") is not None}
+    )
+    teachers = {}
+    if teacher_ids:
+        teacher_rows = (
+            supabase_admin.table("users")
+            .select("id,name,email")
+            .in_("id", teacher_ids)
+            .execute()
+            .data
+            or []
+        )
+        teachers = {row["id"]: row for row in teacher_rows}
+    return [
+        {
+            **course,
+            "teacher_name": (
+                teachers.get(course.get("teacher_id"), {}).get("name")
+                or teachers.get(course.get("teacher_id"), {}).get("email")
+            ),
+        }
+        for course in courses
+    ]
 
 
 @router.post("/courses")
@@ -594,6 +618,32 @@ def get_video_progress(lecture_id: int, user=Depends(get_current_user)):
     )
     rows = res.data or []
     return rows[0] if rows else None
+
+
+@router.get("/courses/{course_id}/video-progresses")
+def get_course_video_progresses(course_id: int, user=Depends(get_current_user)):
+    student_id = get_student_id_from_auth(user)
+    lecture_rows = (
+        supabase.table("lectures")
+        .select("id")
+        .eq("course_id", course_id)
+        .eq("is_visible", True)
+        .execute()
+        .data
+        or []
+    )
+    lecture_ids = [row["id"] for row in lecture_rows]
+    if not lecture_ids:
+        return []
+    return (
+        supabase.table("video_progresses")
+        .select("lecture_id,last_position,watched_seconds,completed")
+        .eq("student_id", student_id)
+        .in_("lecture_id", lecture_ids)
+        .execute()
+        .data
+        or []
+    )
 
 
 # =====================================================================

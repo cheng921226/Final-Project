@@ -17,7 +17,6 @@ from services.ai_generation import (
 )
 from services.lecture_processing import (
     claim_generation,
-    ensure_generation_statuses,
     get_generation_statuses,
     set_generation_status,
 )
@@ -134,8 +133,45 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
             and (row.get("question_type") or "original") == "original"
         ):
             result[row["lecture_id"]]["questions"] += 1
-    for lecture_id, status in result.items():
-        status["generation_status"] = ensure_generation_statuses(lecture_id, status)
+    try:
+        generation_rows = (
+            supabase_admin.table("lecture_generation_status")
+            .select(
+                "lecture_id,component,status,error_message,started_at,completed_at,updated_at"
+            )
+            .in_("lecture_id", lecture_ids)
+            .execute()
+            .data
+            or []
+        )
+    except Exception:
+        generation_rows = []
+
+    generation_by_lecture: dict[int, dict[str, dict[str, Any]]] = {}
+    for row in generation_rows:
+        lecture_id = row.get("lecture_id")
+        component = row.get("component")
+        if lecture_id in result and component:
+            generation_by_lecture.setdefault(lecture_id, {})[component] = row
+
+    for lecture_id, content in result.items():
+        statuses = generation_by_lecture.get(lecture_id, {})
+        inferred = {
+            "transcript": bool(content.get("transcript")),
+            "summary": bool(content.get("summary")),
+            "knowledge_points": bool(content.get("knowledge_points")),
+            "mindmap": bool(content.get("mindmap")),
+            "questions": bool(content.get("questions")),
+        }
+        content["generation_status"] = {
+            component: statuses.get(component)
+            or {
+                "component": component,
+                "status": "completed" if exists else "pending",
+                "error_message": None,
+            }
+            for component, exists in inferred.items()
+        }
     return result
 
 

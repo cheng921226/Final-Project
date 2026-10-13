@@ -10,44 +10,30 @@ function Home({ token }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchCourses() {
       try {
-        const response = await fetch(`${API_URL}/courses`);
+        const response = await fetch(`${API_URL}/courses`, { signal: controller.signal });
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
         if (Array.isArray(data) && data.length > 0) {
-          const teacherIds = Array.from(new Set(data.map(item => item.teacher_id).filter(Boolean)));
-          const teacherMap = {};
-
-          await Promise.all(teacherIds.map(async teacherId => {
-            try {
-              const teacherRes = await fetch(`${API_URL}/teachers/${teacherId}`);
-              if (!teacherRes.ok) return;
-              const teacherData = await teacherRes.json();
-              if (teacherData?.id) {
-                teacherMap[teacherData.id] = teacherData.name ?? teacherData.email ?? `講師 ${teacherData.id}`;
-              }
-            } catch (e) {
-              // ignore individual teacher fetch errors
-            }
-          }));
-
           setCourses(data.map(item => ({
             id: item.id?.toString() ?? item.course_name ?? item.title ?? 'unknown',
             title: item.course_name ?? item.title ?? '未命名課程',
-            teacher: item.teacher ?? item.teacher_name ?? teacherMap[item.teacher_id] ?? (item.teacher_id ? `講師 ${item.teacher_id}` : '未知講師'),
+            teacher: item.teacher ?? item.teacher_name ?? (item.teacher_id ? `講師 ${item.teacher_id}` : '未知講師'),
             status: item.status ?? '未設定狀態',
           })));
         }
       } catch (err) {
-        setError(err.message || '取得課程失敗');
+        if (err.name !== 'AbortError') setError(err.message || '取得課程失敗');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchCourses();
+    return () => controller.abort();
   }, [token]);
 
   const searchCourses = async () => {

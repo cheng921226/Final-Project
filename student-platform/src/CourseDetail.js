@@ -12,57 +12,46 @@ function CourseDetail() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchLectures() {
       try {
-        const res = await fetch(`${API_URL}/courses/${id}/lectures`);
+        const token = localStorage.getItem('access_token');
+        const authOptions = token
+          ? { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
+          : null;
+        const [res, assessmentRes, progressRes] = await Promise.all([
+          fetch(`${API_URL}/courses/${id}/lectures`, { signal: controller.signal }),
+          authOptions
+            ? fetch(`${API_URL}/courses/${id}/final-assessment`, authOptions)
+            : Promise.resolve(null),
+          authOptions
+            ? fetch(`${API_URL}/courses/${id}/video-progresses`, authOptions)
+            : Promise.resolve(null),
+        ]);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const lectureList = Array.isArray(data) ? data : [];
         setLectures(lectureList);
 
-        // 撈每個小節的觀看進度
-        const token = localStorage.getItem('access_token');
         if (!token) {
           setProgressMap({});
           return;
         }
-        const progressResults = await Promise.all(
-          lectureList.map(async (lecture) => {
-            try {
-              const pRes = await fetch(`${API_URL}/video_progresses/${lecture.id}`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              if (!pRes.ok) return { id: lecture.id, data: null };
-              const pData = await pRes.json();
-              return { id: lecture.id, data: pData };
-            } catch {
-              return { id: lecture.id, data: null };
-            }
-          })
-        );
-
-        // 整理成 { lectureId: progressData } 的格式
-        const map = {};
-        progressResults.forEach(({ id: lectureId, data }) => {
-          if (data) map[lectureId] = data;
-        });
-        setProgressMap(map);
-
-        try {
-          const assessmentRes = await fetch(`${API_URL}/courses/${id}/final-assessment`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (assessmentRes.ok) setFinalAssessment(await assessmentRes.json());
-        } catch {
-          setFinalAssessment(null);
+        if (progressRes?.ok) {
+          const rows = await progressRes.json();
+          setProgressMap(Object.fromEntries(
+            (rows || []).map(progress => [progress.lecture_id, progress])
+          ));
         }
+        if (assessmentRes?.ok) setFinalAssessment(await assessmentRes.json());
       } catch (err) {
-        setError(err.message || '取得小節列表失敗');
+        if (err.name !== 'AbortError') setError(err.message || '取得小節列表失敗');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchLectures();
+    return () => controller.abort();
   }, [id]);
 
   function getProgressDisplay(lecture) {
