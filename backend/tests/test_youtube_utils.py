@@ -7,7 +7,7 @@ from services.transcription import (
     extract_youtube_video_id,
     normalize_youtube_url,
 )
-from services.video_backup import safe_storage_filename
+from services.video_backup import safe_storage_filename, safe_storage_key_part
 
 
 class YoutubeUtilityTests(unittest.TestCase):
@@ -46,6 +46,16 @@ class YoutubeUtilityTests(unittest.TestCase):
 
     def test_backup_filename_uses_fallback_for_blank_names(self):
         self.assertEqual(safe_storage_filename("  ", "小節-48"), "小節-48")
+
+    def test_backup_storage_key_is_ascii_only(self):
+        self.assertEqual(
+            safe_storage_key_part("1-1-2 重點摘要", "lecture-52"),
+            "1-1-2",
+        )
+        self.assertEqual(
+            safe_storage_key_part("完全中文", "lecture-52"),
+            "lecture-52",
+        )
 
 
 if __name__ == "__main__":

@@ -16,12 +16,20 @@ MAX_BACKUP_BYTES = int(os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3)))
 
 
 def safe_storage_filename(value: Any, fallback: str) -> str:
-    """Keep readable names while removing characters unsafe in object paths."""
+    """Build the user-facing filename kept in the object's metadata."""
     name = unicodedata.normalize("NFKC", str(value or "")).strip()
     name = re.sub(r'[\\/:*?"<>|\x00-\x1f]', "-", name)
     name = re.sub(r"\s+", " ", name).strip(" .-_")
     name = re.sub(r"\s*-+\s*", "-", name)
     return (name or fallback)[:80].rstrip(" .-_") or fallback
+
+
+def safe_storage_key_part(value: Any, fallback: str) -> str:
+    """Build an ASCII-only key part accepted by Supabase Storage."""
+    name = unicodedata.normalize("NFKD", str(value or ""))
+    name = name.encode("ascii", "ignore").decode("ascii")
+    name = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip(".-_")
+    return (name or fallback)[:80].rstrip(".-_") or fallback
 
 
 def claim_lecture_backup(lecture_id: int) -> bool:
@@ -94,14 +102,28 @@ def backup_lecture_video(lecture_id: int, youtube_url: str) -> None:
         )
         extension = file_path.suffix.lower() or ".mp4"
         version = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-        filename = f"{course_name}-{lecture_name}-{version}{extension}"
-        storage_path = f"lectures/{lecture_id}/{filename}"
+        display_filename = f"{course_name}-{lecture_name}-{version}{extension}"
+        lecture_key = safe_storage_key_part(
+            existing.get("title"), f"lecture-{lecture_id}"
+        )
+        storage_filename = (
+            f"course-{course_id or 'unknown'}-{lecture_key}-{version}{extension}"
+        )
+        storage_path = f"lectures/{lecture_id}/{storage_filename}"
         content_type = "video/mp4" if extension == ".mp4" else "video/webm"
         with file_path.open("rb") as video_file:
             supabase_admin.storage.from_(BACKUP_BUCKET).upload(
                 storage_path,
                 video_file,
-                {"content-type": content_type, "upsert": "true"},
+                {
+                    "content-type": content_type,
+                    "upsert": "true",
+                    "metadata": {
+                        "display_name": display_filename,
+                        "course_name": course_name,
+                        "lecture_name": lecture_name,
+                    },
+                },
             )
 
         _update_backup(
