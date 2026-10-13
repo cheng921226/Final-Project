@@ -15,6 +15,8 @@ router = APIRouter()
 
 gemini_client = genai.Client()
 
+GEMINI_MODEL = "gemini-3.8-flash"
+
 
 def parse_transcript_rows(rows):
     """Return timestamped segments and plain text from transcript table rows."""
@@ -215,7 +217,7 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model="gemini-3.5-flash-lite",
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -291,7 +293,7 @@ def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model=GEMINI_MODEL,
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -362,7 +364,7 @@ def generate_mindmap(body: MindMapRequest, user=Depends(get_current_user)):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model=GEMINI_MODEL,
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -439,7 +441,7 @@ def generate_knowledge_points(
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model=GEMINI_MODEL,
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )
@@ -518,7 +520,7 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
         """
 
         ai_response = gemini_client.models.generate_content(
-            model="gemini-3.1-flash-lite",
+            model=GEMINI_MODEL,
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )

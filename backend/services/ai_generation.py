@@ -17,10 +17,10 @@ gemini_client = genai.Client(
     http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
 )
 CONTENT_GENERATION_MODEL = os.getenv(
-    "GEMINI_CONTENT_MODEL", "gemini-3.1-flash-lite"
+    "GEMINI_CONTENT_MODEL", "gemini-3.8-flash"
 )
 CONTENT_FALLBACK_MODEL = os.getenv(
-    "GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash-lite"
+    "GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash"
 )
 
 
