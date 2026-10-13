@@ -251,6 +251,55 @@ def get_course_management(user=Depends(get_current_user)):
     return {"actor": teacher, "courses": courses, "teachers": teachers}
 
 
+@router.get("/job-statuses")
+def get_course_management_job_statuses(user=Depends(get_current_user)):
+    """Return only fields needed by the management page's background polling."""
+    teacher = require_teacher(user)
+    course_ids = [row["id"] for row in _managed_courses(teacher)]
+    if not course_ids:
+        return {"lectures": []}
+
+    lectures = (
+        supabase_admin.table("lectures")
+        .select("id,course_id,backup_status,backup_error,backup_updated_at")
+        .in_("course_id", course_ids)
+        .execute()
+        .data
+        or []
+    )
+    lecture_ids = [row["id"] for row in lectures]
+    generation_by_lecture: dict[int, dict[str, dict[str, Any]]] = {}
+    if lecture_ids:
+        try:
+            rows = (
+                supabase_admin.table("lecture_generation_status")
+                .select(
+                    "lecture_id,component,status,error_message,started_at,completed_at,updated_at"
+                )
+                .in_("lecture_id", lecture_ids)
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                lecture_id = row.get("lecture_id")
+                component = row.get("component")
+                if lecture_id is not None and component:
+                    generation_by_lecture.setdefault(lecture_id, {})[component] = row
+        except Exception:
+            pass
+
+    return {
+        "lectures": [
+            {
+                **lecture,
+                "generation_status": generation_by_lecture.get(lecture["id"], {}),
+            }
+            for lecture in lectures
+        ]
+    }
+
+
 @router.patch("/courses/{course_id}")
 def update_course(
     course_id: int,

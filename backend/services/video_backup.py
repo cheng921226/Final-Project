@@ -12,7 +12,7 @@ from services.transcription import download_youtube_video
 
 
 BACKUP_BUCKET = os.getenv("SUPABASE_VIDEO_BACKUP_BUCKET", "lecture-video-backups")
-MAX_BACKUP_BYTES = int(os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3)))
+MAX_BACKUP_BYTES = int(os.getenv("VIDEO_BACKUP_MAX_BYTES", str(48 * 1024**2)))
 
 
 def safe_storage_filename(value: Any, fallback: str) -> str:
@@ -74,7 +74,8 @@ def backup_lecture_video(lecture_id: int, youtube_url: str) -> None:
         file_size = file_path.stat().st_size
         if file_size > MAX_BACKUP_BYTES:
             raise RuntimeError(
-                f"影片大小 {file_size} bytes 超過備份上限 {MAX_BACKUP_BYTES} bytes"
+                f"影片大小 {file_size} bytes 超過免費版備份上限 "
+                f"{MAX_BACKUP_BYTES} bytes，請縮短影片或改用付費儲存空間"
             )
 
         course_id = existing.get("course_id")

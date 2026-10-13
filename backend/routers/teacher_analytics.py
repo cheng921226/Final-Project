@@ -149,6 +149,7 @@ def _student_scope_result(
         "student_number": student.get("student_number"),
         "name": student.get("name") or f"學生 {student.get('id')}",
         "email": student.get("email"),
+        "classes": student.get("classes") or [],
         "completed_lectures": sum(bool(row.get("completed")) for row in progresses),
         "total_lectures": total_lectures,
         "watched_minutes": round(
@@ -194,6 +195,19 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         .execute()
     ).data or []
     all_student_ids = {row["id"] for row in students}
+    class_memberships = _rows("class_students", student_id=all_student_ids)
+    class_ids = {
+        row["class_id"] for row in class_memberships if row.get("class_id") is not None
+    }
+    class_rows = _rows("classes", id=class_ids)
+    class_map = {row["id"]: row for row in class_rows}
+    student_classes: dict[int, list[dict[str, Any]]] = defaultdict(list)
+    for membership in class_memberships:
+        class_row = class_map.get(membership.get("class_id"))
+        if class_row:
+            student_classes[membership["student_id"]].append(
+                {"id": class_row["id"], "name": class_row.get("name") or "未命名班級"}
+            )
     enrollments = (
         supabase_admin.table("student_courses")
         .select("student_id,course_id")
@@ -212,7 +226,10 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     certificates = [row for row in certificates if row.get("final_attempt_id")]
     final_questions = _rows("final_assessment_questions", course_id=course_ids)
 
-    student_map = {row["id"]: row for row in students}
+    student_map = {
+        row["id"]: {**row, "classes": student_classes.get(row["id"], [])}
+        for row in students
+    }
     result_courses = []
 
     for course in courses:

@@ -88,12 +88,20 @@ export default function TeacherDashboard() {
   const [showEmailPreview, setShowEmailPreview] = useState(false);
   const [emailPreview, setEmailPreview] = useState({ subject: '', body: '' });
   const [exportingRoster, setExportingRoster] = useState(false);
+  const [studentKeyword, setStudentKeyword] = useState('');
+  const [classFilter, setClassFilter] = useState('all');
+  const [creditFilter, setCreditFilter] = useState('all');
+  const [learningFilter, setLearningFilter] = useState('all');
 
   useEffect(() => {
     setShowAllQuestions(false);
     setSelectedStudentIds([]);
     setShowEmailPreview(false);
     setEmailPreview({ subject: '', body: '' });
+    setStudentKeyword('');
+    setClassFilter('all');
+    setCreditFilter('all');
+    setLearningFilter('all');
   }, [courseId, lectureId]);
 
   const course = useMemo(
@@ -108,15 +116,40 @@ export default function TeacherDashboard() {
     [course, lectureId]
   );
 
-  const students = useMemo(
-    () => selectedLecture?.students || course?.students || [],
-    [course, selectedLecture]
-  );
+  const students = useMemo(() => {
+    const courseStudents = course?.students || [];
+    if (!selectedLecture) return courseStudents;
+    const courseStudentMap = new Map(courseStudents.map(student => [student.id, student]));
+    return (selectedLecture.students || []).map(student => ({ ...courseStudentMap.get(student.id), ...student }));
+  }, [course, selectedLecture]);
+  const classOptions = useMemo(() => {
+    const classes = new Map();
+    students.forEach(student => (student.classes || []).forEach(item => classes.set(String(item.id), item.name)));
+    return [...classes.entries()].sort((a, b) => a[1].localeCompare(b[1], 'zh-TW'));
+  }, [students]);
+  const filteredStudents = useMemo(() => {
+    const keyword = studentKeyword.trim().toLocaleLowerCase('zh-TW');
+    return students.filter(student => {
+      const matchesKeyword = !keyword || [student.name, student.email, student.student_number]
+        .some(value => String(value || '').toLocaleLowerCase('zh-TW').includes(keyword));
+      const matchesClass = classFilter === 'all' || (student.classes || []).some(item => String(item.id) === classFilter);
+      const matchesCredit = creditFilter === 'all' || (creditFilter === 'earned' ? student.course_passed : !student.course_passed);
+      const completed = student.total_lectures > 0 && student.completed_lectures >= student.total_lectures;
+      const started = student.completed_lectures > 0 || student.watched_minutes > 0 || student.attempts > 0 || student.last_active;
+      const needsAttention = !student.course_passed && (!started || (student.attempts > 0 && student.accuracy < 60));
+      const matchesLearning = learningFilter === 'all'
+        || (learningFilter === 'completed' && completed)
+        || (learningFilter === 'in_progress' && started && !completed)
+        || (learningFilter === 'not_started' && !started)
+        || (learningFilter === 'needs_attention' && needsAttention);
+      return matchesKeyword && matchesClass && matchesCredit && matchesLearning;
+    });
+  }, [students, studentKeyword, classFilter, creditFilter, learningFilter]);
   const selectedStudents = useMemo(
     () => students.filter(student => selectedStudentIds.includes(student.id)),
     [students, selectedStudentIds]
   );
-  const allStudentsSelected = students.length > 0 && students.every(student => selectedStudentIds.includes(student.id));
+  const allStudentsSelected = filteredStudents.length > 0 && filteredStudents.every(student => selectedStudentIds.includes(student.id));
   const selectedStudentEmails = selectedStudents
     .map(student => student.email)
     .filter(Boolean);
@@ -130,10 +163,12 @@ export default function TeacherDashboard() {
   };
 
   const handleToggleAllStudents = () => {
-    if (!students.length) return;
+    if (!filteredStudents.length) return;
     setSelectedStudentIds(current => {
-      const ids = students.map(student => student.id);
-      return ids.every(id => current.includes(id)) ? [] : ids;
+      const ids = filteredStudents.map(student => student.id);
+      return ids.every(id => current.includes(id))
+        ? current.filter(id => !ids.includes(id))
+        : [...new Set([...current, ...ids])];
     });
   };
 
@@ -516,16 +551,23 @@ export default function TeacherDashboard() {
               </button>
             </div>
           </div>
+          <div className="student-filter-bar">
+            <label className="student-search-field"><span>搜尋學生</span><input type="search" value={studentKeyword} onChange={event => setStudentKeyword(event.target.value)} placeholder="姓名、學號或信箱" /></label>
+            <label><span>班級</span><select value={classFilter} onChange={event => setClassFilter(event.target.value)}><option value="all">全部班級</option>{classOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>
+            <label><span>學分</span><select value={creditFilter} onChange={event => setCreditFilter(event.target.value)}><option value="all">全部狀態</option><option value="earned">已取得學分</option><option value="not_earned">未取得學分</option></select></label>
+            <label><span>學習狀態</span><select value={learningFilter} onChange={event => setLearningFilter(event.target.value)}><option value="all">全部狀態</option><option value="not_started">尚未開始</option><option value="in_progress">進行中</option><option value="completed">已完成</option><option value="needs_attention">需關注</option></select></label>
+            <span className="student-filter-result">顯示 {filteredStudents.length} / {students.length} 人</span>
+          </div>
           <div className="teacher-table-wrap">
             <table className="teacher-table">
               <thead><tr><th className="student-checkbox-col"><input
                 type="checkbox"
                 checked={allStudentsSelected}
                 onChange={handleToggleAllStudents}
-                aria-label="全選學生"
-              /></th>{data.teacher?.role === 'campus' && <th>學號</th>}<th>學生</th><th>{selectedLecture ? '小節完成' : '完成小節'}</th><th>觀看時間</th><th>正確率</th>{data.teacher?.role === 'campus' && !selectedLecture && <th>學分狀態</th>}<th>最近活動</th></tr></thead>
+                aria-label="全選篩選結果"
+              /></th><th>學號</th><th>學生</th><th>班級</th><th>{selectedLecture ? '小節完成' : '完成小節'}</th><th>觀看時間</th><th>正確率</th><th>學分狀態</th><th>最近活動</th></tr></thead>
               <tbody>
-                {students.map(student => (
+                {filteredStudents.map(student => (
                   <tr key={student.id}>
                     <td className="student-checkbox-col">
                       <input
@@ -535,21 +577,17 @@ export default function TeacherDashboard() {
                         aria-label={`選擇 ${student.name}`}
                       />
                     </td>
-                    {data.teacher?.role === 'campus' && <td>{student.student_number || '尚未填寫'}</td>}
+                    <td>{student.student_number || '尚未填寫'}</td>
                     <td><div className="student-cell"><span>{student.name.charAt(0)}</span><div><strong>{student.name}</strong><small>{student.email}</small></div></div></td>
+                    <td>{student.classes?.length ? student.classes.map(item => item.name).join('、') : '未分班'}</td>
                     <td><b>{student.completed_lectures}</b> / {student.total_lectures}</td>
                     <td>{student.watched_minutes} 分鐘</td>
                     <td><span className={`accuracy-chip ${student.accuracy < 60 ? 'needs-help' : ''}`}>{student.accuracy}%</span></td>
-                    {data.teacher?.role === 'campus' && !selectedLecture && (
-                      <td>
-                        <span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>
-                          {student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}
-                        </span>
-                      </td>
-                    )}
+                    <td><span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>{student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}</span></td>
                     <td>{formatDate(student.last_active)}</td>
                   </tr>
                 ))}
+                {!filteredStudents.length && <tr><td className="student-filter-empty" colSpan="9">沒有符合目前篩選條件的學生</td></tr>}
               </tbody>
             </table>
           </div>

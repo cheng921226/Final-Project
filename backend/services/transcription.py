@@ -13,6 +13,7 @@ from database.supabase import supabase_admin
 DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")
 DEFAULT_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
+DEFAULT_VIDEO_BACKUP_MAX_BYTES = 48 * 1024**2
 
 
 def calculate_file_sha256(file_path: str, chunk_size: int = 1024 * 1024) -> str:
@@ -98,6 +99,7 @@ def download_youtube_audio(url: str, output_dir: str | None = None) -> dict[str,
         "noplaylist": True,
         "outtmpl": output_template,
         "quiet": True,
+        "noprogress": True,
         "no_warnings": True,
         "retries": 3,
         "extractor_retries": 3,
@@ -177,19 +179,24 @@ def download_youtube_video(url: str, output_dir: str | None = None) -> dict[str,
             "請執行 pip install -r requirements.txt 後再試一次。"
         )
     options = {
-        # Most YouTube videos expose video and audio as separate streams.
-        # Prefer MP4/M4A, then allow yt-dlp to choose any mergeable pair.
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
+        # Supabase Free accepts at most 50 MB per object. Prefer a readable
+        # 360p MP4 with low-bitrate M4A audio, then relax only the codec choice.
+        "format": (
+            "bestvideo[height<=360][ext=mp4]+bestaudio[abr<=64][ext=m4a]/"
+            "bestvideo[height<=360][ext=mp4]+bestaudio[ext=m4a]/"
+            "bestvideo[height<=360]+bestaudio/best[height<=360]/best"
+        ),
         "noplaylist": True,
         "outtmpl": os.path.join(target_dir, "%(id)s.%(ext)s"),
         "quiet": True,
+        "noprogress": True,
         "no_warnings": True,
         "retries": 3,
         "fragment_retries": 3,
         "socket_timeout": 30,
         "continuedl": True,
         "max_filesize": int(
-            os.getenv("VIDEO_BACKUP_MAX_BYTES", str(2 * 1024**3))
+            os.getenv("VIDEO_BACKUP_MAX_BYTES", str(DEFAULT_VIDEO_BACKUP_MAX_BYTES))
         ),
     }
     options["merge_output_format"] = "mp4"

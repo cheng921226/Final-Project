@@ -90,7 +90,7 @@ export default function CourseManagement() {
     () => (data?.courses || []).some(course =>
       (course.lectures || []).some(lecture =>
         ['pending', 'processing'].includes(lecture.backup_status)
-        || Object.values(lecture.generation_status || {}).some(
+        || Object.values(lecture.content_status?.generation_status || {}).some(
           status => status?.status === 'processing'
         )
       )
@@ -182,13 +182,37 @@ export default function CourseManagement() {
 
     const intervalId = window.setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/teacher/course-management`, { headers });
+        const response = await fetch(`${API_URL}/teacher/course-management/job-statuses`, { headers });
         const body = await response.json().catch(() => ({}));
-        if (response.ok) setData(body);
+        if (response.ok) {
+          const statuses = new Map(
+            (body.lectures || []).map(lecture => [String(lecture.id), lecture])
+          );
+          setData(current => current ? {
+            ...current,
+            courses: (current.courses || []).map(course => ({
+              ...course,
+              lectures: (course.lectures || []).map(lecture => {
+                const update = statuses.get(String(lecture.id));
+                if (!update) return lecture;
+                return {
+                  ...lecture,
+                  backup_status: update.backup_status,
+                  backup_error: update.backup_error,
+                  backup_updated_at: update.backup_updated_at,
+                  content_status: {
+                    ...lecture.content_status,
+                    generation_status: update.generation_status || {},
+                  },
+                };
+              }),
+            })),
+          } : current);
+        }
       } catch (_) {
         // Keep the current screen usable; the next poll can recover naturally.
       }
-    }, 3000);
+    }, 8000);
 
     return () => window.clearInterval(intervalId);
   }, [hasActiveJobs, headers, token]);
