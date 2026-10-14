@@ -131,3 +131,35 @@ test('asks before replacing an existing video backup', async () => {
   );
   expect(global.fetch).toHaveBeenCalledTimes(1);
 });
+
+test('requires the exact course title before permanently deleting a course', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        actor: { id: 10, role: 'teacher' },
+        courses: [baseCourse],
+        teachers: [],
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ deleted: true, course_id: 1, title: '資料結構', backup_cleanup_failed: false }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ actor: { id: 10, role: 'teacher' }, courses: [], teachers: [] }),
+    });
+  jest.spyOn(window, 'prompt').mockReturnValue('資料結構');
+
+  render(<CourseManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除課程' }));
+
+  expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答、學習進度與學分紀錄'));
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/teacher/course-management/courses/1',
+    expect.objectContaining({ method: 'DELETE' })
+  );
+  expect(await screen.findByText('「資料結構」及相關資料已永久刪除。')).toBeInTheDocument();
+});

@@ -1512,6 +1512,28 @@ a {
   opacity: .55;
 }
 
+.course-delete-button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #f1b7aa;
+  border-radius: 10px;
+  background: #fff5f2;
+  color: #c84f3a;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.course-delete-button:hover:not(:disabled) {
+  border-color: #dc725f;
+  background: #ffebe6;
+}
+
+.course-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
 .question-review-actions {
   display: flex;
   align-items: flex-start;

@@ -22,7 +22,11 @@ from services.lecture_processing import (
 )
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
 from services.transcription import extract_youtube_video_id
-from services.video_backup import backup_lecture_video, claim_lecture_backup
+from services.video_backup import (
+    BACKUP_BUCKET,
+    backup_lecture_video,
+    claim_lecture_backup,
+)
 
 from .security import get_current_user
 from .teacher_access import (
@@ -335,6 +339,68 @@ def update_course(
     if not response.data:
         raise HTTPException(status_code=500, detail="課程更新失敗")
     return response.data[0]
+
+
+@router.delete("/courses/{course_id}")
+def delete_course(course_id: int, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    course = require_course_manager(course_id, teacher, allow_campus_all=True)
+    lectures = (
+        supabase_admin.table("lectures")
+        .select("id,backup_status,backup_storage_path")
+        .eq("course_id", course_id)
+        .execute()
+        .data
+        or []
+    )
+    lecture_ids = [lecture["id"] for lecture in lectures]
+    backup_is_busy = any(
+        lecture.get("backup_status") in {"pending", "processing"}
+        for lecture in lectures
+    )
+    generation_is_processing = False
+    if lecture_ids:
+        generation_rows = (
+            supabase_admin.table("lecture_generation_status")
+            .select("lecture_id,status")
+            .in_("lecture_id", lecture_ids)
+            .eq("status", "processing")
+            .execute()
+            .data
+            or []
+        )
+        generation_is_processing = bool(generation_rows)
+    if backup_is_busy or generation_is_processing:
+        raise HTTPException(
+            status_code=409,
+            detail="這門課仍有教材或影片正在處理，請等待完成後再刪除",
+        )
+
+    response = (
+        supabase_admin.table("courses").delete().eq("id", course_id).execute()
+    )
+    if response.data is not None and not response.data:
+        raise HTTPException(status_code=500, detail="課程刪除失敗")
+
+    backup_paths = [
+        lecture["backup_storage_path"]
+        for lecture in lectures
+        if lecture.get("backup_storage_path")
+    ]
+    backup_cleanup_failed = False
+    if backup_paths:
+        try:
+            supabase_admin.storage.from_(BACKUP_BUCKET).remove(backup_paths)
+        except Exception:
+            backup_cleanup_failed = True
+            logger.exception("Course backup cleanup failed course_id=%s", course_id)
+
+    return {
+        "deleted": True,
+        "course_id": course_id,
+        "title": course.get("title"),
+        "backup_cleanup_failed": backup_cleanup_failed,
+    }
 
 
 @router.post("/courses/{course_id}/duplicate")

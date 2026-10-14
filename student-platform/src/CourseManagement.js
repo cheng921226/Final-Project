@@ -324,6 +324,39 @@ export default function CourseManagement() {
     }
   }
 
+  async function deleteCourse() {
+    if (!selectedCourse || busyKey) return;
+    const expectedTitle = selectedCourse.title || '未命名課程';
+    const typedTitle = window.prompt(
+      `刪除後，這門課的小節、教材、學生作答、學習進度與學分紀錄都會永久消失。\n\n請輸入課程名稱「${expectedTitle}」確認刪除：`
+    );
+    if (typedTitle === null) return;
+    if (typedTitle.trim() !== expectedTitle) {
+      setMessage('課程名稱不一致，已取消刪除。');
+      return;
+    }
+
+    setBusyKey('delete-course');
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/course-management/courses/${selectedCourse.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '課程刪除失敗');
+      setOpenTranscriptId(null);
+      await load('');
+      setMessage(body.backup_cleanup_failed
+        ? `「${expectedTitle}」已刪除，但影片備份檔清理失敗，請檢查 Storage。`
+        : `「${expectedTitle}」及相關資料已永久刪除。`);
+    } catch (err) {
+      setMessage(err.message || '課程刪除失敗');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function moveLecture(index, direction) {
     const lectures = [...(selectedCourse?.lectures || [])];
     const target = index + direction;
@@ -434,8 +467,8 @@ export default function CourseManagement() {
         </div>
       </header>
 
+      {message && <p className="question-review-message">{message}</p>}
       {!selectedCourse ? <div className="teacher-empty">目前沒有可管理的課程。</div> : <>
-        {message && <p className="question-review-message">{message}</p>}
         <form className="teacher-panel course-settings-card" onSubmit={saveCourse}>
           <div className="panel-title">
             <div><h3>課程基本資料</h3><p>草稿不會出現在學生課程列表；封存後可保留歷史資料。</p></div>
@@ -448,7 +481,7 @@ export default function CourseManagement() {
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}
           </div>
           <label className="review-field"><span>課程介紹</span><textarea rows={4} value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="說明課程內容、學習目標與適合對象" /></label>
-          <div className="course-management-actions"><button type="button" className="question-secondary-button" onClick={duplicateCourse} disabled={Boolean(busyKey)}>{busyKey === 'duplicate' ? '複製中...' : '複製課程架構'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
+          <div className="course-management-actions"><button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button><button type="button" className="question-secondary-button" onClick={duplicateCourse} disabled={Boolean(busyKey)}>{busyKey === 'duplicate' ? '複製中...' : '複製課程架構'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
         </form>
 
         <section className="teacher-panel course-lecture-manager">
