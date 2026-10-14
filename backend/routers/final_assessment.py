@@ -651,6 +651,7 @@ def get_in_lecture_question_candidates(
         .in_("lecture_id", lecture_ids)
         .eq("question_type", "original")
         .eq("is_active", True)
+        .eq("review_status", "published")
         .execute()
         .data
         or []
@@ -746,6 +747,7 @@ def import_in_lecture_questions(
         .in_("lecture_id", lecture_ids)
         .eq("question_type", "original")
         .eq("is_active", True)
+        .eq("review_status", "published")
         .execute()
         .data
         or []

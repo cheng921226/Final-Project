@@ -42,15 +42,26 @@ function normalizeNumber(value) {
   return Number.isFinite(number) ? Math.max(0, Math.floor(number)) : null;
 }
 
+function optionLines(value) {
+  return String(value || '')
+    .split('\n')
+    .map(option => option.trim())
+    .filter(Boolean);
+}
+
+function answerChoices(value) {
+  return optionLines(value).slice(0, 26).map((option, index) => ({
+    value: String.fromCharCode(65 + index),
+    option,
+  }));
+}
+
 function toPayload(form) {
   return {
     lecture_id: Number(form.lecture_id),
     knowledge_point_id: form.knowledge_point_id ? Number(form.knowledge_point_id) : null,
     question_text: form.question_text.trim(),
-    options_json: form.options_text
-      .split('\n')
-      .map(option => option.trim())
-      .filter(Boolean),
+    options_json: optionLines(form.options_text),
     answer: form.answer.trim().toUpperCase().slice(0, 1),
     explanation: form.explanation.trim() || null,
     source_timestamp: normalizeNumber(form.source_timestamp),
@@ -72,6 +83,7 @@ function questionToForm(question) {
 
 export default function QuestionReview() {
   const token = localStorage.getItem('access_token');
+  const initialLectureId = new URLSearchParams(window.location.search).get('lecture') || '';
   const [data, setData] = useState(null);
   const [courseId, setCourseId] = useState('');
   const [lectureId, setLectureId] = useState('');
@@ -134,7 +146,7 @@ export default function QuestionReview() {
   }
 
   useEffect(() => {
-    loadReviewData('');
+    loadReviewData(initialLectureId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -149,7 +161,21 @@ export default function QuestionReview() {
   );
 
   const questions = lecture?.questions || [];
+  const pendingQuestions = questions.filter(question => question.review_status === 'pending');
+  const unpublishedQuestions = questions.filter(question => question.review_status === 'unpublished');
+  const publishedQuestions = questions.filter(question => question.review_status === 'published');
   const knowledgePoints = lecture?.knowledge_points || [];
+  const availableAnswers = useMemo(() => answerChoices(form.options_text), [form.options_text]);
+
+  function changeOptions(optionsText) {
+    const nextAnswers = answerChoices(optionsText);
+    const answerStillExists = nextAnswers.some(item => item.value === form.answer);
+    setForm({
+      ...form,
+      options_text: optionsText,
+      answer: answerStillExists ? form.answer : (nextAnswers[0]?.value || ''),
+    });
+  }
 
   function changeLecture(nextLectureId) {
     setLectureId(nextLectureId);
@@ -181,11 +207,15 @@ export default function QuestionReview() {
       setMessage('題目內容不可空白。');
       return;
     }
-    if (!payload.options_json.length) {
-      setMessage('至少要有一個選項。');
+    if (payload.options_json.length < 2) {
+      setMessage('至少要有兩個選項，每行代表一個選項。');
       return;
     }
-    if (!payload.answer) {
+    if (payload.options_json.length > 26) {
+      setMessage('選項最多 26 個。');
+      return;
+    }
+    if (!availableAnswers.some(item => item.value === payload.answer)) {
       setMessage('請設定正確答案。');
       return;
     }
@@ -208,7 +238,7 @@ export default function QuestionReview() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || '儲存題目失敗');
       }
-      setMessage(form.id ? '題目已更新。' : '題目已新增。');
+      setMessage(form.id ? '題目已更新。' : '題目已新增為未發布。');
       setForm({ ...EMPTY_FORM, lecture_id: String(payload.lecture_id) });
       setEditorOpen(false);
       await loadReviewData(String(payload.lecture_id));
@@ -220,7 +250,7 @@ export default function QuestionReview() {
   }
 
   async function deleteQuestion(question) {
-    const confirmed = window.confirm(`確定要停用這題嗎？學生之後不會再看到，但歷史作答會保留。\n\n${question.question_text}`);
+    const confirmed = window.confirm(`確定刪除這題嗎？刪除後會從題目列表消失，但歷史作答仍會保留。\n\n${question.question_text}`);
     if (!confirmed) return;
 
     setSaving(true);
@@ -232,15 +262,64 @@ export default function QuestionReview() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || '停用題目失敗');
+        throw new Error(body.detail || '刪除題目失敗');
       }
-      setMessage('題目已停用，歷史作答仍然保留。');
+      setMessage('題目已刪除，歷史作答仍然保留。');
       if (form.id === question.id) {
         setForm({ ...EMPTY_FORM, lecture_id: lectureId });
       }
       await loadReviewData(lectureId);
     } catch (err) {
-      setMessage(err.message || '停用題目失敗');
+      setMessage(err.message || '刪除題目失敗');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function changePublicationStatus(question, action) {
+    if (saving) return;
+    const isPublishing = action === 'publish';
+    const actionLabel = isPublishing ? '發布' : '取消發布';
+    if (!isPublishing && !window.confirm(`確定將這題改為未發布嗎？學生將不會看到這題。\n\n${question.question_text}`)) return;
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/teacher/questions/${question.id}/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `${actionLabel}題目失敗`);
+      }
+      setMessage(isPublishing ? '題目已發布，學生現在可以看到。' : '題目已設為未發布，仍保留在題目列表。');
+      await loadReviewData(lectureId);
+    } catch (err) {
+      setMessage(err.message || `${actionLabel}題目失敗`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function publishPendingBatch() {
+    if (!lectureId || !pendingQuestions.length || saving) return;
+    if (!window.confirm('確定發布最新一批待審核題目嗎？發布後會取代這個小節原本的 AI 題目。')) return;
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/teacher/lectures/${lectureId}/questions/publish-pending`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.detail || '發布題目失敗');
+      setMessage(`已發布 ${body.published_count || pendingQuestions.length} 題，學生現在可以看到新版題目。`);
+      setEditorOpen(false);
+      await loadReviewData(lectureId);
+    } catch (err) {
+      setMessage(err.message || '發布題目失敗');
     } finally {
       setSaving(false);
     }
@@ -315,11 +394,12 @@ export default function QuestionReview() {
           <div className="panel-title">
             <div>
               <h3>{lecture?.title || '小節題目'}</h3>
-              <p>{questions.length} 題 · 按「修改」可編輯原本題目</p>
+              <p>{pendingQuestions.length} 題待審核 · {unpublishedQuestions.length} 題未發布 · {publishedQuestions.length} 題已發布</p>
             </div>
-            <button type="button" className="question-secondary-button" onClick={startCreate}>
-              新增題目
-            </button>
+            <div className="question-review-toolbar">
+              {pendingQuestions.length > 0 && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>全部核准發布</button>}
+              <button type="button" className="question-secondary-button" onClick={startCreate}>新增題目</button>
+            </div>
           </div>
 
           {questions.length ? (
@@ -327,7 +407,12 @@ export default function QuestionReview() {
               {questions.map(question => (
                 <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
                   <button type="button" onClick={() => startEdit(question)}>
-                    <small>{formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}</small>
+                    <small>
+                      <span className={`question-review-status ${question.review_status || 'published'}`}>
+                        {question.review_status === 'pending' ? '待審核' : question.review_status === 'unpublished' ? '未發布' : '已發布'}
+                      </span>
+                      {formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}
+                    </small>
                     <strong>{question.question_text}</strong>
                     <span>{question.explanation || '尚未填寫解析'}</span>
                   </button>
@@ -335,14 +420,11 @@ export default function QuestionReview() {
                     <button type="button" className="question-secondary-button compact" onClick={() => startEdit(question)}>
                       修改
                     </button>
-                    <button
-                      type="button"
-                      className="question-delete-button"
-                      onClick={() => deleteQuestion(question)}
-                      disabled={saving}
-                    >
-                      停用
-                    </button>
+                    {question.review_status === 'published'
+                      ? <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>取消發布</button>
+                      : <button type="button" className="question-save-button compact" onClick={() => changePublicationStatus(question, 'publish')} disabled={saving}>{question.review_status === 'pending' ? '核准並發布' : '發布'}</button>}
+                    {question.review_status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
+                    <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
                   </div>
                 </div>
               ))}
@@ -376,7 +458,7 @@ export default function QuestionReview() {
             <span>選項，每行一個</span>
             <textarea
               value={form.options_text}
-              onChange={event => setForm({ ...form, options_text: event.target.value })}
+              onChange={event => changeOptions(event.target.value)}
               rows={5}
             />
           </label>
@@ -384,9 +466,10 @@ export default function QuestionReview() {
           <div className="question-form-row">
             <label className="review-field">
               <span>正確答案</span>
-              <select value={form.answer} onChange={event => setForm({ ...form, answer: event.target.value })}>
-                {['A', 'B', 'C', 'D', 'E'].map(answer => (
-                  <option key={answer} value={answer}>{answer}</option>
+              <select value={form.answer} disabled={!availableAnswers.length} onChange={event => setForm({ ...form, answer: event.target.value })}>
+                {!availableAnswers.length && <option value="">請先輸入選項</option>}
+                {availableAnswers.map(({ value, option }) => (
+                  <option key={value} value={value}>{value}：{option.replace(/^[A-Z][.、)]\s*/i, '') || option}</option>
                 ))}
               </select>
             </label>

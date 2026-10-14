@@ -427,9 +427,11 @@ export default function CourseManagement() {
   }
 
   async function regenerate(lecture, component, label) {
-    const warning = ['knowledge_points', 'questions'].includes(component)
-      ? `重新產生${label}後，舊內容會停止顯示，但歷史資料會保留。要繼續嗎？`
-      : `確定要重新產生${label}嗎？`;
+    const warning = component === 'questions'
+      ? '重新產生的題目會先進入審題中心，原本已發布題目會繼續供學生使用。要繼續嗎？'
+      : component === 'knowledge_points'
+        ? `重新產生${label}後，舊內容會停止顯示，但歷史資料會保留。要繼續嗎？`
+        : `確定要重新產生${label}嗎？`;
     if (!window.confirm(warning) || busyKey) return;
     setBusyKey(`ai-${lecture.id}-${component}`);
     setMessage('');
@@ -441,7 +443,9 @@ export default function CourseManagement() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail || `${label}重新產生失敗`);
-      setMessage(`${lecture.title}的${label}已重新產生。`);
+      setMessage(component === 'questions'
+        ? `${lecture.title}的新題目已產生，請前往審題中心核准發布。`
+        : `${lecture.title}的${label}已重新產生。`);
       await load(selectedCourse.id);
     } catch (err) {
       setMessage(err.message || `${label}重新產生失敗`);
@@ -551,11 +555,14 @@ export default function CourseManagement() {
                       const status = generation[key]?.status || 'pending';
                       return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
                     })}
+                    {content.questions_pending_review > 0 && <span className="processing">審題：{content.questions_pending_review} 題待審核</span>}
+                    {content.questions_unpublished > 0 && <span>題目：{content.questions_unpublished} 題未發布</span>}
                     <span className={lecture.backup_status === 'completed' ? 'ready' : lecture.backup_status === 'failed' ? 'failed' : lecture.backup_status === 'processing' ? 'processing' : ''}>影片備份：{BACKUP_LABELS[lecture.backup_status || 'not_requested']}</span>
                   </div>
                   <div className="managed-lecture-actions">
                     <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
                     <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
+                    {content.questions_pending_review > 0 && <Link className="question-secondary-button compact" to={`/teacher/questions?lecture=${lecture.id}`}>前往審題</Link>}
                     {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
                     <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
                     <button type="button" className="course-delete-button compact" disabled={Boolean(busyKey)} onClick={() => deleteLecture(lecture)}>{busyKey === `delete-lecture-${lecture.id}` ? '刪除中...' : '刪除小節'}</button>

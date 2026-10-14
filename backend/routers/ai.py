@@ -1,4 +1,5 @@
 import json
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from google import genai
@@ -531,6 +532,7 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
+        generation_batch_id = str(uuid4())
         for q in result_json["questions"]:
             source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
             knowledge_point_id = normalize_knowledge_point_id(
@@ -545,9 +547,19 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
                     "answer": q["answer"],
                     "explanation": q["explanation"],
                     "source_timestamp": source_timestamp,
+                    "question_type": "original",
+                    "source_question_id": None,
+                    "review_status": "pending",
+                    "source_type": "ai",
+                    "generation_batch_id": generation_batch_id,
                 }
             ).execute()
 
-        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
+        return {
+            "status": "success",
+            "lecture_id": body.lecture_id,
+            "data": result_json,
+            "generation_batch_id": generation_batch_id,
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")

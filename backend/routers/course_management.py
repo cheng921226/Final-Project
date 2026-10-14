@@ -77,6 +77,8 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
             "knowledge_points": 0,
             "mindmap": False,
             "questions": 0,
+            "questions_pending_review": 0,
+            "questions_unpublished": 0,
         }
         for lecture_id in lecture_ids
     }
@@ -124,7 +126,7 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
 
     question_rows = (
         supabase_admin.table("questions")
-        .select("lecture_id,is_active,question_type")
+        .select("lecture_id,is_active,question_type,review_status")
         .in_("lecture_id", lecture_ids)
         .execute()
         .data
@@ -136,7 +138,12 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
             and row.get("is_active", True)
             and (row.get("question_type") or "original") == "original"
         ):
-            result[row["lecture_id"]]["questions"] += 1
+            if (row.get("review_status") or "published") == "published":
+                result[row["lecture_id"]]["questions"] += 1
+            elif row.get("review_status") == "pending":
+                result[row["lecture_id"]]["questions_pending_review"] += 1
+            elif row.get("review_status") == "unpublished":
+                result[row["lecture_id"]]["questions_unpublished"] += 1
     try:
         generation_rows = (
             supabase_admin.table("lecture_generation_status")
@@ -688,15 +695,6 @@ def _regenerate_components(
                 ),
             )
         if "questions" in components:
-            old_rows = (
-                supabase_admin.table("questions")
-                .select("id")
-                .eq("lecture_id", lecture_id)
-                .eq("is_active", True)
-                .execute()
-                .data
-                or []
-            )
             knowledge_points = (
                 supabase_admin.table("knowledge_points")
                 .select("*")
@@ -716,11 +714,8 @@ def _regenerate_components(
                     skip_existing=False,
                 ),
             )
-            old_ids = [row["id"] for row in old_rows]
-            if old_ids and results["questions"].get("inserted"):
-                supabase_admin.table("questions").update({"is_active": False}).in_(
-                    "id", old_ids
-                ).execute()
+            # 新產生的題目保持待審核；原本已發布題目會繼續供學生使用，
+            # 直到教師在審題中心發布新版題目後才被替換。
 
     except Exception:
         logger.exception(

@@ -110,8 +110,11 @@ async function logEvent(lectureId, eventType, eventData) {
   } catch (e) { }
 }
 
-async function fetchTimedQuestions(lectureId, signal) {
-  const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`, { signal });
+async function fetchTimedQuestions(lectureId, signal, token) {
+  const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`, {
+    signal,
+    headers: { Authorization: `Bearer ${token}` },
+  });
   if (!questionRes.ok) {
     throw new Error('無法載入題目資料');
   }
@@ -524,7 +527,7 @@ function LectureDetail() {
           fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`, { signal }),
           fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal }),
           fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal }),
-          fetchTimedQuestions(lectureId, signal),
+          fetchTimedQuestions(lectureId, signal, token),
           authOptions
             ? fetch(`${API_URL}/video_progresses/${lectureId}`, authOptions)
             : Promise.resolve(null),

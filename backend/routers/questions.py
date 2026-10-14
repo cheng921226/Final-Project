@@ -67,6 +67,9 @@ def teacher_question(row: dict[str, Any]) -> dict[str, Any]:
         **public_question(row),
         "answer": row.get("answer"),
         "is_active": row.get("is_active", True),
+        "review_status": row.get("review_status") or "published",
+        "source_type": row.get("source_type") or "legacy",
+        "generation_batch_id": row.get("generation_batch_id"),
     }
 
 
@@ -122,13 +125,74 @@ def get_lecture_for_teacher(lecture_id: int, teacher: dict[str, Any]) -> dict[st
     return lecture
 
 
+def require_lecture_viewer(lecture_id: int, user) -> dict[str, Any]:
+    profile = get_user_profile(user)
+    lecture_response = (
+        supabase_admin.table("lectures")
+        .select("id, course_id")
+        .eq("id", lecture_id)
+        .maybe_single()
+        .execute()
+    )
+    lecture = lecture_response.data
+    if not lecture:
+        raise HTTPException(status_code=404, detail="找不到小節")
+
+    if profile.get("role") == "student":
+        enrollment = (
+            supabase_admin.table("student_courses")
+            .select("id")
+            .eq("student_id", profile["id"])
+            .eq("course_id", lecture["course_id"])
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if not enrollment:
+            raise HTTPException(status_code=403, detail="你尚未選修這門課")
+        return lecture
+
+    if has_teacher_access(profile.get("role")):
+        return get_lecture_for_teacher(lecture_id, profile)
+    raise HTTPException(status_code=403, detail="沒有權限查看這個小節的題目")
+
+
+def get_question_for_teacher(question_id: int, teacher: dict[str, Any]) -> dict[str, Any]:
+    response = (
+        supabase_admin.table("questions")
+        .select("*")
+        .eq("id", question_id)
+        .maybe_single()
+        .execute()
+    )
+    question = response.data
+    if not question:
+        raise HTTPException(status_code=404, detail="找不到題目")
+    get_lecture_for_teacher(question["lecture_id"], teacher)
+    return question
+
+
 def teacher_question_row(
     body: TeacherQuestionPayload | TeacherQuestionUpdate,
 ) -> dict[str, Any]:
     data = body.model_dump(exclude_unset=True)
+    if "options_json" in data and data["options_json"] is not None:
+        data["options_json"] = [
+            str(option).strip() for option in data["options_json"] if str(option).strip()
+        ]
     if "answer" in data:
         data["answer"] = normalize_answer(data["answer"])
     return data
+
+
+def validate_question_options(options: list[str], answer: str) -> None:
+    if len(options) < 2:
+        raise HTTPException(status_code=422, detail="至少要有兩個選項")
+    if len(options) > 26:
+        raise HTTPException(status_code=422, detail="選項最多 26 個")
+    valid_answers = {chr(65 + index) for index in range(len(options))}
+    if answer not in valid_answers:
+        raise HTTPException(status_code=422, detail="正確答案必須對應目前的選項")
 
 
 def is_demo_user(user) -> bool:
@@ -156,31 +220,21 @@ def require_demo_user(user):
 
 
 @router.get("/lectures/{lecture_id}/questions")
-def get_lecture_questions(lecture_id: int):
-    try:
-        response = (
-            supabase_admin.table("questions")
-            .select(
-                "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "explanation, source_timestamp, question_type, source_question_id, is_active"
-            )
-            .eq("lecture_id", lecture_id)
-            .eq("question_type", "original")
-            .eq("is_active", True)
-            .order("source_timestamp")
-            .execute()
+def get_lecture_questions(lecture_id: int, user=Depends(get_current_user)):
+    require_lecture_viewer(lecture_id, user)
+    response = (
+        supabase_admin.table("questions")
+        .select(
+            "id, lecture_id, knowledge_point_id, question_text, options_json, "
+            "explanation, source_timestamp, question_type, source_question_id"
         )
-    except Exception:
-        response = (
-            supabase_admin.table("questions")
-            .select(
-                "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "explanation, source_timestamp"
-            )
-            .eq("lecture_id", lecture_id)
-            .order("source_timestamp")
-            .execute()
-        )
+        .eq("lecture_id", lecture_id)
+        .eq("question_type", "original")
+        .eq("is_active", True)
+        .eq("review_status", "published")
+        .order("source_timestamp")
+        .execute()
+    )
     return [
         public_question(row)
         for row in response.data or []
@@ -220,34 +274,21 @@ def get_teacher_question_review(user=Depends(get_current_user)):
     questions = []
     knowledge_points = []
     if lecture_ids:
-        try:
-            questions = (
-                supabase_admin.table("questions")
-                .select(
-                    "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                    "answer, explanation, source_timestamp, question_type, source_question_id, is_active"
-                )
-                .in_("lecture_id", lecture_ids)
-                .eq("question_type", "original")
-                .eq("is_active", True)
-                .order("source_timestamp")
-                .execute()
-                .data
-                or []
+        questions = (
+            supabase_admin.table("questions")
+            .select(
+                "id, lecture_id, knowledge_point_id, question_text, options_json, "
+                "answer, explanation, source_timestamp, question_type, source_question_id, "
+                "is_active, review_status, source_type, generation_batch_id"
             )
-        except Exception:
-            questions = (
-                supabase_admin.table("questions")
-                .select(
-                    "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                    "answer, explanation, source_timestamp"
-                )
-                .in_("lecture_id", lecture_ids)
-                .order("source_timestamp")
-                .execute()
-                .data
-                or []
-            )
+            .in_("lecture_id", lecture_ids)
+            .eq("question_type", "original")
+            .eq("is_active", True)
+            .order("source_timestamp")
+            .execute()
+            .data
+            or []
+        )
         knowledge_points = (
             supabase_admin.table("knowledge_points")
             .select("id, lecture_id, title, start_time, end_time")
@@ -288,11 +329,16 @@ def create_teacher_question(
     teacher = require_teacher(user)
     get_lecture_for_teacher(body.lecture_id, teacher)
 
-    row = teacher_question_row(body)
+    row = {
+        **teacher_question_row(body),
+        "review_status": "unpublished",
+        "source_type": "manual",
+    }
     if not row.get("question_text", "").strip():
         raise HTTPException(status_code=422, detail="題目內容不可空白")
     if not row.get("answer"):
         raise HTTPException(status_code=422, detail="請設定正確答案")
+    validate_question_options(row.get("options_json") or [], row["answer"])
 
     response = supabase_admin.table("questions").insert(row).execute()
     if not response.data:
@@ -329,6 +375,11 @@ def update_teacher_question(
         raise HTTPException(status_code=422, detail="題目內容不可空白")
     if update_data.get("answer") == "":
         raise HTTPException(status_code=422, detail="請設定正確答案")
+    if "options_json" in update_data or "answer" in update_data:
+        validate_question_options(
+            update_data.get("options_json", existing.get("options_json") or []),
+            update_data.get("answer", normalize_answer(existing.get("answer"))),
+        )
 
     response = (
         supabase_admin.table("questions")
@@ -362,9 +413,132 @@ def delete_teacher_question(question_id: int, user=Depends(get_current_user)):
         .eq("id", question_id)
         .execute()
     )
+    supabase_admin.table("questions").update({"is_active": False}).eq(
+        "source_question_id", question_id
+    ).execute()
     if not response.data:
         raise HTTPException(status_code=500, detail="停用題目失敗")
-    return {"message": "disabled", "question_id": question_id}
+    return {"message": "deleted", "question_id": question_id}
+
+
+@router.post("/teacher/questions/{question_id}/publish")
+def publish_teacher_question(question_id: int, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    question = get_question_for_teacher(question_id, teacher)
+    if (question.get("question_type") or "original") != "original":
+        raise HTTPException(status_code=422, detail="只能核准正式題目")
+
+    response = (
+        supabase_admin.table("questions")
+        .update({"review_status": "published", "is_active": True})
+        .eq("id", question_id)
+        .execute()
+    )
+    supabase_admin.table("questions").update(
+        {"review_status": "published", "is_active": True}
+    ).eq("source_question_id", question_id).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="發布題目失敗")
+    return teacher_question(response.data[0])
+
+
+@router.post("/teacher/questions/{question_id}/unpublish")
+def unpublish_teacher_question(question_id: int, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    question = get_question_for_teacher(question_id, teacher)
+    values = {"review_status": "unpublished", "is_active": True}
+    response = (
+        supabase_admin.table("questions")
+        .update(values)
+        .eq("id", question_id)
+        .execute()
+    )
+    supabase_admin.table("questions").update(values).eq(
+        "source_question_id", question_id
+    ).execute()
+    if not response.data:
+        raise HTTPException(status_code=500, detail="取消發布題目失敗")
+    return {"message": "unpublished", "question_id": question_id}
+
+
+@router.post("/teacher/lectures/{lecture_id}/questions/publish-pending")
+def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    get_lecture_for_teacher(lecture_id, teacher)
+    pending = (
+        supabase_admin.table("questions")
+        .select("id, generation_batch_id, created_at")
+        .eq("lecture_id", lecture_id)
+        .eq("question_type", "original")
+        .eq("is_active", True)
+        .eq("review_status", "pending")
+        .order("created_at", desc=True)
+        .execute()
+        .data
+        or []
+    )
+    if not pending:
+        raise HTTPException(status_code=404, detail="這個小節沒有待審核題目")
+
+    batch_id = pending[0].get("generation_batch_id")
+    if not batch_id:
+        raise HTTPException(status_code=409, detail="待審核題目缺少產生批次，請逐題核准")
+
+    new_rows = (
+        supabase_admin.table("questions")
+        .select("id")
+        .eq("lecture_id", lecture_id)
+        .eq("generation_batch_id", batch_id)
+        .eq("is_active", True)
+        .execute()
+        .data
+        or []
+    )
+    new_ids = [row["id"] for row in new_rows]
+    if not new_ids:
+        raise HTTPException(status_code=409, detail="找不到可發布的待審核題目")
+
+    supabase_admin.table("questions").update(
+        {"review_status": "published"}
+    ).in_("id", new_ids).execute()
+
+    previous_rows = (
+        supabase_admin.table("questions")
+        .select("id")
+        .eq("lecture_id", lecture_id)
+        .eq("is_active", True)
+        .eq("review_status", "published")
+        .in_("source_type", ["ai", "legacy"])
+        .execute()
+        .data
+        or []
+    )
+    previous_ids = [row["id"] for row in previous_rows if row["id"] not in new_ids]
+    if previous_ids:
+        supabase_admin.table("questions").update({"review_status": "unpublished"}).in_(
+            "id", previous_ids
+        ).execute()
+
+    stale_ids = [
+        row["id"]
+        for row in pending
+        if row.get("generation_batch_id") != batch_id
+    ]
+    if stale_ids:
+        supabase_admin.table("questions").update(
+            {"review_status": "unpublished", "is_active": True}
+        ).in_("id", stale_ids).execute()
+
+    return {
+        "message": "published",
+        "lecture_id": lecture_id,
+        "generation_batch_id": batch_id,
+        "published_count": sum(
+            1
+            for row in pending
+            if row.get("generation_batch_id") == batch_id
+        ),
+    }
 
 
 @router.get("/lectures/{lecture_id}/question-attempts")
@@ -445,6 +619,7 @@ def create_question_attempt(
     user=Depends(get_current_user),
 ):
     student_id = get_student_id_from_auth(user)
+    require_lecture_viewer(body.lecture_id, user)
     question_response = (
         supabase_admin.table("questions")
         .select("*")
@@ -457,6 +632,8 @@ def create_question_attempt(
         raise HTTPException(status_code=404, detail="Question not found")
     if not question.get("is_active", True):
         raise HTTPException(status_code=410, detail="Question is no longer active")
+    if (question.get("review_status") or "published") != "published":
+        raise HTTPException(status_code=403, detail="這題尚未通過教師審核")
 
     if question.get("lecture_id") != body.lecture_id:
         raise HTTPException(

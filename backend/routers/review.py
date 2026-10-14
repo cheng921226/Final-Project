@@ -94,31 +94,20 @@ def is_original_question(question: dict[str, Any]) -> bool:
 
 
 def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
-    try:
-        return (
-            supabase_admin.table("questions")
-            .select(
-                "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "answer, explanation, source_timestamp, question_type, source_question_id, is_active"
-            )
-            .in_("lecture_id", lecture_ids)
-            .eq("is_active", True)
-            .execute()
-            .data
-            or []
+    return (
+        supabase_admin.table("questions")
+        .select(
+            "id, lecture_id, knowledge_point_id, question_text, options_json, "
+            "answer, explanation, source_timestamp, question_type, source_question_id, "
+            "is_active, review_status"
         )
-    except Exception:
-        return (
-            supabase_admin.table("questions")
-            .select(
-                "id, lecture_id, knowledge_point_id, question_text, options_json, "
-                "answer, explanation, source_timestamp"
-            )
-            .in_("lecture_id", lecture_ids)
-            .execute()
-            .data
-            or []
-        )
+        .in_("lecture_id", lecture_ids)
+        .eq("is_active", True)
+        .eq("review_status", "published")
+        .execute()
+        .data
+        or []
+    )
 
 
 def get_course_scope(

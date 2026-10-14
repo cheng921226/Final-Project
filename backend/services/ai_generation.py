@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from uuid import uuid4
 from typing import Any
 
 from google import genai
@@ -347,6 +348,7 @@ JSON 格式：
         for q in questions
         if q.get("question_text") and q.get("options") and q.get("answer")
     ]
+    generation_batch_id = str(uuid4())
     rows = []
     for q in source_questions:
         source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
@@ -364,33 +366,19 @@ JSON 格式：
                 "source_timestamp": source_timestamp,
                 "question_type": "original",
                 "source_question_id": None,
+                "review_status": "pending",
+                "source_type": "ai",
+                "generation_batch_id": generation_batch_id,
             }
         )
 
     inserted = []
     extension_status: dict[str, Any] = {"status": "skipped", "inserted": []}
     if rows:
-        try:
-            response = supabase_admin.table("questions").insert(rows).execute()
-            inserted = response.data or []
-        except Exception:
-            legacy_rows = [
-                {
-                    key: value
-                    for key, value in row.items()
-                    if key not in {"question_type", "source_question_id"}
-                }
-                for row in rows
-            ]
-            response = supabase_admin.table("questions").insert(legacy_rows).execute()
-            inserted = response.data or []
-            extension_status = {
-                "status": "failed",
-                "error": "questions table has no question_type/source_question_id columns; original questions were saved with legacy schema.",
-                "inserted": [],
-            }
+        response = supabase_admin.table("questions").insert(rows).execute()
+        inserted = response.data or []
 
-    if inserted and extension_status.get("status") != "failed":
+    if inserted:
         extension_rows = []
         for original, original_row in zip(source_questions, inserted):
             source_question_id = original_row.get("id")
@@ -415,6 +403,9 @@ JSON 格式：
                         "source_timestamp": None,
                         "question_type": "extension",
                         "source_question_id": source_question_id,
+                        "review_status": "pending",
+                        "source_type": "ai",
+                        "generation_batch_id": generation_batch_id,
                     }
                 )
         if extension_rows:
@@ -438,6 +429,7 @@ JSON 格式：
         "data": {"questions": questions},
         "inserted": inserted,
         "extensions": extension_status,
+        "generation_batch_id": generation_batch_id,
     }
 
 

@@ -1540,6 +1540,34 @@ a {
   gap: 8px;
 }
 
+.question-review-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.question-review-item small .question-review-status {
+  display: inline-flex;
+  margin: 0 7px 0 0;
+  border-radius: 999px;
+  padding: 3px 7px;
+  color: #166534;
+  background: #dcfce7;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.question-review-item small .question-review-status.pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.question-review-item small .question-review-status.unpublished {
+  color: #475569;
+  background: #e2e8f0;
+}
+
 .question-editor {
   position: sticky;
   top: 92px;

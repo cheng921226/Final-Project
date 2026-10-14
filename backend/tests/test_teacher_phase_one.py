@@ -12,7 +12,11 @@ from routers.teacher_access import (
 )
 from roles import can_manage_course
 from routers.teacher_analytics import _enrolled_student_ids, _student_scope_result
-from routers.questions import delete_teacher_question
+from routers.questions import (
+    delete_teacher_question,
+    get_lecture_questions,
+    validate_question_options,
+)
 from routers.course_management import (
     CourseUpdate,
     _managed_courses,
@@ -219,9 +223,45 @@ class TeacherAuthorizationTests(unittest.TestCase):
         ):
             result = delete_teacher_question(5, SimpleNamespace(id="teacher-auth"))
 
-        self.assertEqual(result["message"], "disabled")
+        self.assertEqual(result["message"], "deleted")
         self.assertFalse(question["is_active"])
         self.assertEqual(len(attempts), 1)
+
+    def test_students_receive_only_published_questions(self):
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.order.return_value = query
+        query.execute.return_value.data = [
+            {
+                "id": 5,
+                "lecture_id": 7,
+                "question_text": "已審核題目",
+                "options_json": ["A", "B"],
+                "source_timestamp": 30,
+                "question_type": "original",
+            }
+        ]
+        database = Mock()
+        database.table.return_value = query
+
+        with (
+            patch("routers.questions.supabase_admin", database),
+            patch("routers.questions.require_lecture_viewer", return_value={"id": 7}),
+        ):
+            result = get_lecture_questions(
+                7, SimpleNamespace(id="student-auth")
+            )
+
+        query.eq.assert_any_call("review_status", "published")
+        query.eq.assert_any_call("is_active", True)
+        self.assertEqual([row["id"] for row in result], [5])
+
+    def test_correct_answer_must_match_the_number_of_options(self):
+        validate_question_options(["選項一", "選項二", "選項三"], "C")
+        with self.assertRaises(HTTPException) as context:
+            validate_question_options(["選項一", "選項二"], "C")
+        self.assertEqual(context.exception.status_code, 422)
 
     def test_only_campus_can_reassign_course_teacher(self):
         with (
