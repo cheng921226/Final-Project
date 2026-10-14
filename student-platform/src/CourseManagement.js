@@ -68,6 +68,17 @@ function formsMatch(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function courseIdFromUrl() {
+  return new URLSearchParams(window.location.search).get('course') || '';
+}
+
+function rememberCourseInUrl(courseId) {
+  const url = new URL(window.location.href);
+  if (courseId) url.searchParams.set('course', courseId);
+  else url.searchParams.delete('course');
+  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 export default function CourseManagement() {
   const token = localStorage.getItem('access_token');
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
@@ -156,7 +167,9 @@ export default function CourseManagement() {
     if (!response.ok) throw new Error(body.detail || '無法取得課程管理資料');
     setData(body);
     const nextCourse = body.courses?.find(item => String(item.id) === String(preferredId)) || body.courses?.[0];
-    setCourseId(nextCourse ? String(nextCourse.id) : '');
+    const nextCourseId = nextCourse ? String(nextCourse.id) : '';
+    setCourseId(nextCourseId);
+    rememberCourseInUrl(nextCourseId);
     setForm(courseForm(nextCourse));
     setLectureForms(Object.fromEntries((nextCourse?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
   }
@@ -165,7 +178,7 @@ export default function CourseManagement() {
     let cancelled = false;
     async function initialize() {
       try {
-        await load('');
+        await load(courseIdFromUrl());
       } catch (err) {
         if (!cancelled) setError(err.message || '課程管理載入失敗');
       } finally {
@@ -222,6 +235,7 @@ export default function CourseManagement() {
     if (hasUnsavedChanges && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return;
     const course = data?.courses?.find(item => String(item.id) === String(nextId));
     setCourseId(nextId);
+    rememberCourseInUrl(nextId);
     setForm(courseForm(course));
     setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
     setMessage('');

@@ -18,6 +18,7 @@ const originalFetch = global.fetch;
 
 afterEach(() => {
   localStorage.removeItem('access_token');
+  window.history.replaceState({}, '', '/');
   global.fetch = originalFetch;
   jest.restoreAllMocks();
 });
@@ -100,6 +101,25 @@ test('warns before leaving or switching courses with unsaved changes', async () 
   expect(window.confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
   expect(courseSelect).toHaveValue('1');
   expect(titleInput).toHaveValue('尚未儲存的新名稱');
+});
+
+test('keeps the selected course after refreshing the page', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  window.history.replaceState({}, '', '/teacher/courses?course=2');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 10, role: 'teacher' },
+      courses: [baseCourse, { ...baseCourse, id: 2, title: '演算法' }],
+      teachers: [],
+    }),
+  });
+
+  render(<CourseManagement />);
+
+  expect(await screen.findByRole('textbox', { name: '課程名稱' })).toHaveValue('演算法');
+  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('2');
+  expect(window.location.search).toBe('?course=2');
 });
 
 test('asks before replacing an existing video backup', async () => {
