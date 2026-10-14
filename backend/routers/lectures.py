@@ -13,7 +13,11 @@ from services.transcription import (
     save_transcript_segments,
     transcribe_media,
 )
-from services.lecture_processing import GENERATION_COMPONENTS, set_generation_status
+from services.lecture_processing import (
+    GENERATION_COMPONENTS,
+    get_generation_statuses,
+    set_generation_status,
+)
 from services.video_backup import (
     backup_file_exists,
     backup_lecture_video,
@@ -179,6 +183,7 @@ class LectureCreate(BaseModel):
     skip_existing_transcript: bool = True
     skip_existing_ai: bool = True
     backup_video: bool = False
+    overwrite_existing: bool = False
     source_file_hash: str | None = Field(default=None, min_length=32, max_length=128)
 
 
@@ -217,7 +222,9 @@ def create_lecture(
     if is_youtube:
         duplicate = (
             supabase_admin.table("lectures")
-            .select("id,title,course_id,status,media_url,youtube_video_id")
+            .select(
+                "id,title,course_id,status,media_url,youtube_video_id,backup_status"
+            )
             .eq("course_id", body.course_id)
             .execute()
             .data
@@ -232,6 +239,65 @@ def create_lecture(
             None,
         )
         if duplicate:
+            if body.overwrite_existing:
+                generation_statuses = get_generation_statuses(duplicate["id"])
+                generation_is_busy = any(
+                    item.get("status") == "processing"
+                    for item in generation_statuses.values()
+                )
+                backup_is_busy = duplicate.get("backup_status") in {
+                    "pending",
+                    "processing",
+                }
+                if generation_is_busy or backup_is_busy:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "LECTURE_BUSY",
+                            "message": "原有小節仍在處理中，請完成後再覆蓋。",
+                            "lecture": duplicate,
+                        },
+                    )
+
+                values = {
+                    "title": body.title,
+                    "media_url": body.media_url,
+                    "youtube_video_id": youtube_video_id,
+                    "status": "uploaded",
+                }
+                if body.backup_video:
+                    values.update({"backup_status": "pending", "backup_error": None})
+                overwritten = (
+                    supabase_admin.table("lectures")
+                    .update(values)
+                    .eq("id", duplicate["id"])
+                    .execute()
+                    .data
+                    or []
+                )
+                lecture = overwritten[0] if overwritten else {**duplicate, **values}
+                if body.auto_process:
+                    background_tasks.add_task(
+                        run_automatic_lecture_pipeline,
+                        lecture["id"],
+                        url=body.media_url,
+                        language=body.language,
+                        model_size=body.model_size,
+                        skip_existing_transcript=True,
+                        skip_existing_ai=True,
+                    )
+                if body.backup_video:
+                    background_tasks.add_task(
+                        backup_lecture_video, lecture["id"], body.media_url
+                    )
+                return {
+                    **lecture,
+                    "overwritten": True,
+                    "pipeline": {
+                        "status": "processing" if body.auto_process else "skipped",
+                        "message": "已更新原有小節，並保留既有教材與學習紀錄。",
+                    },
+                }
             if not duplicate.get("youtube_video_id"):
                 try:
                     supabase_admin.table("lectures").update(

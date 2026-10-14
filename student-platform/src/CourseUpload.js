@@ -154,31 +154,42 @@ export default function CourseUpload() {
     setResult(null);
     try {
       const targetCourseId = await createCourseIfNeeded();
-      const res = await fetch(`${API_URL}/lectures`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: lectureTitle.trim(),
-          media_url: youtubeUrl.trim(),
-          course_id: targetCourseId,
-          status: 'uploaded',
-          auto_process: true,
-          language: 'zh',
-          model_size: modelSize,
-          skip_existing_transcript: true,
-          skip_existing_ai: true,
-          backup_video: backupVideo,
-        }),
-      });
-      const body = await res.json().catch(() => ({}));
+      const submitPayload = async overwriteExisting => {
+        const response = await fetch(`${API_URL}/lectures`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title: lectureTitle.trim(),
+            media_url: youtubeUrl.trim(),
+            course_id: targetCourseId,
+            status: 'uploaded',
+            auto_process: true,
+            language: 'zh',
+            model_size: modelSize,
+            skip_existing_transcript: true,
+            skip_existing_ai: true,
+            backup_video: backupVideo,
+            overwrite_existing: overwriteExisting,
+          }),
+        });
+        return { response, body: await response.json().catch(() => ({})) };
+      };
+
+      let { response: res, body } = await submitPayload(false);
       if (!res.ok) {
         if (body.detail?.code === 'DUPLICATE_LECTURE' && body.detail?.lecture) {
           setResult({ duplicate: true, ...body.detail.lecture });
-          throw new Error(body.detail.message);
+          const shouldOverwrite = window.confirm(
+            `「${body.detail.lecture.title}」使用相同影片。要覆蓋原有小節嗎？\n\n已完成的教材與學生學習紀錄會保留，只會更新小節資料並重新處理缺少或失敗的內容。`
+          );
+          if (!shouldOverwrite) return;
+          ({ response: res, body } = await submitPayload(true));
         }
+      }
+      if (!res.ok) {
         const message = typeof body.detail === 'object'
           ? body.detail.message || JSON.stringify(body.detail)
           : body.detail;
@@ -324,7 +335,7 @@ export default function CourseUpload() {
         <section className="teacher-panel upload-result">
           <div className="panel-title">
             <div>
-              <h3>{result.pipeline?.status === 'processing' ? '教材正在背景產生' : '處理完成'}</h3>
+              <h3>{result.overwritten ? '原有小節已覆蓋' : result.pipeline?.status === 'processing' ? '教材正在背景產生' : '處理完成'}</h3>
               <p>{result.pipeline?.message || `AI pipeline 回傳狀態：${result.pipeline?.status || result.status}`}</p>
             </div>
           </div>
