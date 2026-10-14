@@ -282,6 +282,39 @@ export default function CourseManagement() {
     }
   }
 
+  async function deleteLecture(lecture) {
+    if (!lecture || busyKey) return;
+    const expectedTitle = lecture.title || '未命名小節';
+    const typedTitle = window.prompt(
+      `刪除後，這個小節的教材、學生作答與觀看紀錄都會永久消失。\n\n請輸入小節名稱「${expectedTitle}」確認刪除：`
+    );
+    if (typedTitle === null) return;
+    if (typedTitle.trim() !== expectedTitle) {
+      setMessage('小節名稱不一致，已取消刪除。');
+      return;
+    }
+
+    setBusyKey(`delete-lecture-${lecture.id}`);
+    setMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '小節刪除失敗');
+      if (openTranscriptId === lecture.id) setOpenTranscriptId(null);
+      await load(selectedCourse.id);
+      setMessage(body.backup_cleanup_failed
+        ? `「${expectedTitle}」已刪除，但影片備份檔清理失敗，請檢查 Storage。`
+        : `「${expectedTitle}」及相關資料已永久刪除。`);
+    } catch (err) {
+      setMessage(err.message || '小節刪除失敗');
+    } finally {
+      setBusyKey('');
+    }
+  }
+
   async function saveTranscript(lectureId) {
     const content = lectureForms[lectureId]?.transcript_content?.trim();
     if (!content || busyKey) return;
@@ -511,6 +544,7 @@ export default function CourseManagement() {
                     <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
                     {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
                     <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
+                    <button type="button" className="course-delete-button compact" disabled={Boolean(busyKey)} onClick={() => deleteLecture(lecture)}>{busyKey === `delete-lecture-${lecture.id}` ? '刪除中...' : '刪除小節'}</button>
                     {isYouTubeUrl(lecture.media_url) && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey) || ['pending', 'processing'].includes(lecture.backup_status)} onClick={() => requestBackup(lecture)}>{busyKey === `backup-${lecture.id}` ? '啟動中...' : lecture.backup_status === 'completed' ? '重新備份' : '備份影片'}</button>}
                     {hasFailedGeneration && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey)} onClick={() => retryFailed(lecture)}>{busyKey === `retry-${lecture.id}` ? '重試中...' : '重新執行失敗項目'}</button>}
                   </div>

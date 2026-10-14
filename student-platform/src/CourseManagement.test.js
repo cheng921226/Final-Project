@@ -163,3 +163,38 @@ test('requires the exact course title before permanently deleting a course', asy
   );
   expect(await screen.findByText('「資料結構」及相關資料已永久刪除。')).toBeInTheDocument();
 });
+
+test('requires the exact lecture title before permanently deleting a lecture', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  const lecture = {
+    id: 48,
+    title: '搜尋演算法',
+    media_url: 'https://www.youtube.com/watch?v=BUTSrY9K01c',
+    backup_status: 'completed',
+    content_status: { generation_status: {} },
+  };
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ actor: { id: 10, role: 'teacher' }, courses: [{ ...baseCourse, lectures: [lecture] }], teachers: [] }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ deleted: true, lecture_id: 48, title: '搜尋演算法', backup_cleanup_failed: false }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ actor: { id: 10, role: 'teacher' }, courses: [{ ...baseCourse, lectures: [] }], teachers: [] }),
+    });
+  jest.spyOn(window, 'prompt').mockReturnValue('搜尋演算法');
+
+  render(<CourseManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: '刪除小節' }));
+
+  expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答與觀看紀錄'));
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/teacher/course-management/lectures/48',
+    expect.objectContaining({ method: 'DELETE' })
+  );
+  expect(await screen.findByText('「搜尋演算法」及相關資料已永久刪除。')).toBeInTheDocument();
+});

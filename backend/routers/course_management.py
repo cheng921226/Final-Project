@@ -488,6 +488,45 @@ def update_lecture(
     return response.data[0]
 
 
+@router.delete("/lectures/{lecture_id}")
+def delete_lecture(lecture_id: int, user=Depends(get_current_user)):
+    teacher = require_teacher(user)
+    lecture = require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
+    generation_is_processing = any(
+        item.get("status") == "processing"
+        for item in get_generation_statuses(lecture_id).values()
+    )
+    backup_is_busy = lecture.get("backup_status") in {"pending", "processing"}
+    if generation_is_processing or backup_is_busy:
+        raise HTTPException(
+            status_code=409,
+            detail="這個小節仍有教材或影片正在處理，請等待完成後再刪除",
+        )
+
+    response = (
+        supabase_admin.table("lectures").delete().eq("id", lecture_id).execute()
+    )
+    if response.data is not None and not response.data:
+        raise HTTPException(status_code=500, detail="小節刪除失敗")
+
+    backup_cleanup_failed = False
+    storage_path = lecture.get("backup_storage_path")
+    if storage_path:
+        try:
+            supabase_admin.storage.from_(BACKUP_BUCKET).remove([storage_path])
+        except Exception:
+            backup_cleanup_failed = True
+            logger.exception("Lecture backup cleanup failed lecture_id=%s", lecture_id)
+
+    return {
+        "deleted": True,
+        "lecture_id": lecture_id,
+        "course_id": lecture.get("course_id"),
+        "title": lecture.get("title"),
+        "backup_cleanup_failed": backup_cleanup_failed,
+    }
+
+
 def _segments_from_edited_transcript(content: str) -> list[dict[str, Any]] | None:
     matches = list(
         re.finditer(
