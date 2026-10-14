@@ -5,6 +5,7 @@ import { Markmap } from 'markmap-view';
 
 const API_URL = 'http://127.0.0.1:8000';
 const COMPLETION_THRESHOLD = 0.8;
+const PAUSE_HELP_DELAY_MS = 30000;
 const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 };
 
 // =====================================================================
@@ -205,6 +206,7 @@ function LectureDetail() {
   const trackingIntervalRef = useRef(null);
   const saveIntervalRef = useRef(null);
   const playerLoadTimeoutRef = useRef(null);
+  const pauseHelpTimerRef = useRef(null);
   const questionsRef = useRef([]);
   const activeQuestionRef = useRef(null);
   const shownQuestionIdsRef = useRef(new Set());
@@ -213,6 +215,7 @@ function LectureDetail() {
   const [chatInitialized, setChatInitialized] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
+  const [pauseHelpPrompt, setPauseHelpPrompt] = useState(null);
   const chatBottomRef = useRef(null);
 
   const getPlayerCurrentTime = useCallback((fallback = 0) => {
@@ -226,6 +229,31 @@ function LectureDetail() {
       return fallback;
     }
   }, []);
+
+  const cancelPauseHelp = useCallback((dismissPrompt = true) => {
+    if (pauseHelpTimerRef.current) {
+      window.clearTimeout(pauseHelpTimerRef.current);
+      pauseHelpTimerRef.current = null;
+    }
+    if (dismissPrompt) setPauseHelpPrompt(null);
+  }, []);
+
+  const schedulePauseHelp = useCallback((pausedAt) => {
+    cancelPauseHelp(false);
+    const timestamp = Math.max(0, Math.floor(pausedAt));
+    pauseHelpTimerRef.current = window.setTimeout(() => {
+      pauseHelpTimerRef.current = null;
+      const playerState = playerRef.current?.getPlayerState?.();
+      if (playerState !== PLAYER_STATE.PAUSED || activeQuestionRef.current || document.hidden) return;
+      setPauseHelpPrompt({ timestamp });
+      logEvent(lectureId, 'pause_help_prompt', { timestamp, paused_seconds: 30 });
+    }, PAUSE_HELP_DELAY_MS);
+  }, [cancelPauseHelp, lectureId]);
+
+  useEffect(() => {
+    cancelPauseHelp();
+    return () => cancelPauseHelp();
+  }, [cancelPauseHelp, lectureId]);
 
   // 更新進度顯示
   function updateProgressDisplay(totalWatched, totalDuration) {
@@ -244,13 +272,14 @@ function LectureDetail() {
     setSelectedAnswer('');
     setQuestionFeedback(null);
     // This pause is caused by the timed-question system, not by the student.
+    cancelPauseHelp();
     suppressNextPauseEventRef.current = true;
     playerRef.current?.pauseVideo?.();
     logEvent(lectureId, 'question_popup', {
       question_id: question.id,
       timestamp: Math.floor(currentTime),
     });
-  }, [lectureId]);
+  }, [cancelPauseHelp, lectureId]);
 
   const maybeShowTimedQuestion = useCallback((currentTime) => {
     if (activeQuestionRef.current) return;
@@ -279,6 +308,8 @@ function LectureDetail() {
     setWasPlayingBeforeNote(state === PLAYER_STATE.PLAYING);
 
     if (state === PLAYER_STATE.PLAYING) {
+      cancelPauseHelp();
+      suppressNextPauseEventRef.current = true;
       player.pauseVideo();
     }
   }
@@ -293,6 +324,7 @@ function LectureDetail() {
 
   function switchPlayer(nextMode) {
     if (nextMode === playerMode) return;
+    cancelPauseHelp();
     const currentTime = getPlayerCurrentTime();
     switchPositionRef.current = currentTime;
     logEvent(lectureId, 'player_switched', {
@@ -800,6 +832,7 @@ function LectureDetail() {
             observePlaybackPosition(currentTime, state);
 
             if (state === PLAYER_STATE.PLAYING) {
+              cancelPauseHelp();
               segmentStartRef.current = currentTime;
               logEvent(lectureId, 'play', {
                 timestamp: Math.floor(currentTime),
@@ -817,6 +850,7 @@ function LectureDetail() {
               }
               if (suppressNextPauseEventRef.current) {
                 suppressNextPauseEventRef.current = false;
+                cancelPauseHelp();
               } else {
                 pauseCountRef.current += 1;
                 logEvent(lectureId, 'pause', {
@@ -824,6 +858,7 @@ function LectureDetail() {
                   pause_count: pauseCountRef.current,
                   player_type: 'youtube',
                 });
+                schedulePauseHelp(currentTime);
               }
               const totalWatched = getTotalWatched();
               saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
@@ -831,6 +866,7 @@ function LectureDetail() {
             }
 
             if (state === PLAYER_STATE.ENDED) {
+              cancelPauseHelp();
               if (segmentStartRef.current < currentTime) {
                 watchedSegmentsRef.current.push({
                   start: segmentStartRef.current,
@@ -893,11 +929,12 @@ function LectureDetail() {
         clearTimeout(playerLoadTimeoutRef.current);
         playerLoadTimeoutRef.current = null;
       }
+      cancelPauseHelp();
       playerReadyRef.current = false;
       playerRef.current?.destroy?.();
       playerRef.current = null;
     };
-  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime]);
+  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, schedulePauseHelp]);
 
   // 備份影片 adapter：提供與 YouTube Player 相同的控制方法。
   useEffect(() => {
@@ -960,6 +997,7 @@ function LectureDetail() {
       startIntervals();
     };
     const onPlay = () => {
+      cancelPauseHelp();
       segmentStartRef.current = video.currentTime || 0;
       lastPlayerStateRef.current = PLAYER_STATE.PLAYING;
       logEvent(lectureId, 'play', {
@@ -975,6 +1013,7 @@ function LectureDetail() {
       }
       if (suppressNextPauseEventRef.current) {
         suppressNextPauseEventRef.current = false;
+        cancelPauseHelp();
       } else if (!video.ended) {
         pauseCountRef.current += 1;
         logEvent(lectureId, 'pause', {
@@ -982,6 +1021,7 @@ function LectureDetail() {
           pause_count: pauseCountRef.current,
           player_type: 'html5',
         });
+        schedulePauseHelp(currentTime);
       }
       const totalWatched = getTotalWatched();
       saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
@@ -1004,6 +1044,7 @@ function LectureDetail() {
       maybeShowTimedQuestion(currentTime);
     };
     const onEnded = () => {
+      cancelPauseHelp();
       const currentTime = video.currentTime || 0;
       const totalWatched = getTotalWatched();
       saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
@@ -1032,6 +1073,7 @@ function LectureDetail() {
       saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
+      cancelPauseHelp();
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
       video.removeEventListener('play', onPlay);
       video.removeEventListener('pause', onPause);
@@ -1040,7 +1082,7 @@ function LectureDetail() {
       if (playerRef.current === adapter) playerRef.current = null;
       playerReadyRef.current = false;
     };
-  }, [playerMode, backupInfo?.playback_url, lectureId, token, maybeShowTimedQuestion]);
+  }, [playerMode, backupInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, schedulePauseHelp]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1119,6 +1161,20 @@ function LectureDetail() {
     } finally {
       setChatLoading(false);
     }
+  }
+
+  function handlePauseHelpResponse(needsHelp) {
+    if (!pauseHelpPrompt) return;
+    const timestamp = pauseHelpPrompt.timestamp;
+    setPauseHelpPrompt(null);
+    logEvent(lectureId, 'pause_help_response', {
+      timestamp,
+      needs_help: needsHelp,
+    });
+    if (!needsHelp) return;
+
+    const timestampStr = formatVideoTime(timestamp);
+    handleAskQuestion(`我在影片 ${timestampStr} 這裡遇到問題，請根據這個時間點附近的課程內容，用簡單的方式一步一步講解。`);
   }
 
   // 即時發問：自動帶入目前影片時間點，請助教講解現在教的內容
@@ -1613,6 +1669,29 @@ function LectureDetail() {
             <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {pauseHelpPrompt && (
+              <div className="text-xs leading-relaxed rounded-xl p-3 bg-amber-100 text-amber-950">
+                <p className="font-bold">影片已暫停 30 秒，是不是遇到問題？</p>
+                <p className="mt-1 text-amber-800">目前位置：{formatVideoTime(pauseHelpPrompt.timestamp)}</p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    className="flex-1 rounded-lg bg-blue-600 px-3 py-2 font-bold text-white disabled:opacity-50"
+                    onClick={() => handlePauseHelpResponse(true)}
+                    disabled={chatLoading}
+                  >
+                    是，請教我
+                  </button>
+                  <button
+                    type="button"
+                    className="flex-1 rounded-lg bg-white px-3 py-2 font-bold text-slate-700"
+                    onClick={() => handlePauseHelpResponse(false)}
+                  >
+                    否
+                  </button>
+                </div>
+              </div>
+            )}
             {!chatInitialized ? (
               <div className="text-slate-400 text-xs">
                 載入聊天紀錄中...
