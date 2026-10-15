@@ -20,6 +20,62 @@ function formatDate(value) {
   }).format(new Date(value));
 }
 
+const studentCollator = new Intl.Collator('zh-TW', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
+const STUDENT_SORT_COLUMNS = [
+  ['student_number', '學號'],
+  ['name', '學生'],
+  ['class_name', '班級'],
+  ['completed_lectures', '完成小節'],
+  ['watched_minutes', '觀看時間'],
+  ['accuracy', '正確率'],
+  ['course_passed', '學分狀態'],
+  ['last_active', '最近活動'],
+];
+
+function studentSortValue(student, key) {
+  if (key === 'class_name') {
+    return (student.classes || []).map(item => item.name).join('、') || null;
+  }
+  if (key === 'course_passed') {
+    return student.course_passed ? 1 + (Number(student.credits_earned) || 0) / 100 : 0;
+  }
+  if (key === 'last_active') {
+    return student.last_active ? new Date(student.last_active).getTime() : null;
+  }
+  return student[key] ?? null;
+}
+
+function compareStudentValues(left, right, direction) {
+  if (left === null || left === '') return right === null || right === '' ? 0 : 1;
+  if (right === null || right === '') return -1;
+  const comparison = typeof left === 'number' && typeof right === 'number'
+    ? left - right
+    : studentCollator.compare(String(left), String(right));
+  return direction === 'asc' ? comparison : -comparison;
+}
+
+function SortableStudentHeader({ columnKey, label, sort, onSort }) {
+  const active = sort.key === columnKey;
+  const directionLabel = active && sort.direction === 'asc' ? '升冪' : active ? '降冪' : '未排序';
+  return (
+    <th aria-sort={active ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        className={`student-sort-button ${active ? 'active' : ''}`}
+        onClick={() => onSort(columnKey)}
+        title={`${label}：${directionLabel}，點擊切換排序`}
+      >
+        <span>{label}</span>
+        <span className="student-sort-icon" aria-hidden="true">{active ? (sort.direction === 'asc' ? '↑' : '↓') : '↕'}</span>
+      </button>
+    </th>
+  );
+}
+
 function MetricCard({ label, value, note, tone = 'violet' }) {
   return (
     <article className={`teacher-metric teacher-metric-${tone}`}>
@@ -92,6 +148,7 @@ export default function TeacherDashboard() {
   const [classFilter, setClassFilter] = useState('all');
   const [creditFilter, setCreditFilter] = useState('all');
   const [learningFilter, setLearningFilter] = useState('all');
+  const [studentSort, setStudentSort] = useState({ key: 'student_number', direction: 'asc' });
 
   useEffect(() => {
     setShowAllQuestions(false);
@@ -102,6 +159,7 @@ export default function TeacherDashboard() {
     setClassFilter('all');
     setCreditFilter('all');
     setLearningFilter('all');
+    setStudentSort({ key: 'student_number', direction: 'asc' });
   }, [courseId, lectureId]);
 
   useEffect(() => {
@@ -149,6 +207,17 @@ export default function TeacherDashboard() {
       return matchesKeyword && matchesClass && matchesCredit && matchesLearning;
     });
   }, [students, studentKeyword, classFilter, creditFilter, learningFilter]);
+  const sortedStudents = useMemo(() => filteredStudents
+    .map((student, index) => ({ student, index }))
+    .sort((left, right) => {
+      const comparison = compareStudentValues(
+        studentSortValue(left.student, studentSort.key),
+        studentSortValue(right.student, studentSort.key),
+        studentSort.direction
+      );
+      return comparison || left.index - right.index;
+    })
+    .map(item => item.student), [filteredStudents, studentSort]);
   const selectedStudents = useMemo(
     () => students.filter(student => selectedStudentIds.includes(student.id)),
     [students, selectedStudentIds]
@@ -174,6 +243,12 @@ export default function TeacherDashboard() {
         ? current.filter(id => !ids.includes(id))
         : [...new Set([...current, ...ids])];
     });
+  };
+
+  const handleStudentSort = key => {
+    setStudentSort(current => current.key === key
+      ? { key, direction: current.direction === 'asc' ? 'desc' : 'asc' }
+      : { key, direction: 'asc' });
   };
 
   const [sendingEmails, setSendingEmails] = useState(false);
@@ -569,9 +644,17 @@ export default function TeacherDashboard() {
                 checked={allStudentsSelected}
                 onChange={handleToggleAllStudents}
                 aria-label="全選篩選結果"
-              /></th><th>學號</th><th>學生</th><th>班級</th><th>{selectedLecture ? '小節完成' : '完成小節'}</th><th>觀看時間</th><th>正確率</th><th>學分狀態</th><th>最近活動</th></tr></thead>
+              /></th>{STUDENT_SORT_COLUMNS.map(([key, label]) => (
+                <SortableStudentHeader
+                  key={key}
+                  columnKey={key}
+                  label={key === 'completed_lectures' && selectedLecture ? '小節完成' : label}
+                  sort={studentSort}
+                  onSort={handleStudentSort}
+                />
+              ))}</tr></thead>
               <tbody>
-                {filteredStudents.map(student => (
+                {sortedStudents.map(student => (
                   <tr key={student.id}>
                     <td className="student-checkbox-col">
                       <input

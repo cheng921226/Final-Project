@@ -176,6 +176,49 @@ test('filters students by class, credit status, learning status, and keyword', a
   }
 });
 
+test('sorts the student roster independently by each column', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '測試課程',
+        summary: { students: 3, active_students: 3, lectures: 2, completion_rate: 50, watched_hours: 2, question_accuracy: 70 },
+        lectures: [],
+        questions: [],
+        students: [
+          { id: 1, student_number: 'S003', name: '王同學', email: 'wang@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 2, total_lectures: 2, watched_minutes: 40, attempts: 3, accuracy: 90, last_active: '2024-01-03T00:00:00Z', course_passed: true, credits_earned: 2 },
+          { id: 2, student_number: 'S001', name: '陳同學', email: 'chen@example.com', classes: [{ id: 11, name: '資訊三乙' }], completed_lectures: 1, total_lectures: 2, watched_minutes: 20, attempts: 2, accuracy: 50, last_active: '2024-01-02T00:00:00Z', course_passed: false, credits_earned: 0 },
+          { id: 3, student_number: 'S002', name: '林同學', email: 'lin@example.com', classes: [], completed_lectures: 0, total_lectures: 2, watched_minutes: 0, attempts: 0, accuracy: 0, last_active: null, course_passed: false, credits_earned: 0 },
+        ],
+      }],
+    }),
+  });
+
+  const selectedOrder = () => screen.getAllByRole('checkbox')
+    .slice(1)
+    .map(checkbox => checkbox.getAttribute('aria-label'));
+
+  try {
+    render(<TeacherDashboard />);
+    await screen.findByText('王同學');
+
+    expect(selectedOrder()).toEqual(['選擇 陳同學', '選擇 林同學', '選擇 王同學']);
+    fireEvent.click(screen.getByRole('button', { name: '觀看時間' }));
+    expect(selectedOrder()).toEqual(['選擇 林同學', '選擇 陳同學', '選擇 王同學']);
+    fireEvent.click(screen.getByRole('button', { name: '觀看時間' }));
+    expect(selectedOrder()).toEqual(['選擇 王同學', '選擇 陳同學', '選擇 林同學']);
+    expect(screen.getByRole('columnheader', { name: '觀看時間' })).toHaveAttribute('aria-sort', 'descending');
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
 test('switches the student table to the selected lecture metrics', async () => {
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');
