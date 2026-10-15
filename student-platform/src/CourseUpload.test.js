@@ -87,4 +87,8 @@ test('asks before overwriting a duplicate video and reuses the existing lecture'
   const lectureCalls = global.fetch.mock.calls.filter(([url]) => url.endsWith('/lectures'));
   expect(JSON.parse(lectureCalls[1][1].body).overwrite_existing).toBe(true);
   expect(await screen.findByRole('heading', { name: '原有小節已覆蓋' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '前往課程管理查看進度' })).toHaveAttribute(
+    'href',
+    '/teacher/courses?course=1'
+  );
 });

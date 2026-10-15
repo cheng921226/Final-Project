@@ -195,7 +195,7 @@ export default function CourseUpload() {
           : body.detail;
         throw new Error(message || '新增小節或 AI 生成失敗');
       }
-      setResult(body);
+      setResult({ ...body, course_id: body.course_id ?? targetCourseId });
       setLectureTitle('');
       setYoutubeUrl('');
       setBackupVideo(false);
@@ -346,7 +346,7 @@ export default function CourseUpload() {
             <span>影片備份：{result.backup_status === 'pending' ? '已排入處理' : '未要求'}</span>
           </div>
           <Link className="primary-link inline-action" to={`/course/${result.course_id}/lecture/${result.id}`}>前往小節</Link>
-          <Link className="secondary-button inline-action" to="/teacher/courses">前往課程管理查看進度</Link>
+          <Link className="secondary-button inline-action" to={`/teacher/courses?course=${result.course_id}`}>前往課程管理查看進度</Link>
         </section>
       )}
     </div>
