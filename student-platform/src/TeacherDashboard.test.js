@@ -219,6 +219,48 @@ test('sorts the student roster independently by each column', async () => {
   }
 });
 
+test('shows evidence-based teaching recommendations and opens the related scope', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '演算法',
+        summary: { students: 10, active_students: 10, lectures: 1, completion_rate: 35, watched_hours: 2, question_accuracy: 45 },
+        students: [],
+        questions: [],
+        lectures: [{ id: 7, title: '遞迴', completion_rate: 35, watched_minutes: 30, accuracy: 45, attempts: 20, students_started: 10, pause_count: 8, seek_count: 6, pause_hotspots: [], seek_hotspots: [], students: [] }],
+        recommendations: [{
+          id: 'bottleneck-7-120',
+          category: 'comprehension',
+          priority: 'high',
+          title: '遞迴可能有理解瓶頸',
+          evidence: '2:00–2:30累積 14 次暫停／跳轉，小節答題正確率為 45%。',
+          action: '補充終止條件的圖例。',
+          lecture_id: 7,
+          timestamp: 120,
+        }],
+      }],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    expect(await screen.findByText('遞迴可能有理解瓶頸')).toBeInTheDocument();
+    expect(screen.getByText(/累積 14 次/)).toBeInTheDocument();
+    expect(screen.getByText('2:00')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看小節分析' }));
+    expect(screen.getByRole('combobox', { name: '分析範圍' })).toHaveValue('7');
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
 test('switches the student table to the selected lecture metrics', async () => {
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');

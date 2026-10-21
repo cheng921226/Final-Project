@@ -11,7 +11,11 @@ from routers.teacher_access import (
     require_teacher,
 )
 from roles import can_manage_course
-from routers.teacher_analytics import _enrolled_student_ids, _student_scope_result
+from routers.teacher_analytics import (
+    _enrolled_student_ids,
+    _student_scope_result,
+    _teaching_recommendations,
+)
 from routers.questions import (
     delete_teacher_question,
     get_lecture_questions,
@@ -104,6 +108,68 @@ class TeacherAnalyticsTests(unittest.TestCase):
         self.assertEqual(segments[0]["start_time"], 10)
         self.assertEqual(segments[0]["end_time"], 45)
         self.assertEqual(segments[1]["text"], "第二段內容")
+
+    def test_teaching_recommendations_require_evidence_and_sample_size(self):
+        lectures = [{
+            "id": 7,
+            "title": "遞迴",
+            "students_started": 10,
+            "completion_rate": 35,
+            "attempts": 20,
+            "accuracy": 45,
+            "pause_hotspots": [{"start": 120, "end": 150, "count": 8, "knowledge_points": ["遞迴終止條件"]}],
+            "seek_hotspots": [{"start": 120, "end": 150, "count": 6, "knowledge_points": ["遞迴終止條件"]}],
+        }]
+        students = [
+            {
+                "id": index,
+                "classes": [{"id": 1 if index < 5 else 2, "name": "資訊三甲" if index < 5 else "資訊三乙"}],
+                "attempts": 10,
+                "accuracy": 90 if index < 5 else 40,
+                "completed_lectures": 1,
+                "total_lectures": 2,
+                "watched_minutes": 20,
+                "last_active": "2026-01-01T00:00:00Z",
+            }
+            for index in range(10)
+        ]
+        questions = [{"id": 3, "lecture_id": 7, "text": "終止條件是什麼？", "attempts": 20, "students_answered": 3, "accuracy": 20}]
+
+        recommendations = _teaching_recommendations(lectures, students, questions)
+        categories = {item["category"] for item in recommendations}
+
+        self.assertEqual(
+            categories,
+            {"engagement", "comprehension", "question", "class_gap"},
+        )
+        completion = next(item for item in recommendations if item["id"] == "course-completion")
+        self.assertEqual(completion["title"], "整門課的完成率偏低")
+        self.assertNotIn("lecture_id", completion)
+        self.assertEqual(_teaching_recommendations([], students[:4], []), [])
+
+    def test_question_quality_requires_more_than_one_quarter_of_the_class(self):
+        students = [{"id": index} for index in range(20)]
+        exactly_one_quarter = [{
+            "id": 1,
+            "lecture_id": 7,
+            "text": "只有五人作答",
+            "attempts": 20,
+            "students_answered": 5,
+            "accuracy": 10,
+        }]
+        more_than_one_quarter = [{
+            **exactly_one_quarter[0],
+            "students_answered": 6,
+        }]
+
+        self.assertFalse(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations([], students, exactly_one_quarter)
+        ))
+        self.assertTrue(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations([], students, more_than_one_quarter)
+        ))
 
 
 class TeacherAuthorizationTests(unittest.TestCase):

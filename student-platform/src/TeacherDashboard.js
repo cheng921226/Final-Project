@@ -36,6 +36,19 @@ const STUDENT_SORT_COLUMNS = [
   ['last_active', '最近活動'],
 ];
 
+const RECOMMENDATION_PRIORITY = {
+  high: '優先處理',
+  medium: '建議改善',
+  low: '持續觀察',
+};
+
+const RECOMMENDATION_CATEGORY = {
+  comprehension: '理解瓶頸',
+  engagement: '學習參與',
+  question: '題目品質',
+  class_gap: '班級差異',
+};
+
 function studentSortValue(student, key) {
   if (key === 'class_name') {
     return (student.classes || []).map(item => item.name).join('、') || null;
@@ -149,6 +162,9 @@ export default function TeacherDashboard() {
   const [creditFilter, setCreditFilter] = useState('all');
   const [learningFilter, setLearningFilter] = useState('all');
   const [studentSort, setStudentSort] = useState({ key: 'student_number', direction: 'asc' });
+  const [recommendationDays, setRecommendationDays] = useState({});
+  const [snoozingRecommendationId, setSnoozingRecommendationId] = useState('');
+  const [recommendationMessage, setRecommendationMessage] = useState('');
 
   useEffect(() => {
     setShowAllQuestions(false);
@@ -160,6 +176,7 @@ export default function TeacherDashboard() {
     setCreditFilter('all');
     setLearningFilter('all');
     setStudentSort({ key: 'student_number', direction: 'asc' });
+    setRecommendationMessage('');
   }, [courseId, lectureId]);
 
   useEffect(() => {
@@ -373,6 +390,43 @@ export default function TeacherDashboard() {
     }
   };
 
+  const handleSnoozeRecommendation = async recommendation => {
+    const token = localStorage.getItem('access_token');
+    if (!token || !courseId) return;
+    const days = Number(recommendationDays[recommendation.id] || 3);
+    setSnoozingRecommendationId(recommendation.id);
+    setRecommendationMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/analytics/courses/${courseId}/recommendations/snooze`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ recommendation_id: recommendation.id, days }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '無法延後重新計算');
+
+      setData(current => ({
+        ...current,
+        courses: current.courses.map(item => String(item.id) === String(courseId)
+          ? {
+            ...item,
+            recommendations: (item.recommendations || []).filter(
+              candidate => candidate.id !== recommendation.id
+            ),
+          }
+          : item),
+      }));
+      setRecommendationMessage(`已暫停這項建議，${days} 天後會依最新資料重新計算。`);
+    } catch (err) {
+      setRecommendationMessage(err.message || '無法延後重新計算');
+    } finally {
+      setSnoozingRecommendationId('');
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -418,6 +472,11 @@ export default function TeacherDashboard() {
   const displayedQuestions = showAllQuestions
     ? sortedQuestions
     : sortedQuestions.filter(question => question.has_attempts !== false && question.accuracy < 100).slice(0, 5);
+  const visibleRecommendations = (course?.recommendations || []).filter(
+    recommendation => !selectedLecture
+      || !recommendation.lecture_id
+      || String(recommendation.lecture_id) === String(selectedLecture.id)
+  );
 
   if (loading) {
     return <div className="teacher-state"><div className="teacher-loader" /><p>正在整理學習數據...</p></div>;
@@ -556,6 +615,73 @@ export default function TeacherDashboard() {
           note={`${selectedLecture ? selectedLecture.attempts : course.questions.reduce((sum, item) => sum + item.attempts, 0)} 次作答`}
           tone="green"
         />
+      </section>
+
+      <section className="teacher-panel teaching-recommendations">
+        <div className="panel-title">
+          <div>
+            <h3>教學建議</h3>
+            <p>{selectedLecture ? `${selectedLecture.title}與整體課程的數據提示` : '根據觀看行為、作答表現與班級差異產生'}</p>
+          </div>
+          <span className="table-count">{visibleRecommendations.length} 項</span>
+        </div>
+        {recommendationMessage && (
+          <p className="teaching-recommendation-message" role="status">{recommendationMessage}</p>
+        )}
+        {visibleRecommendations.length ? (
+          <div className="teaching-recommendation-list">
+            {visibleRecommendations.map(recommendation => (
+              <article className={`teaching-recommendation priority-${recommendation.priority}`} key={recommendation.id}>
+                <div className="teaching-recommendation-heading">
+                  <div className="teaching-recommendation-tags">
+                    <span>{RECOMMENDATION_CATEGORY[recommendation.category] || '課程提醒'}</span>
+                    <strong>{RECOMMENDATION_PRIORITY[recommendation.priority] || '建議'}</strong>
+                  </div>
+                  {recommendation.timestamp !== undefined && (
+                    <span className="teaching-recommendation-time">{formatDuration(recommendation.timestamp)}</span>
+                  )}
+                </div>
+                <h4>{recommendation.title}</h4>
+                <p className="teaching-recommendation-evidence">{recommendation.evidence}</p>
+                <p className="teaching-recommendation-action"><b>建議：</b>{recommendation.action}</p>
+                <div className="teaching-recommendation-actions">
+                  {recommendation.lecture_id && String(recommendation.lecture_id) !== lectureId && (
+                    <button type="button" onClick={() => setLectureId(String(recommendation.lecture_id))}>查看小節分析</button>
+                  )}
+                  {recommendation.question_id && (
+                    <Link to={`/teacher/questions?lecture=${recommendation.lecture_id}`}>前往審題</Link>
+                  )}
+                  <label className="teaching-recommendation-snooze">
+                    <span>延後</span>
+                    <select
+                      aria-label={`延後重新計算 ${recommendation.title}`}
+                      value={recommendationDays[recommendation.id] || 3}
+                      onChange={event => setRecommendationDays(current => ({
+                        ...current,
+                        [recommendation.id]: Number(event.target.value),
+                      }))}
+                    >
+                      {[1, 3, 7, 14, 30].map(days => (
+                        <option key={days} value={days}>{days} 天</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => handleSnoozeRecommendation(recommendation)}
+                      disabled={snoozingRecommendationId === recommendation.id}
+                    >
+                      {snoozingRecommendationId === recommendation.id ? '處理中...' : '重新計算'}
+                    </button>
+                  </label>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="teacher-empty compact">
+            {course.summary.students < 5 ? '至少需要 5 位學生的資料才能產生可靠建議。' : '目前沒有達到提醒門檻的明顯問題。'}
+          </div>
+        )}
       </section>
 
       <section className="teacher-grid teacher-grid-wide">
