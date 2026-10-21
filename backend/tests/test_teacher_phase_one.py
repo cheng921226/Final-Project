@@ -175,7 +175,7 @@ class TeacherAnalyticsTests(unittest.TestCase):
             {"name": "甲班", "students": 5, "completion_rate": 0}
         ])
 
-    def test_question_quality_requires_more_than_one_quarter_of_the_class(self):
+    def test_question_quality_includes_one_quarter_and_fifty_percent_boundaries(self):
         students = [{"id": index} for index in range(20)]
         exactly_one_quarter = [{
             "id": 1,
@@ -189,16 +189,24 @@ class TeacherAnalyticsTests(unittest.TestCase):
             **exactly_one_quarter[0],
             "students_answered": 6,
         }]
+        less_than_one_quarter = [{
+            **exactly_one_quarter[0],
+            "students_answered": 4,
+        }]
 
-        self.assertFalse(any(
+        self.assertTrue(any(
             item["category"] == "question"
             for item in _teaching_recommendations([], students, exactly_one_quarter)
+        ))
+        self.assertFalse(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations([], students, less_than_one_quarter)
         ))
         self.assertTrue(any(
             item["category"] == "question"
             for item in _teaching_recommendations([], students, more_than_one_quarter)
         ))
-        self.assertFalse(any(
+        self.assertTrue(any(
             item["category"] == "question"
             for item in _teaching_recommendations(
                 [], students, [{**more_than_one_quarter[0], "accuracy": 50}]
@@ -208,6 +216,12 @@ class TeacherAnalyticsTests(unittest.TestCase):
             item["category"] == "question"
             for item in _teaching_recommendations(
                 [], students, [{**more_than_one_quarter[0], "accuracy": 49}]
+            )
+        ))
+        self.assertFalse(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations(
+                [], students, [{**more_than_one_quarter[0], "accuracy": 51}]
             )
         ))
 
@@ -235,6 +249,20 @@ class TeacherAnalyticsTests(unittest.TestCase):
         self.assertEqual(upserted["user_id"], 9)
         self.assertEqual(upserted["course_id"], 12)
         self.assertEqual(query.upsert.call_args.kwargs["on_conflict"], "user_id,course_id,recommendation_key")
+
+    def test_only_class_completion_can_be_snoozed(self):
+        with (
+            patch("routers.teacher_analytics.require_teacher", return_value={"id": 9, "role": "teacher"}),
+            patch("routers.teacher_analytics.require_course_manager"),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                snooze_teaching_recommendation(
+                    12,
+                    RecommendationSnoozeRequest(recommendation_id="question-3", days=3),
+                    SimpleNamespace(id="teacher-auth"),
+                )
+
+        self.assertEqual(context.exception.status_code, 400)
 
 
 class TeacherAuthorizationTests(unittest.TestCase):

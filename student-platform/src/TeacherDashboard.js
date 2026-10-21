@@ -651,28 +651,30 @@ export default function TeacherDashboard() {
                   {recommendation.question_id && (
                     <Link to={`/teacher/questions?lecture=${recommendation.lecture_id}`}>前往審題</Link>
                   )}
-                  <label className="teaching-recommendation-snooze">
-                    <span>延後</span>
-                    <select
-                      aria-label={`延後重新計算 ${recommendation.title}`}
-                      value={recommendationDays[recommendation.id] || 3}
-                      onChange={event => setRecommendationDays(current => ({
-                        ...current,
-                        [recommendation.id]: Number(event.target.value),
-                      }))}
-                    >
-                      {[1, 3, 7, 14, 30].map(days => (
-                        <option key={days} value={days}>{days} 天</option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => handleSnoozeRecommendation(recommendation)}
-                      disabled={snoozingRecommendationId === recommendation.id}
-                    >
-                      {snoozingRecommendationId === recommendation.id ? '處理中...' : '套用'}
-                    </button>
-                  </label>
+                  {recommendation.id === 'class-completion' && (
+                    <label className="teaching-recommendation-snooze">
+                      <span>延後</span>
+                      <select
+                        aria-label={`延後重新計算 ${recommendation.title}`}
+                        value={recommendationDays[recommendation.id] || 3}
+                        onChange={event => setRecommendationDays(current => ({
+                          ...current,
+                          [recommendation.id]: Number(event.target.value),
+                        }))}
+                      >
+                        {[1, 3, 7, 14, 30].map(days => (
+                          <option key={days} value={days}>{days} 天</option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleSnoozeRecommendation(recommendation)}
+                        disabled={snoozingRecommendationId === recommendation.id}
+                      >
+                        {snoozingRecommendationId === recommendation.id ? '處理中...' : '套用'}
+                      </button>
+                    </label>
+                  )}
                 </div>
               </article>
             ))}

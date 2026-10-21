@@ -234,16 +234,26 @@ test('shows evidence-based teaching recommendations and opens the related scope'
         students: [],
         questions: [],
         lectures: [{ id: 7, title: '遞迴', completion_rate: 35, watched_minutes: 30, accuracy: 45, attempts: 20, students_started: 10, pause_count: 8, seek_count: 6, pause_hotspots: [], seek_hotspots: [], students: [] }],
-        recommendations: [{
-          id: 'bottleneck-7-120',
-          category: 'comprehension',
-          priority: 'high',
-          title: '遞迴可能有理解瓶頸',
-          evidence: '2:00–2:30累積 14 次暫停／跳轉，小節答題正確率為 45%。',
-          action: '補充終止條件的圖例。',
-          lecture_id: 7,
-          timestamp: 120,
-        }],
+        recommendations: [
+          {
+            id: 'bottleneck-7-120',
+            category: 'comprehension',
+            priority: 'high',
+            title: '遞迴可能有理解瓶頸',
+            evidence: '2:00–2:30累積 14 次暫停／跳轉，小節答題正確率為 45%。',
+            action: '補充終止條件的圖例。',
+            lecture_id: 7,
+            timestamp: 120,
+          },
+          {
+            id: 'class-completion',
+            category: 'engagement',
+            priority: 'high',
+            title: '資訊三甲的課程完成率偏低',
+            evidence: '資訊三甲 35%（10 人）。',
+            action: '提醒完成率偏低的班級。',
+          },
+        ],
       }],
     }),
   });
@@ -255,8 +265,9 @@ test('shows evidence-based teaching recommendations and opens the related scope'
     expect(screen.getByText('2:00')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看小節分析' }));
     expect(screen.getByRole('combobox', { name: '分析範圍' })).toHaveValue('7');
+    expect(screen.queryByRole('combobox', { name: '延後重新計算 遞迴可能有理解瓶頸' })).not.toBeInTheDocument();
     fireEvent.change(
-      screen.getByRole('combobox', { name: '延後重新計算 遞迴可能有理解瓶頸' }),
+      screen.getByRole('combobox', { name: '延後重新計算 資訊三甲的課程完成率偏低' }),
       { target: { value: '7' } }
     );
     fireEvent.click(screen.getByRole('button', { name: '套用' }));
@@ -264,11 +275,12 @@ test('shows evidence-based teaching recommendations and opens the related scope'
       'http://127.0.0.1:8000/teacher/analytics/courses/1/recommendations/snooze',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ recommendation_id: 'bottleneck-7-120', days: 7 }),
+        body: JSON.stringify({ recommendation_id: 'class-completion', days: 7 }),
       })
     ));
     expect(await screen.findByText('已暫停這項建議，7 天後會依最新資料重新計算。')).toBeInTheDocument();
-    expect(screen.queryByText('遞迴可能有理解瓶頸')).not.toBeInTheDocument();
+    expect(screen.queryByText('資訊三甲的課程完成率偏低')).not.toBeInTheDocument();
+    expect(screen.getByText('遞迴可能有理解瓶頸')).toBeInTheDocument();
   } finally {
     global.fetch = originalFetch;
     localStorage.removeItem('access_token');

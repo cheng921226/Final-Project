@@ -278,8 +278,8 @@ def _teaching_recommendations(
         (
             question
             for question in questions
-            if question.get("students_answered", 0) > enrolled_count / 4
-            and question.get("accuracy", 0) < 50
+            if question.get("students_answered", 0) >= enrolled_count / 4
+            and question.get("accuracy", 0) <= 50
         ),
         key=lambda question: (
             question.get("accuracy", 0),
@@ -371,8 +371,8 @@ def snooze_teaching_recommendation(
     teacher = require_teacher(user)
     require_course_manager(course_id, teacher)
     recommendation_id = payload.recommendation_id.strip()
-    if not recommendation_id or len(recommendation_id) > 160:
-        raise HTTPException(status_code=400, detail="無效的教學建議")
+    if recommendation_id != "class-completion":
+        raise HTTPException(status_code=400, detail="只有班級完成率建議可以延後重新計算")
     if payload.days not in {1, 3, 7, 14, 30}:
         raise HTTPException(status_code=400, detail="延後天數只能選擇 1、3、7、14 或 30 天")
 
