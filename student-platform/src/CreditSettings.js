@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -155,14 +156,7 @@ export default function CreditSettings() {
           <p>設定影片完成門檻與正式測驗規則；影片中的練習題不列入學分計算。</p>
         </div>
         <div className="teacher-filters">
-          <label>
-            <span>課程</span>
-            <select value={courseId} onChange={event => selectCourse(event.target.value)}>
-              {data.courses.map(course => (
-                <option key={course.id} value={course.id}>{course.title || `課程 ${course.id}`}</option>
-              ))}
-            </select>
-          </label>
+          <SearchableCourseSelect courses={data.courses} value={courseId} onChange={selectCourse} />
         </div>
       </header>
 

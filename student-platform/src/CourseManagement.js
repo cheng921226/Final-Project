@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -231,8 +232,8 @@ export default function CourseManagement() {
   }, [hasActiveJobs, headers, token]);
 
   function chooseCourse(nextId) {
-    if (String(nextId) === String(courseId)) return;
-    if (hasUnsavedChanges && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return;
+    if (String(nextId) === String(courseId)) return true;
+    if (hasUnsavedChanges && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return false;
     const course = data?.courses?.find(item => String(item.id) === String(nextId));
     setCourseId(nextId);
     rememberCourseInUrl(nextId);
@@ -240,6 +241,7 @@ export default function CourseManagement() {
     setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
     setMessage('');
     setOpenTranscriptId(null);
+    return true;
   }
 
   async function saveCourse(event) {
@@ -507,7 +509,12 @@ export default function CourseManagement() {
           <p>{isCampus ? '管理平台上的所有課程，包括老師建立的課程、授課教師指派與發布狀態。' : '管理自己上傳或被指派授課的課程、安排小節並管理 AI 教材。'}</p>
         </div>
         <div className="teacher-filters">
-          <label><span>課程</span><select value={courseId} onChange={event => chooseCourse(event.target.value)}>{(data?.courses || []).map(course => <option key={course.id} value={course.id}>{course.title}{course.assigned_teacher ? `｜${course.assigned_teacher.name || course.assigned_teacher.email}` : '｜尚未指派'}</option>)}</select></label>
+          <SearchableCourseSelect
+            courses={data?.courses || []}
+            value={courseId}
+            onChange={chooseCourse}
+            optionLabel={course => `${course.title}${course.assigned_teacher ? `｜${course.assigned_teacher.name || course.assigned_teacher.email}` : '｜尚未指派'}`}
+          />
           <Link
             className="question-secondary-button course-upload-link"
             to="/teacher/upload"

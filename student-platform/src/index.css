@@ -620,7 +620,8 @@ a {
   text-transform: uppercase;
 }
 
-.teacher-filters select {
+.teacher-filters select,
+.teacher-filters .searchable-course-select>input {
   min-width: 170px;
   height: 40px;
   padding: 0 34px 0 11px;
@@ -631,6 +632,16 @@ a {
   font-size: 12px;
   font-weight: 700;
   outline: none;
+}
+
+.searchable-course-select {
+  position: relative;
+  min-width: 220px;
+}
+
+.teacher-filters .searchable-course-select>input {
+  width: 100%;
+  padding-right: 12px;
 }
 
 .teacher-metrics {
@@ -1140,6 +1151,71 @@ a {
   font-size: 11px;
   font-weight: 700;
 }
+
+.teaching-recommendation-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ai-teaching-generate-button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ai-teaching-generate-button:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.ai-teaching-recommendation {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid #dcdffc;
+  border-radius: 14px;
+  background: linear-gradient(135deg, #f7f7ff, #fff);
+}
+
+.ai-teaching-recommendation-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.ai-teaching-recommendation-title span {
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.ai-teaching-recommendation h4 {
+  margin: 5px 0 0;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ai-teaching-recommendation small {
+  color: #8a91a3;
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.ai-teaching-recommendation strong,
+.ai-teaching-recommendation b { color: #4f5870; }
+.ai-teaching-recommendation ul,
+.ai-teaching-recommendation ol { margin: 6px 0 0; padding-left: 20px; }
+.ai-teaching-recommendation li,
+.ai-teaching-recommendation p { margin: 3px 0; color: #687386; font-size: 11px; line-height: 1.6; }
 
 .student-checkbox-col input {
   width: 15px;
@@ -2805,7 +2881,8 @@ a {
     display: grid;
   }
 
-  .teacher-filters select {
+  .teacher-filters select,
+  .teacher-filters .searchable-course-select>input {
     width: 100%;
   }
 
@@ -3699,6 +3776,13 @@ a {
 .final-version-select { display: flex; align-items: center; gap: 8px; color: #64748b; font-size: 13px; }
 .final-version-select select { min-width: 130px; }
 .final-question-editor { margin-bottom: 18px; }
+.final-question-editor.inline {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  border-color: #d9def5;
+  background: #fbfbff;
+  box-shadow: none;
+}
 .final-active-toggle { display: flex; align-items: center; gap: 8px; color: #334155; font-weight: 700; }
 
 .final-question-list { display: grid; gap: 12px; margin-top: 16px; }
@@ -3721,6 +3805,16 @@ a {
 .final-candidate-stats span { padding: 3px 7px; border-radius: 4px; background: #f1f5f9; color: #475569; font-size: 11px; font-weight: 700; }
 .final-question-actions { align-self: start; }
 .final-readonly-label { color: #64748b; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.final-permission-message {
+  margin: 0 0 16px;
+  padding: 11px 14px;
+  border: 1px solid #fed7aa;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #9a4d0a;
+  font-size: 12px;
+  font-weight: 800;
+}
 
 .final-import-backdrop {
   position: fixed;

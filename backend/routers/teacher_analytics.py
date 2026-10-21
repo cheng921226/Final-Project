@@ -1,5 +1,6 @@
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+import json
 from math import ceil
 from typing import Any
 
@@ -7,7 +8,8 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from roles import CAMPUS_ROLE, has_teacher_access
+from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
+from services.ai_generation import generate_json_content, parse_json_response
 from services.question_statistics import percentage, question_attempt_statistics
 
 from .achievements import evaluate_course
@@ -20,6 +22,29 @@ router = APIRouter(prefix="/teacher", tags=["teacher analytics"])
 class RecommendationSnoozeRequest(BaseModel):
     recommendation_id: str
     days: int
+
+
+def _clean_ai_recommendation(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    actions = [str(item).strip() for item in value.get("teaching_actions", []) if str(item).strip()]
+    causes = [str(item).strip() for item in value.get("likely_causes", []) if str(item).strip()]
+    target_classes = [str(item).strip() for item in value.get("target_classes", []) if str(item).strip()]
+    overview = str(value.get("overview") or "").strip()
+    if not overview or not actions:
+        return None
+    try:
+        follow_up_days = max(1, min(30, int(value.get("follow_up_days") or 7)))
+    except (TypeError, ValueError):
+        follow_up_days = 7
+    return {
+        "overview": overview,
+        "likely_causes": causes[:3],
+        "teaching_actions": actions[:4],
+        "target_classes": target_classes[:5],
+        "follow_up_days": follow_up_days,
+        "follow_up_metric": str(value.get("follow_up_metric") or "完成率與答題正確率").strip(),
+    }
 
 
 def _rows(table: str, **filters: Any) -> list[dict[str, Any]]:
@@ -369,7 +394,7 @@ def snooze_teaching_recommendation(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_course_manager(course_id, teacher)
+    require_course_manager(course_id, teacher, allow_campus_all=True)
     recommendation_id = payload.recommendation_id.strip()
     if recommendation_id != "class-completion":
         raise HTTPException(status_code=400, detail="只有班級完成率建議可以延後重新計算")
@@ -399,6 +424,97 @@ def snooze_teaching_recommendation(
     }
 
 
+@router.post("/analytics/courses/{course_id}/ai-recommendation")
+def generate_ai_teaching_recommendation(
+    course_id: int,
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    require_course_manager(course_id, teacher)
+    analytics = get_teacher_analytics(user)
+    course = next(
+        (item for item in analytics.get("courses", []) if item.get("id") == course_id),
+        None,
+    )
+    if not course:
+        raise HTTPException(status_code=404, detail="找不到課程分析資料")
+    recommendations = course.get("recommendations") or []
+    if not recommendations:
+        raise HTTPException(status_code=400, detail="目前沒有達到門檻的數據問題，不需要產生 AI 建議")
+
+    source_data = {
+        "course": course.get("title"),
+        "summary": course.get("summary") or {},
+        "rule_recommendations": recommendations,
+        "lectures": [
+            {
+                "title": lecture.get("title"),
+                "completion_rate": lecture.get("completion_rate"),
+                "accuracy": lecture.get("accuracy"),
+                "attempts": lecture.get("attempts"),
+                "pause_hotspots": lecture.get("pause_hotspots") or [],
+                "seek_hotspots": lecture.get("seek_hotspots") or [],
+            }
+            for lecture in course.get("lectures") or []
+        ],
+        "question_quality": [
+            {
+                "text": question.get("text"),
+                "students_answered": question.get("students_answered"),
+                "accuracy": question.get("accuracy"),
+            }
+            for question in course.get("questions") or []
+            if question.get("students_answered", 0) > 0
+        ][:10],
+    }
+    prompt = f"""
+你是協助大專教師改善線上課程的教學分析顧問。
+請只根據提供的彙總數據提出建議，不得捏造學生背景、因果關係或未提供的數字。
+把「可能原因」明確寫成假設，並提供教師能在一到兩週內執行的具體行動。
+使用繁體中文，只輸出 JSON，不要加入 Markdown。
+
+JSON 格式：
+{{
+  "overview": "80 字內的整體判讀",
+  "likely_causes": ["最多 3 項可能原因"],
+  "teaching_actions": ["最多 4 項具體行動"],
+  "target_classes": ["需要優先關注的班級；沒有明確班級就留空"],
+  "follow_up_days": 7,
+  "follow_up_metric": "重新追蹤的指標"
+}}
+
+課程彙總資料：
+{json.dumps(source_data, ensure_ascii=False)}
+"""
+    try:
+        ai_response = generate_json_content(prompt)
+        recommendation = _clean_ai_recommendation(parse_json_response(ai_response.text))
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI 教學建議產生失敗：{exc}") from exc
+    if not recommendation:
+        raise HTTPException(status_code=502, detail="AI 回傳的教學建議格式不完整")
+
+    generated_at = datetime.now(timezone.utc).isoformat()
+    row = {
+        "user_id": teacher["id"],
+        "course_id": course_id,
+        "analysis_json": recommendation,
+        "input_snapshot": source_data,
+        "generated_at": generated_at,
+        "updated_at": generated_at,
+    }
+    response = (
+        supabase_admin.table("teacher_ai_recommendations")
+        .upsert(row, on_conflict="user_id,course_id")
+        .execute()
+    )
+    saved = (response.data or [row])[0]
+    return {
+        **recommendation,
+        "generated_at": saved.get("generated_at", generated_at),
+    }
+
+
 @router.get("/analytics")
 def get_teacher_analytics(user=Depends(get_current_user)):
     profile_response = (
@@ -413,9 +529,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Teacher or campus access required")
 
     course_query = supabase_admin.table("courses").select("*")
-    if profile.get("role") == CAMPUS_ROLE:
-        course_query = course_query.eq("created_by_user_id", profile["id"])
-    else:
+    if profile.get("role") != CAMPUS_ROLE:
         course_query = course_query.eq("teacher_id", profile["id"])
     courses = course_query.order("created_at").execute().data or []
     course_ids = [course["id"] for course in courses]
@@ -431,6 +545,22 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         .data
         or []
     )
+    ai_recommendation_rows = (
+        supabase_admin.table("teacher_ai_recommendations")
+        .select("course_id,analysis_json,generated_at")
+        .eq("user_id", profile["id"])
+        .in_("course_id", course_ids)
+        .execute()
+        .data
+        or []
+    )
+    ai_recommendation_map = {
+        row.get("course_id"): {
+            **(row.get("analysis_json") or {}),
+            "generated_at": row.get("generated_at"),
+        }
+        for row in ai_recommendation_rows
+    }
     now = datetime.now(timezone.utc)
     active_snoozes = {
         (row.get("course_id"), row.get("recommendation_key"))
@@ -707,6 +837,13 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             {
                 "id": cid,
                 "title": course.get("title") or f"課程 {cid}",
+                "can_manage": can_manage_course(
+                    profile.get("role"),
+                    profile.get("id"),
+                    course.get("teacher_id"),
+                    course.get("created_by_user_id"),
+                ),
+                "ai_recommendation": ai_recommendation_map.get(cid),
                 "summary": {
                     "students": len(course_student_ids),
                     "active_students": len(active_students),

@@ -70,6 +70,7 @@ test('campus sees and manages teacher courses alongside its own courses', async 
   expect(screen.getByText('授課教師')).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
+  fireEvent.focus(screen.getByRole('combobox', { name: '課程' }));
   expect(screen.getByRole('option', { name: '離散數學｜王老師' })).toBeInTheDocument();
 });
 
@@ -97,9 +98,11 @@ test('warns before leaving or switching courses with unsaved changes', async () 
   expect(unloadEvent.defaultPrevented).toBe(true);
 
   const courseSelect = screen.getByRole('combobox', { name: '課程' });
-  fireEvent.change(courseSelect, { target: { value: '2' } });
+  fireEvent.focus(courseSelect);
+  fireEvent.change(courseSelect, { target: { value: '演算法' } });
+  fireEvent.click(screen.getByRole('option', { name: /演算法/ }));
   expect(window.confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
-  expect(courseSelect).toHaveValue('1');
+  expect(courseSelect).toHaveValue('資料結構');
   expect(titleInput).toHaveValue('尚未儲存的新名稱');
 });
 
@@ -118,7 +121,7 @@ test('keeps the selected course after refreshing the page', async () => {
   render(<CourseManagement />);
 
   expect(await screen.findByRole('textbox', { name: '課程名稱' })).toHaveValue('演算法');
-  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('2');
+  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('演算法');
   expect(window.location.search).toBe('?course=2');
 });
 

@@ -124,6 +124,21 @@ def require_course_manager(
     return teacher, course
 
 
+def require_course_viewer(
+    course_id: int, user
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    teacher = require_teacher(user)
+    course = get_course(course_id)
+    if teacher.get("role") != CAMPUS_ROLE and not can_manage_course(
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
+    ):
+        raise HTTPException(status_code=403, detail="沒有權限查看這門課")
+    return teacher, course
+
+
 def require_enrollment(student_id: int, course_id: int) -> None:
     response = (
         supabase_admin.table("student_courses")
@@ -191,6 +206,7 @@ def active_questions(course_id: int) -> list[dict[str, Any]]:
         .select("*")
         .eq("course_id", course_id)
         .eq("is_active", True)
+        .eq("is_deleted", False)
         .order("id")
         .execute()
         .data
@@ -401,9 +417,7 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
 def get_teacher_final_assessments(user=Depends(get_current_user)):
     teacher = require_teacher(user)
     course_query = supabase_admin.table("courses").select("*")
-    if teacher.get("role") == CAMPUS_ROLE:
-        course_query = course_query.eq("created_by_user_id", teacher["id"])
-    else:
+    if teacher.get("role") != CAMPUS_ROLE:
         course_query = course_query.eq("teacher_id", teacher["id"])
     courses = course_query.order("id").execute().data or []
     course_ids = [row["id"] for row in courses]
@@ -413,6 +427,7 @@ def get_teacher_final_assessments(user=Depends(get_current_user)):
             supabase_admin.table("final_assessment_questions")
             .select("id,course_id,bank_version,is_active")
             .in_("course_id", course_ids)
+            .eq("is_deleted", False)
             .execute()
             .data
             or []
@@ -440,6 +455,12 @@ def get_teacher_final_assessments(user=Depends(get_current_user)):
                 "active_question_count": sum(
                     bool(row.get("is_active")) for row in latest_rows
                 ),
+                "can_manage": can_manage_course(
+                    teacher.get("role"),
+                    teacher.get("id"),
+                    course.get("teacher_id"),
+                    course.get("created_by_user_id"),
+                ),
             }
         )
     return {"teacher": teacher, "courses": results}
@@ -451,11 +472,18 @@ def get_teacher_final_assessment(
     bank_version: int | None = Query(default=None, ge=1),
     user=Depends(get_current_user),
 ):
-    _, course = require_course_manager(course_id, user)
+    teacher, course = require_course_viewer(course_id, user)
+    can_manage = can_manage_course(
+        teacher.get("role"),
+        teacher.get("id"),
+        course.get("teacher_id"),
+        course.get("created_by_user_id"),
+    )
     all_rows = (
         supabase_admin.table("final_assessment_questions")
         .select("*")
         .eq("course_id", course_id)
+        .eq("is_deleted", False)
         .order("bank_version", desc=True)
         .order("id")
         .execute()
@@ -491,6 +519,7 @@ def get_teacher_final_assessment(
             "final_question_count": int(number(course.get("final_question_count"), 10)),
         },
         "has_final_assessment": bool(all_rows),
+        "can_manage": can_manage,
         "current_version": versions[0] if versions else 0,
         "selected_version": selected_version,
         "is_current_version": selected_version == (versions[0] if versions else 1),
@@ -614,6 +643,8 @@ def delete_final_assessment_question(question_id: int, user=Depends(get_current_
         .update(
             {
                 "is_active": False,
+                "is_deleted": True,
+                "deleted_at": datetime.now(timezone.utc).isoformat(),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -621,7 +652,7 @@ def delete_final_assessment_question(question_id: int, user=Depends(get_current_
         .execute()
     )
     return {
-        "message": "disabled",
+        "message": "deleted",
         "question_id": question_id,
         "data": response.data or [],
     }
@@ -1031,15 +1062,7 @@ def generate_final_assessment(
     payload: FinalAssessmentGenerateRequest,
     user=Depends(get_current_user),
 ):
-    teacher = require_teacher(user)
-    course = get_course(course_id)
-    if not can_manage_course(
-        teacher.get("role"),
-        teacher.get("id"),
-        course.get("teacher_id"),
-        course.get("created_by_user_id"),
-    ):
-        raise HTTPException(status_code=403, detail="沒有權限管理這門課")
+    _, course = require_course_manager(course_id, user)
 
     material = course_material_for_final_assessment(course_id)
     if not material:

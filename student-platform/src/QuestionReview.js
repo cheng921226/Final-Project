@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -359,23 +360,16 @@ export default function QuestionReview() {
           <p>管理每個小節的題目、選項、答案、解析與影片出現時間。</p>
         </div>
         <div className="teacher-filters">
-          <label>
-            <span>課程</span>
-            <select
-              value={courseId}
-              onChange={event => {
-                const nextCourseId = event.target.value;
+          <SearchableCourseSelect
+            courses={data.courses}
+            value={courseId}
+            onChange={nextCourseId => {
                 const nextCourse = data.courses.find(item => String(item.id) === String(nextCourseId));
                 const firstLectureId = nextCourse?.lectures?.[0]?.id ? String(nextCourse.lectures[0].id) : '';
                 setCourseId(nextCourseId);
                 changeLecture(firstLectureId);
-              }}
-            >
-              {data.courses.map(item => (
-                <option key={item.id} value={item.id}>{item.title || item.course_name || `課程 ${item.id}`}</option>
-              ))}
-            </select>
-          </label>
+            }}
+          />
           <label>
             <span>小節</span>
             <select value={lectureId} onChange={event => changeLecture(event.target.value)}>

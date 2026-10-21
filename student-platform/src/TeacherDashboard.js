@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -165,6 +166,7 @@ export default function TeacherDashboard() {
   const [recommendationDays, setRecommendationDays] = useState({});
   const [snoozingRecommendationId, setSnoozingRecommendationId] = useState('');
   const [recommendationMessage, setRecommendationMessage] = useState('');
+  const [generatingAiRecommendation, setGeneratingAiRecommendation] = useState(false);
 
   useEffect(() => {
     setShowAllQuestions(false);
@@ -427,6 +429,32 @@ export default function TeacherDashboard() {
     }
   };
 
+  const handleGenerateAiRecommendation = async () => {
+    const token = localStorage.getItem('access_token');
+    if (!token || !courseId || generatingAiRecommendation) return;
+    setGeneratingAiRecommendation(true);
+    setRecommendationMessage('');
+    try {
+      const response = await fetch(`${API_URL}/teacher/analytics/courses/${courseId}/ai-recommendation`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '無法產生 AI 教學建議');
+      setData(current => ({
+        ...current,
+        courses: current.courses.map(item => String(item.id) === String(courseId)
+          ? { ...item, ai_recommendation: body }
+          : item),
+      }));
+      setRecommendationMessage('AI 教學建議已更新。');
+    } catch (err) {
+      setRecommendationMessage(err.message || '無法產生 AI 教學建議');
+    } finally {
+      setGeneratingAiRecommendation(false);
+    }
+  };
+
   useEffect(() => {
     const token = localStorage.getItem('access_token');
     if (!token) {
@@ -558,17 +586,14 @@ export default function TeacherDashboard() {
           <p>從觀看行為與作答表現，找到學生真正需要協助的地方。</p>
         </div>
         <div className="teacher-filters">
-          <label>
-            <span>課程</span>
-            <select value={courseId} onChange={event => {
-              setCourseId(event.target.value);
+          <SearchableCourseSelect
+            courses={data.courses}
+            value={courseId}
+            onChange={nextCourseId => {
+              setCourseId(nextCourseId);
               setLectureId('all');
-            }}>
-              {data.courses.map(item => (
-                <option key={item.id} value={item.id}>{item.title}</option>
-              ))}
-            </select>
-          </label>
+            }}
+          />
           <label>
             <span>分析範圍</span>
             <select value={lectureId} onChange={event => setLectureId(event.target.value)}>
@@ -623,10 +648,38 @@ export default function TeacherDashboard() {
             <h3>教學建議</h3>
             <p>{selectedLecture ? `${selectedLecture.title}與整體課程的數據提示` : '根據觀看行為、作答表現與班級差異產生'}</p>
           </div>
-          <span className="table-count">{visibleRecommendations.length} 項</span>
+          <div className="teaching-recommendation-header-actions">
+            <span className="table-count">{visibleRecommendations.length} 項</span>
+            {course.can_manage !== false && (
+              <button
+                type="button"
+                className="ai-teaching-generate-button"
+                onClick={handleGenerateAiRecommendation}
+                disabled={generatingAiRecommendation || !(course.recommendations || []).length}
+              >
+                {generatingAiRecommendation
+                  ? 'AI 分析中...'
+                  : course.ai_recommendation ? '重新產生 AI 建議' : '產生 AI 教學建議'}
+              </button>
+            )}
+          </div>
         </div>
         {recommendationMessage && (
           <p className="teaching-recommendation-message" role="status">{recommendationMessage}</p>
+        )}
+        {course.ai_recommendation && (
+          <article className="ai-teaching-recommendation">
+            <div className="ai-teaching-recommendation-title">
+              <div><span>AI 教學分析</span><h4>{course.ai_recommendation.overview}</h4></div>
+              <small>{course.ai_recommendation.generated_at ? `產生於 ${formatDate(course.ai_recommendation.generated_at)}` : '已儲存'}</small>
+            </div>
+            {!!course.ai_recommendation.likely_causes?.length && (
+              <div><strong>可能原因</strong><ul>{course.ai_recommendation.likely_causes.map((item, index) => <li key={index}>{item}</li>)}</ul></div>
+            )}
+            <div><strong>建議行動</strong><ol>{(course.ai_recommendation.teaching_actions || []).map((item, index) => <li key={index}>{item}</li>)}</ol></div>
+            {!!course.ai_recommendation.target_classes?.length && <p><b>優先班級：</b>{course.ai_recommendation.target_classes.join('、')}</p>}
+            <p><b>追蹤方式：</b>{course.ai_recommendation.follow_up_days || 7} 天後重新查看「{course.ai_recommendation.follow_up_metric || '完成率與答題正確率'}」。</p>
+          </article>
         )}
         {visibleRecommendations.length ? (
           <div className="teaching-recommendation-list">

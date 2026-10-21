@@ -334,6 +334,63 @@ test('switches the student table to the selected lecture metrics', async () => {
   }
 });
 
+test('generates and displays a saved AI teaching recommendation on demand', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockImplementation(async (url, options = {}) => {
+    if (options.method === 'POST' && String(url).endsWith('/ai-recommendation')) {
+      return {
+        ok: true,
+        json: async () => ({
+          overview: '資訊三甲需要優先協助完成課程。',
+          likely_causes: ['可能尚未理解課程安排'],
+          teaching_actions: ['發送班級提醒並補充一個範例'],
+          target_classes: ['資訊三甲'],
+          follow_up_days: 7,
+          follow_up_metric: '班級完成率',
+          generated_at: '2026-10-21T08:00:00Z',
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => ({
+        teacher: { role: 'teacher' },
+        courses: [{
+          id: 1,
+          title: '演算法',
+          can_manage: true,
+          summary: { students: 30, active_students: 20, lectures: 1, completion_rate: 40, watched_hours: 10, question_accuracy: 45 },
+          students: [],
+          questions: [],
+          lectures: [],
+          recommendations: [{
+            id: 'class-completion',
+            category: 'engagement',
+            priority: 'high',
+            title: '資訊三甲的課程完成率偏低',
+            evidence: '資訊三甲 40%（30 人）。',
+            action: '發送學習提醒。',
+          }],
+        }],
+      }),
+    };
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    fireEvent.click(await screen.findByRole('button', { name: '產生 AI 教學建議' }));
+    expect(await screen.findByText('資訊三甲需要優先協助完成課程。')).toBeInTheDocument();
+    expect(screen.getByText('發送班級提醒並補充一個範例')).toBeInTheDocument();
+    expect(screen.getByText(/7 天後重新查看「班級完成率」/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '重新產生 AI 建議' })).toBeInTheDocument();
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
 test('shows unanswered questions without treating them as errors', async () => {
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');

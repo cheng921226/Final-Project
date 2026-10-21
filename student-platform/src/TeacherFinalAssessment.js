@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 const EMPTY_FORM = {
@@ -50,6 +51,13 @@ export default function TeacherFinalAssessment() {
   const [selectedIds, setSelectedIds] = useState([]);
 
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const orderedQuestions = useMemo(
+    () => [...(detail?.questions || [])].sort(
+      (left, right) => Number(Boolean(right.is_active)) - Number(Boolean(left.is_active))
+    ),
+    [detail?.questions]
+  );
+  const canManage = detail?.can_manage !== false;
 
   async function loadCourses(preferredCourseId = courseId) {
     if (!token) {
@@ -156,7 +164,6 @@ export default function TeacherFinalAssessment() {
       is_active: Boolean(question.is_active),
     });
     setEditorOpen(true);
-    window.scrollTo({ top: 220, behavior: 'smooth' });
   }
 
   async function saveQuestion(event) {
@@ -193,19 +200,43 @@ export default function TeacherFinalAssessment() {
     }
   }
 
-  async function disableQuestion(question) {
-    if (!window.confirm('確定要停用這題嗎？歷史作答不會被刪除。')) return;
+  async function toggleQuestionActive(question) {
+    const enabling = !question.is_active;
+    if (!enabling && !window.confirm('確定要停用這題嗎？歷史作答不會被刪除。')) return;
     setBusy(true);
     try {
       const res = await fetch(`${API_URL}/teacher/final-assessment/questions/${question.id}`, {
-        method: 'DELETE', headers,
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: enabling }),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(errorText(body, '停用題目失敗'));
-      setMessage('題目已停用。');
+      if (!res.ok) throw new Error(errorText(body, enabling ? '開啟題目失敗' : '停用題目失敗'));
+      setMessage(enabling ? '題目已重新開啟。' : '題目已停用。');
       await refresh(detail?.selected_version);
     } catch (err) {
-      setMessage(err.message || '停用題目失敗');
+      setMessage(err.message || (enabling ? '開啟題目失敗' : '停用題目失敗'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteQuestion(question) {
+    if (!window.confirm(`確定刪除這題嗎？刪除後會從題庫消失，但既有作答與歷史成績仍會保留。\n\n${question.question_text}`)) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      const res = await fetch(`${API_URL}/teacher/final-assessment/questions/${question.id}`, {
+        method: 'DELETE',
+        headers,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(errorText(body, '刪除題目失敗'));
+      setMessage('題目已刪除，既有作答與歷史成績仍然保留。');
+      if (form.id === question.id) setEditorOpen(false);
+      await refresh(detail?.selected_version);
+    } catch (err) {
+      setMessage(err.message || '刪除題目失敗');
     } finally {
       setBusy(false);
     }
@@ -234,6 +265,23 @@ export default function TeacherFinalAssessment() {
     } finally {
       setBusy(false);
     }
+  }
+
+  function renderQuestionEditor(inline = false) {
+    return (
+      <form className={`teacher-panel final-question-editor ${inline ? 'inline' : ''}`} onSubmit={saveQuestion}>
+        <div className="panel-title"><div><h3>{form.id ? '修改正式測驗題目' : '手動新增題目'}</h3><p>正式測驗題目不需要影片時間點。</p></div></div>
+        <label className="review-field"><span>題目</span><textarea rows="3" value={form.question_text} onChange={event => setForm({ ...form, question_text: event.target.value })} /></label>
+        <label className="review-field"><span>選項，每行一個</span><textarea rows="5" value={form.options_text} onChange={event => setForm({ ...form, options_text: event.target.value })} /></label>
+        <div className="question-form-row">
+          <label className="review-field"><span>正確答案</span><select value={form.answer} onChange={event => setForm({ ...form, answer: event.target.value })}>{['A', 'B', 'C', 'D', 'E'].map(answer => <option key={answer}>{answer}</option>)}</select></label>
+          <label className="review-field"><span>對應知識點</span><select value={form.knowledge_point_id} onChange={event => setForm({ ...form, knowledge_point_id: event.target.value })}><option value="">不指定</option>{(detail?.knowledge_points || []).map(point => <option key={point.id} value={point.id}>{point.lecture_title} / {point.title}</option>)}</select></label>
+        </div>
+        <label className="review-field"><span>解析</span><textarea rows="3" value={form.explanation} onChange={event => setForm({ ...form, explanation: event.target.value })} /></label>
+        <label className="final-active-toggle"><input type="checkbox" checked={form.is_active} onChange={event => setForm({ ...form, is_active: event.target.checked })} />啟用這題</label>
+        <div className="question-editor-actions"><button type="button" className="question-secondary-button" onClick={() => setEditorOpen(false)}>取消</button><button type="submit" className="question-save-button" disabled={busy}>{busy ? '儲存中...' : '儲存題目'}</button></div>
+      </form>
+    );
   }
 
   async function changeCandidateFilter(nextLectureId, nextSort) {
@@ -282,10 +330,13 @@ export default function TeacherFinalAssessment() {
     <div className="teacher-page final-management-page">
       <header className="teacher-hero">
         <div><p className="eyebrow">Final assessment</p><h1>最終測驗</h1><p>管理整門課的正式題庫、版本與題目來源。</p></div>
-        <div className="teacher-filters"><label><span>課程</span><select value={courseId} onChange={event => selectCourse(event.target.value)}>{courses.map(course => <option key={course.id} value={course.id}>{course.title}</option>)}</select></label></div>
+        <div className="teacher-filters"><SearchableCourseSelect courses={courses} value={courseId} onChange={selectCourse} /></div>
       </header>
 
       {message && <p className="question-review-message">{message}</p>}
+      {!canManage && (
+        <p className="final-permission-message" role="status">沒有權限修改這門課，僅能查看最終測驗內容。</p>
+      )}
 
       <section className="final-status-strip">
         <div><span>建立狀態</span><strong>{detail?.has_final_assessment ? '已建立' : '尚未建立'}</strong></div>
@@ -297,32 +348,22 @@ export default function TeacherFinalAssessment() {
 
       <div className="final-management-toolbar">
         <div className="final-primary-actions">
-          <button type="button" className="question-save-button" onClick={generateQuestions} disabled={busy}>{busy ? '處理中...' : 'AI 生成最終測驗'}</button>
-          <button type="button" className="question-secondary-button" onClick={startCreate} disabled={!detail?.is_current_version}>＋新增題目</button>
-          <button type="button" className="question-secondary-button" onClick={openImport} disabled={busy || !detail?.is_current_version}>從課堂跳題加入</button>
+          <button type="button" className="question-save-button" onClick={generateQuestions} disabled={busy || !canManage}>{busy ? '處理中...' : 'AI 生成最終測驗'}</button>
+          <button type="button" className="question-secondary-button" onClick={startCreate} disabled={!canManage || !detail?.is_current_version}>＋新增題目</button>
+          <button type="button" className="question-secondary-button" onClick={openImport} disabled={busy || !canManage || !detail?.is_current_version}>從課堂跳題加入</button>
         </div>
         {!!detail?.versions?.length && <label className="final-version-select"><span>查看版本</span><select value={detail.selected_version} onChange={event => loadDetail(courseId, event.target.value)}>{detail.versions.map(version => <option key={version.bank_version} value={version.bank_version}>v{version.bank_version}（{version.question_count} 題）</option>)}</select></label>}
       </div>
 
-      {editorOpen && <form className="teacher-panel final-question-editor" onSubmit={saveQuestion}>
-        <div className="panel-title"><div><h3>{form.id ? '修改正式測驗題目' : '手動新增題目'}</h3><p>正式測驗題目不需要影片時間點。</p></div></div>
-        <label className="review-field"><span>題目</span><textarea rows="3" value={form.question_text} onChange={event => setForm({ ...form, question_text: event.target.value })} /></label>
-        <label className="review-field"><span>選項，每行一個</span><textarea rows="5" value={form.options_text} onChange={event => setForm({ ...form, options_text: event.target.value })} /></label>
-        <div className="question-form-row">
-          <label className="review-field"><span>正確答案</span><select value={form.answer} onChange={event => setForm({ ...form, answer: event.target.value })}>{['A', 'B', 'C', 'D', 'E'].map(answer => <option key={answer}>{answer}</option>)}</select></label>
-          <label className="review-field"><span>對應知識點</span><select value={form.knowledge_point_id} onChange={event => setForm({ ...form, knowledge_point_id: event.target.value })}><option value="">不指定</option>{(detail?.knowledge_points || []).map(point => <option key={point.id} value={point.id}>{point.lecture_title} / {point.title}</option>)}</select></label>
-        </div>
-        <label className="review-field"><span>解析</span><textarea rows="3" value={form.explanation} onChange={event => setForm({ ...form, explanation: event.target.value })} /></label>
-        <label className="final-active-toggle"><input type="checkbox" checked={form.is_active} onChange={event => setForm({ ...form, is_active: event.target.checked })} />啟用這題</label>
-        <div className="question-editor-actions"><button type="button" className="question-secondary-button" onClick={() => setEditorOpen(false)}>取消</button><button type="submit" className="question-save-button" disabled={busy}>{busy ? '儲存中...' : '儲存題目'}</button></div>
-      </form>}
+      {editorOpen && !form.id && renderQuestionEditor()}
 
       <section className="teacher-panel final-question-bank">
         <div className="panel-title"><div><h3>v{detail?.selected_version || 1} 題庫</h3><p>停用題目不會刪除過去學生的作答紀錄。</p></div></div>
-        {detail?.questions?.length ? <div className="final-question-list">{detail.questions.map((question, index) => <article key={question.id} className={`final-question-row ${question.is_active ? '' : 'is-disabled'}`}>
+        {orderedQuestions.length ? <div className="final-question-list">{orderedQuestions.map((question, index) => <article key={question.id} className={`final-question-row ${question.is_active ? '' : 'is-disabled'}`}>
           <div className="final-question-number">{index + 1}</div>
           <div className="final-question-content"><div className="final-question-meta"><span>{sourceLabel(question.source_type)}</span><span>{question.is_active ? '啟用中' : '已停用'}</span>{question.source_question_id && <span>原題 #{question.source_question_id}</span>}</div><h4>{question.question_text}</h4><ol>{(question.options_json || []).map((option, optionIndex) => <li key={optionIndex}>{option}</li>)}</ol><p><strong>答案：{question.answer}</strong> {question.explanation || '尚未填寫解析'}</p></div>
-          <div className="final-question-actions">{detail.is_current_version ? <><button type="button" className="question-secondary-button compact" onClick={() => startEdit(question)}>修改</button>{question.is_active && <button type="button" className="question-delete-button" onClick={() => disableQuestion(question)}>停用</button>}</> : <span className="final-readonly-label">歷史版本唯讀</span>}</div>
+          <div className="final-question-actions">{!canManage ? <span className="final-readonly-label">沒有權限</span> : detail.is_current_version ? <><button type="button" className="question-secondary-button compact" onClick={() => startEdit(question)}>修改</button><button type="button" className={question.is_active ? 'question-secondary-button compact' : 'question-save-button compact'} onClick={() => toggleQuestionActive(question)} disabled={busy}>{question.is_active ? '停用' : '開啟'}</button><button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={busy}>刪除</button></> : <span className="final-readonly-label">歷史版本唯讀</span>}</div>
+          {editorOpen && form.id === question.id && renderQuestionEditor(true)}
         </article>)}</div> : <div className="teacher-empty compact">這個版本還沒有題目。</div>}
       </section>
 

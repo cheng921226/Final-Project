@@ -336,9 +336,7 @@ def get_student_achievements(user=Depends(get_current_user)):
 def get_teacher_course_credit_settings(user=Depends(get_current_user)):
     teacher = require_teacher(user)
     course_query = supabase_admin.table("courses").select("*")
-    if teacher.get("role") == CAMPUS_ROLE:
-        course_query = course_query.eq("created_by_user_id", teacher["id"])
-    else:
+    if teacher.get("role") != CAMPUS_ROLE:
         course_query = course_query.eq("teacher_id", teacher["id"])
     courses = course_query.order("id").execute().data or []
     course_ids = [course["id"] for course in courses if course.get("id") is not None]
