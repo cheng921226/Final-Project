@@ -255,6 +255,20 @@ test('shows evidence-based teaching recommendations and opens the related scope'
     expect(screen.getByText('2:00')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '查看小節分析' }));
     expect(screen.getByRole('combobox', { name: '分析範圍' })).toHaveValue('7');
+    fireEvent.change(
+      screen.getByRole('combobox', { name: '延後重新計算 遞迴可能有理解瓶頸' }),
+      { target: { value: '7' } }
+    );
+    fireEvent.click(screen.getByRole('button', { name: '套用' }));
+    await waitFor(() => expect(global.fetch).toHaveBeenLastCalledWith(
+      'http://127.0.0.1:8000/teacher/analytics/courses/1/recommendations/snooze',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ recommendation_id: 'bottleneck-7-120', days: 7 }),
+      })
+    ));
+    expect(await screen.findByText('已暫停這項建議，7 天後會依最新資料重新計算。')).toBeInTheDocument();
+    expect(screen.queryByText('遞迴可能有理解瓶頸')).not.toBeInTheDocument();
   } finally {
     global.fetch = originalFetch;
     localStorage.removeItem('access_token');

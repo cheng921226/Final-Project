@@ -670,7 +670,7 @@ export default function TeacherDashboard() {
                       onClick={() => handleSnoozeRecommendation(recommendation)}
                       disabled={snoozingRecommendationId === recommendation.id}
                     >
-                      {snoozingRecommendationId === recommendation.id ? '處理中...' : '重新計算'}
+                      {snoozingRecommendationId === recommendation.id ? '處理中...' : '套用'}
                     </button>
                   </label>
                 </div>

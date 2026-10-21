@@ -12,9 +12,11 @@ from routers.teacher_access import (
 )
 from roles import can_manage_course
 from routers.teacher_analytics import (
+    RecommendationSnoozeRequest,
     _enrolled_student_ids,
     _student_scope_result,
     _teaching_recommendations,
+    snooze_teaching_recommendation,
 )
 from routers.questions import (
     delete_teacher_question,
@@ -126,7 +128,7 @@ class TeacherAnalyticsTests(unittest.TestCase):
                 "classes": [{"id": 1 if index < 5 else 2, "name": "資訊三甲" if index < 5 else "資訊三乙"}],
                 "attempts": 10,
                 "accuracy": 90 if index < 5 else 40,
-                "completed_lectures": 1,
+                "completed_lectures": 0,
                 "total_lectures": 2,
                 "watched_minutes": 20,
                 "last_active": "2026-01-01T00:00:00Z",
@@ -142,10 +144,36 @@ class TeacherAnalyticsTests(unittest.TestCase):
             categories,
             {"engagement", "comprehension", "question", "class_gap"},
         )
-        completion = next(item for item in recommendations if item["id"] == "course-completion")
-        self.assertEqual(completion["title"], "整門課的完成率偏低")
+        completion = next(item for item in recommendations if item["id"] == "class-completion")
+        self.assertEqual(completion["title"], "2 個班級的課程完成率偏低")
+        self.assertEqual(
+            [item["name"] for item in completion["affected_classes"]],
+            ["資訊三乙", "資訊三甲"],
+        )
         self.assertNotIn("lecture_id", completion)
         self.assertEqual(_teaching_recommendations([], students[:4], []), [])
+
+    def test_class_completion_only_lists_classes_below_fifty_percent(self):
+        students = [
+            {
+                "id": index,
+                "classes": [{"id": 1 if index < 5 else 2, "name": "甲班" if index < 5 else "乙班"}],
+                "completed_lectures": 0 if index < 5 else 2,
+                "total_lectures": 2,
+            }
+            for index in range(10)
+        ]
+
+        recommendation = next(
+            item
+            for item in _teaching_recommendations([], students, [])
+            if item["id"] == "class-completion"
+        )
+
+        self.assertEqual(recommendation["title"], "甲班的課程完成率偏低")
+        self.assertEqual(recommendation["affected_classes"], [
+            {"name": "甲班", "students": 5, "completion_rate": 0}
+        ])
 
     def test_question_quality_requires_more_than_one_quarter_of_the_class(self):
         students = [{"id": index} for index in range(20)]
@@ -170,6 +198,43 @@ class TeacherAnalyticsTests(unittest.TestCase):
             item["category"] == "question"
             for item in _teaching_recommendations([], students, more_than_one_quarter)
         ))
+        self.assertFalse(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations(
+                [], students, [{**more_than_one_quarter[0], "accuracy": 50}]
+            )
+        ))
+        self.assertTrue(any(
+            item["category"] == "question"
+            for item in _teaching_recommendations(
+                [], students, [{**more_than_one_quarter[0], "accuracy": 49}]
+            )
+        ))
+
+    def test_snooze_recommendation_saves_the_selected_delay(self):
+        response = SimpleNamespace(data=[{"snoozed_until": "2026-11-04T00:00:00+00:00"}])
+        query = Mock()
+        query.upsert.return_value = query
+        query.execute.return_value = response
+        database = Mock()
+        database.table.return_value = query
+
+        with (
+            patch("routers.teacher_analytics.require_teacher", return_value={"id": 9, "role": "teacher"}),
+            patch("routers.teacher_analytics.require_course_manager"),
+            patch("routers.teacher_analytics.supabase_admin", database),
+        ):
+            result = snooze_teaching_recommendation(
+                12,
+                RecommendationSnoozeRequest(recommendation_id="class-completion", days=14),
+                SimpleNamespace(id="teacher-auth"),
+            )
+
+        self.assertEqual(result["recommendation_id"], "class-completion")
+        upserted = query.upsert.call_args.args[0]
+        self.assertEqual(upserted["user_id"], 9)
+        self.assertEqual(upserted["course_id"], 12)
+        self.assertEqual(query.upsert.call_args.kwargs["on_conflict"], "user_id,course_id,recommendation_key")
 
 
 class TeacherAuthorizationTests(unittest.TestCase):
