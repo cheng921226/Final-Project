@@ -24,6 +24,7 @@ from routers.teacher_analytics import (
 from routers.questions import (
     delete_teacher_question,
     get_lecture_questions,
+    require_lecture_viewer,
     validate_question_options,
 )
 from routers.course_management import (
@@ -487,6 +488,43 @@ class TeacherAuthorizationTests(unittest.TestCase):
         query.eq.assert_any_call("review_status", "published")
         query.eq.assert_any_call("is_active", True)
         self.assertEqual([row["id"] for row in result], [5])
+
+    def test_campus_can_read_questions_from_any_course(self):
+        database = FakeSupabase({
+            "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
+            "lectures": [{"id": 7, "course_id": 10}],
+        })
+
+        with (
+            patch("routers.questions.supabase_admin", database),
+            patch("routers.questions.get_lecture_for_teacher") as manager_check,
+        ):
+            lecture = require_lecture_viewer(
+                7,
+                SimpleNamespace(id="campus-auth"),
+                allow_campus_all=True,
+            )
+
+        self.assertEqual(lecture, {"id": 7, "course_id": 10})
+        manager_check.assert_not_called()
+
+    def test_campus_read_access_does_not_apply_to_write_paths(self):
+        database = FakeSupabase({
+            "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
+            "lectures": [{"id": 7, "course_id": 10}],
+        })
+
+        with (
+            patch("routers.questions.supabase_admin", database),
+            patch(
+                "routers.questions.get_lecture_for_teacher",
+                side_effect=HTTPException(status_code=403, detail="沒有管理權限"),
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                require_lecture_viewer(7, SimpleNamespace(id="campus-auth"))
+
+        self.assertEqual(context.exception.status_code, 403)
 
     def test_correct_answer_must_match_the_number_of_options(self):
         validate_question_options(["選項一", "選項二", "選項三"], "C")

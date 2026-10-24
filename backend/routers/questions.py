@@ -124,7 +124,12 @@ def get_lecture_for_teacher(lecture_id: int, teacher: dict[str, Any]) -> dict[st
     return lecture
 
 
-def require_lecture_viewer(lecture_id: int, user) -> dict[str, Any]:
+def require_lecture_viewer(
+    lecture_id: int,
+    user,
+    *,
+    allow_campus_all: bool = False,
+) -> dict[str, Any]:
     profile = get_user_profile(user)
     lecture_response = (
         supabase_admin.table("lectures")
@@ -149,6 +154,11 @@ def require_lecture_viewer(lecture_id: int, user) -> dict[str, Any]:
         )
         if not enrollment:
             raise HTTPException(status_code=403, detail="你尚未選修這門課")
+        return lecture
+
+    # 平台端可唯讀預覽所有課程內容；寫入端點不傳入此旗標，
+    # 仍會沿用課程管理者權限，避免平台端替其他課程作答或修改題目。
+    if profile.get("role") == CAMPUS_ROLE and allow_campus_all:
         return lecture
 
     if has_teacher_access(profile.get("role")):
@@ -220,7 +230,7 @@ def require_demo_user(user):
 
 @router.get("/lectures/{lecture_id}/questions")
 def get_lecture_questions(lecture_id: int, user=Depends(get_current_user)):
-    require_lecture_viewer(lecture_id, user)
+    require_lecture_viewer(lecture_id, user, allow_campus_all=True)
     response = (
         supabase_admin.table("questions")
         .select(
