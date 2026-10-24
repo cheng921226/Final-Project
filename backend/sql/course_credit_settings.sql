@@ -1,6 +1,5 @@
 alter table public.courses
 add column if not exists credit_value numeric(6,2) not null default 0,
-add column if not exists partial_credit_enabled boolean not null default false,
 add column if not exists completion_threshold numeric(5,2) not null default 100,
 add column if not exists passing_score numeric(5,2),
 add column if not exists require_passing_score boolean not null default false,

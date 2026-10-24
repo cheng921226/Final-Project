@@ -400,7 +400,6 @@ def update_course_credit_settings(
 
     course_update = {
         "credit_value": payload.credit_value,
-        "partial_credit_enabled": False,
         "completion_threshold": payload.completion_threshold,
         "passing_score": payload.passing_score,
         "require_passing_score": True,
