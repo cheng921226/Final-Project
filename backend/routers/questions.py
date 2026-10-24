@@ -2,7 +2,7 @@ from typing import Any
 
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 
@@ -16,7 +16,7 @@ DEMO_ACCOUNT_EMAILS = {"teststudent@example.com"}
 class QuestionAttemptCreate(BaseModel):
     lecture_id: int
     selected_answer: str
-    video_time: float | None = None
+    video_time: int | None = Field(default=None, ge=0)
 
 
 class TeacherQuestionPayload(BaseModel):
@@ -25,7 +25,7 @@ class TeacherQuestionPayload(BaseModel):
     options_json: list[str] = []
     answer: str
     explanation: str | None = None
-    source_timestamp: int | None = None
+    source_timestamp: int | None = Field(default=None, ge=0)
     knowledge_point_id: int | None = None
 
 
@@ -35,7 +35,7 @@ class TeacherQuestionUpdate(BaseModel):
     options_json: list[str] | None = None
     answer: str | None = None
     explanation: str | None = None
-    source_timestamp: int | None = None
+    source_timestamp: int | None = Field(default=None, ge=0)
     knowledge_point_id: int | None = None
     is_active: bool | None = None
 

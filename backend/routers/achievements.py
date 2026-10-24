@@ -416,9 +416,6 @@ def update_course_credit_settings(
         .data
         or []
     )
-    supabase_admin.table("course_credit_rules").delete().eq(
-        "course_id", course_id
-    ).execute()
     return {
         "course": updated_course[0] if updated_course else course_update,
         "rules": [],

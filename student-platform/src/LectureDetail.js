@@ -1228,7 +1228,7 @@ function LectureDetail() {
         body: JSON.stringify({
           lecture_id: parseInt(lectureId),
           selected_answer: selectedAnswer,
-          video_time: currentTime,
+          video_time: Math.max(0, Math.floor(currentTime)),
         }),
       });
       if (!res.ok) {

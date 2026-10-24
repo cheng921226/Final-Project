@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
+from services.time_values import normalize_time_range, time_to_seconds
 from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
@@ -67,23 +68,6 @@ def normalize_knowledge_point_id(value):
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def time_to_seconds(value):
-    if value in (None, "", "null"):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    parts = str(value).split(":")
-    try:
-        numbers = [float(part) for part in parts]
-    except ValueError:
-        return None
-    if len(numbers) == 2:
-        return numbers[0] * 60 + numbers[1]
-    if len(numbers) == 3:
-        return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
-    return numbers[0] if numbers else None
 
 
 def infer_knowledge_point_id(source_timestamp, knowledge_points):
@@ -430,7 +414,7 @@ def generate_knowledge_points(
             JSON格式：
             {{ "knowledge_points": [ {{ "title": "知識點標題", "description": "知識點說明", "start_time": null, "end_time": null }} ] }}
             使用繁體中文。如果沒有時間資訊請填 null。
-            start_time / end_time 請輸出 mm:ss
+            start_time / end_time 請輸出非負整數秒數，不可輸出 mm:ss。
             課程逐字稿：
             {transcript}
         """
@@ -447,13 +431,16 @@ def generate_knowledge_points(
             raise HTTPException(status_code=500, detail="Failed to parse AI response.")
 
         for kp in result_json["knowledge_points"]:
+            start_time, end_time = normalize_time_range(
+                kp.get("start_time"), kp.get("end_time")
+            )
             supabase_admin.table("knowledge_points").insert(
                 {
                     "lecture_id": body.lecture_id,
                     "title": kp["title"],
                     "description": kp["description"],
-                    "start_time": kp["start_time"],
-                    "end_time": kp["end_time"],
+                    "start_time": start_time,
+                    "end_time": end_time,
                 }
             ).execute()
 

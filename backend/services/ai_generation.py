@@ -9,6 +9,7 @@ from google.genai import errors, types
 
 from database.supabase import supabase_admin
 from services.lecture_processing import claim_generation, set_generation_status
+from services.time_values import normalize_time_range, time_to_seconds
 
 
 logger = logging.getLogger(__name__)
@@ -70,39 +71,6 @@ def as_json_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, ensure_ascii=False)
-
-
-def format_time_value(value: Any) -> str | None:
-    if value in (None, "", "null"):
-        return None
-
-    if isinstance(value, str):
-        return value
-
-    try:
-        total_seconds = int(float(value))
-    except (TypeError, ValueError):
-        return str(value)
-
-    minutes, seconds = divmod(total_seconds, 60)
-    return f"{minutes}:{seconds:02d}"
-
-
-def time_to_seconds(value: Any) -> float | None:
-    if value in (None, "", "null"):
-        return None
-    if isinstance(value, (int, float)):
-        return float(value)
-    parts = str(value).split(":")
-    try:
-        numbers = [float(part) for part in parts]
-    except ValueError:
-        return None
-    if len(numbers) == 2:
-        return numbers[0] * 60 + numbers[1]
-    if len(numbers) == 3:
-        return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
-    return numbers[0] if numbers else None
 
 
 def get_lecture_title(lecture_id: int) -> str:
@@ -182,17 +150,22 @@ JSON 格式：
     result_json = parse_json_response(ai_response.text)
     knowledge_points = result_json.get("knowledge_points", [])
 
-    rows = [
-        {
-            "lecture_id": lecture_id,
-            "title": kp.get("title"),
-            "description": kp.get("description"),
-            "start_time": format_time_value(kp.get("start_time")),
-            "end_time": format_time_value(kp.get("end_time")),
-        }
-        for kp in knowledge_points
-        if kp.get("title") and kp.get("description")
-    ]
+    rows = []
+    for kp in knowledge_points:
+        if not kp.get("title") or not kp.get("description"):
+            continue
+        start_time, end_time = normalize_time_range(
+            kp.get("start_time"), kp.get("end_time")
+        )
+        rows.append(
+            {
+                "lecture_id": lecture_id,
+                "title": kp.get("title"),
+                "description": kp.get("description"),
+                "start_time": start_time,
+                "end_time": end_time,
+            }
+        )
 
     inserted = []
     if rows:
