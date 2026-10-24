@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 
-from database.supabase import supabase, supabase_admin
+from database.supabase import supabase_admin
 from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, Depends
 from pydantic import BaseModel, Field
 from typing import Any
@@ -24,14 +24,13 @@ from services.video_backup import (
     create_backup_signed_url,
 )
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
-from .security import get_current_user
+from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import (
     course_owner_for_creation,
     require_course_manager,
     require_lecture_manager,
     require_teacher,
 )
-from .users import get_student_id_from_auth
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -87,7 +86,7 @@ class CourseCreate(BaseModel):
 
 @router.get("/courses")
 def get_courses(keyword: str = None):
-    query = supabase.table("courses").select("*").eq("status", "published")
+    query = supabase_admin.table("courses").select("*").eq("status", "published")
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
@@ -156,7 +155,7 @@ def create_course(body: CourseCreate, user=Depends(get_current_user)):
 @router.get("/courses/{course_id}/lectures")
 def get_lectures_by_course(course_id: int):
     res = (
-        supabase.table("lectures")
+        supabase_admin.table("lectures")
         .select("*")
         .eq("course_id", course_id)
         .eq("is_visible", True)
@@ -189,7 +188,7 @@ class LectureCreate(BaseModel):
 
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
-    res = supabase.table("lectures").select("*").eq("id", lecture_id).execute()
+    res = supabase_admin.table("lectures").select("*").eq("id", lecture_id).execute()
     return [
         {key: value for key, value in row.items() if key != "backup_storage_path"}
         for row in (res.data or [])
@@ -454,7 +453,7 @@ def get_lecture_backup(lecture_id: int, user=Depends(get_current_user)):
 @router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id: int):
     res = (
-        supabase.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
+        supabase_admin.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
     )
     return res.data
 
@@ -462,7 +461,7 @@ def get_lecture_transcript(lecture_id: int):
 @router.get("/lectures/{lecture_id}/summaries")
 def get_lecture_summary(lecture_id: int):
     res = (
-        supabase.table("summaries")
+        supabase_admin.table("summaries")
         .select("*")
         .eq("lecture_id", lecture_id)
         .single()
@@ -474,7 +473,7 @@ def get_lecture_summary(lecture_id: int):
 @router.get("/lectures/{lecture_id}/knowledge_points")
 def get_lecture_knowledge_points(lecture_id: int):
     res = (
-        supabase.table("knowledge_points")
+        supabase_admin.table("knowledge_points")
         .select("*")
         .eq("lecture_id", lecture_id)
         .eq("is_active", True)
@@ -485,18 +484,20 @@ def get_lecture_knowledge_points(lecture_id: int):
 
 @router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id: int):
-    res = supabase.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
+    res = supabase_admin.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
     return res.data
 
 
 @router.get("/lectures/{lecture_id}/notes")
-def get_lecture_notes(lecture_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def get_lecture_notes(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     res = (
-        supabase_admin.table("notes")
+        context.database.table("notes")
         .select("*")
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .order("updated_at", desc=True)
         .execute()
     )
@@ -512,15 +513,16 @@ class NoteCreate(BaseModel):
 
 @router.post("/lectures/{lecture_id}/notes")
 def create_lecture_note(
-    lecture_id: int, note: NoteCreate, user=Depends(get_current_user)
+    lecture_id: int,
+    note: NoteCreate,
+    context: AuthContext = Depends(get_auth_context),
 ):
-    student_id = get_student_id_from_auth(user)
     res = (
-        supabase_admin.table("notes")
+        context.database.table("notes")
         .insert(
             {
                 "lecture_id": lecture_id,
-                "student_id": student_id,
+                "student_id": context.profile["id"],
                 "title": note.title,
                 "content": note.content,
                 "video_timestamp": note.video_timestamp,
@@ -542,18 +544,21 @@ class NoteUpdate(BaseModel):
 
 
 @router.patch("/notes/{note_id}")
-def update_lecture_note(note_id: int, note: NoteUpdate, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def update_lecture_note(
+    note_id: int,
+    note: NoteUpdate,
+    context: AuthContext = Depends(get_auth_context),
+):
     update_data = note.model_dump(exclude_unset=True)
 
     if not update_data:
         raise HTTPException(status_code=422, detail="請至少提供一個要更新的欄位")
 
     res = (
-        supabase_admin.table("notes")
+        context.database.table("notes")
         .update(update_data)
         .eq("id", note_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     if not res.data:
@@ -562,13 +567,15 @@ def update_lecture_note(note_id: int, note: NoteUpdate, user=Depends(get_current
 
 
 @router.delete("/notes/{note_id}")
-def delete_lecture_note(note_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def delete_lecture_note(
+    note_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     res = (
-        supabase_admin.table("notes")
+        context.database.table("notes")
         .delete()
         .eq("id", note_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     if not res.data:
@@ -588,15 +595,15 @@ class LearningEventCreate(BaseModel):
 
 
 @router.post("/learning_events")
-def create_learning_event(body: LearningEventCreate, user=Depends(get_current_user)):
-    res = supabase.table("users").select("id").eq("auth_id", user.id).single().execute()
-
-    student_id = res.data["id"]
+def create_learning_event(
+    body: LearningEventCreate,
+    context: AuthContext = Depends(get_auth_context),
+):
     res = (
-        supabase.table("learning_events")
+        context.database.table("learning_events")
         .insert(
             {
-                "student_id": student_id,
+                "student_id": context.profile["id"],
                 "lecture_id": body.lecture_id,
                 "event_type": body.event_type,
                 "event_data": body.event_data,
@@ -610,13 +617,15 @@ def create_learning_event(body: LearningEventCreate, user=Depends(get_current_us
 
 
 @router.get("/learning_events/{lecture_id}")
-def get_learning_events(lecture_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def get_learning_events(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     res = (
-        supabase.table("learning_events")
+        context.database.table("learning_events")
         .select("*")
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     return res.data
@@ -635,11 +644,14 @@ class VideoProgressCreate(BaseModel):
 
 
 @router.post("/video_progresses")
-def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def upsert_video_progress(
+    body: VideoProgressCreate,
+    context: AuthContext = Depends(get_auth_context),
+):
+    student_id = context.profile["id"]
     # 先查有沒有已存在的紀錄
     existing = (
-        supabase.table("video_progresses")
+        context.database.table("video_progresses")
         .select("id")
         .eq("student_id", student_id)
         .eq("lecture_id", body.lecture_id)
@@ -649,7 +661,7 @@ def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_us
     if existing.data:
         # 已存在 → 更新
         res = (
-            supabase.table("video_progresses")
+            context.database.table("video_progresses")
             .update(
                 {
                     "last_position": body.last_position,
@@ -664,7 +676,7 @@ def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_us
     else:
         # 不存在 → 新增
         res = (
-            supabase.table("video_progresses")
+            context.database.table("video_progresses")
             .insert(
                 {
                     "student_id": student_id,
@@ -683,14 +695,17 @@ def upsert_video_progress(body: VideoProgressCreate, user=Depends(get_current_us
 
 
 @router.get("/video_progresses/{lecture_id}")
-def get_video_progress(lecture_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def get_video_progress(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    student_id = context.profile["id"]
     # Use a limited list query instead of maybe_single(). In some
     # supabase-py/PostgREST versions, maybe_single().execute() returns None
     # when no row exists, which would make a new student's empty progress
     # state raise AttributeError and incorrectly become HTTP 500.
     res = (
-        supabase.table("video_progresses")
+        context.database.table("video_progresses")
         .select("*")
         .eq("lecture_id", lecture_id)
         .eq("student_id", student_id)
@@ -702,10 +717,13 @@ def get_video_progress(lecture_id: int, user=Depends(get_current_user)):
 
 
 @router.get("/courses/{course_id}/video-progresses")
-def get_course_video_progresses(course_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def get_course_video_progresses(
+    course_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    student_id = context.profile["id"]
     lecture_rows = (
-        supabase.table("lectures")
+        supabase_admin.table("lectures")
         .select("id")
         .eq("course_id", course_id)
         .eq("is_visible", True)
@@ -717,7 +735,7 @@ def get_course_video_progresses(course_id: int, user=Depends(get_current_user)):
     if not lecture_ids:
         return []
     return (
-        supabase.table("video_progresses")
+        context.database.table("video_progresses")
         .select("lecture_id,last_position,watched_seconds,completed")
         .eq("student_id", student_id)
         .in_("lecture_id", lecture_ids)

@@ -29,5 +29,18 @@ def _create_supabase_client(key: str):
     return create_client(SUPABASE_URL, key, options=options)
 
 
-supabase = _create_supabase_client(SUPABASE_KEY)
+def create_user_supabase_client(access_token: str):
+    """Create a request-scoped client whose PostgREST calls carry the user JWT.
+
+    A fresh client is required for every request. Mutating the authorization
+    header on a process-wide client could leak one student's identity into a
+    concurrent request.
+    """
+    client = _create_supabase_client(SUPABASE_KEY)
+    client.postgrest.auth(access_token)
+    return client
+
+
+# Trusted server client: bypasses RLS. Keep it inside FastAPI and background
+# jobs; never return this key or client to the browser.
 supabase_admin = _create_supabase_client(SUPABASE_SERVICE_ROLE_KEY)

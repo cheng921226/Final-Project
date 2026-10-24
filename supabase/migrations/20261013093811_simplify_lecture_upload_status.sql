@@ -1,0 +1,3 @@
+-- Historical migration marker imported from the original hosted project.
+-- Its resulting schema is consolidated in 20261024082924_initial_schema.sql.
+-- This file is intentionally a no-op so local and hosted migration histories align.

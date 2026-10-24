@@ -1,24 +1,20 @@
-from database.supabase import supabase_admin
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
-from .security import get_current_user
-from .users import get_student_id_from_auth
+from .security import AuthContext, get_auth_context
 
 router = APIRouter()
 
 
 @router.get("/lectures/{lecture_id}/chats/history")
-def get_chat_history(lecture_id: int, user=Depends(get_current_user)):
-    try:
-        student_id = get_student_id_from_auth(user)
-    except (KeyError, TypeError):
-        raise HTTPException(status_code=404, detail="找不到使用者資料")
-
+def get_chat_history(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     res = (
-        supabase_admin.table("chat_messages")
+        context.database.table("chat_messages")
         .select("question,answer,video_timestamp,created_at")
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .order("created_at")
         .execute()
     )

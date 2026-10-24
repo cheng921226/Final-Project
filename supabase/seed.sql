@@ -1,0 +1,3 @@
+-- Intentionally empty.
+-- Add only non-sensitive development fixtures here. Never commit real users,
+-- passwords, production records, API keys, or uploaded Storage objects.

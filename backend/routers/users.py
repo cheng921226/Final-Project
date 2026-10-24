@@ -5,7 +5,7 @@ from typing import Literal
 
 from roles import CAMPUS_ROLE
 
-from .security import get_current_user
+from .security import AuthContext, get_auth_context, get_current_user
 
 router = APIRouter()
 
@@ -61,77 +61,52 @@ def get_student_id_from_auth(user):
 
 # 取得用戶 ID
 @router.get("/id")
-def get_user_id(user=Depends(get_current_user)):
-    res = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-    return res.data
+def get_user_id(context: AuthContext = Depends(get_auth_context)):
+    return {"id": context.profile["id"]}
 
 
 # 取得用戶名
 @router.get("/name")
-def get_user_name(user=Depends(get_current_user)):
-    res = (
-        supabase_admin.table("users")
-        .select("name,email,role")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-    return res.data
+def get_user_name(context: AuthContext = Depends(get_auth_context)):
+    return {
+        key: context.profile.get(key)
+        for key in ("name", "email", "role")
+    }
 
 
 # 取得用戶身分
 @router.get("/role")
-def get_user_role(user=Depends(get_current_user)):
-    res = (
-        supabase_admin.table("users")
-        .select("role")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-    return res.data
+def get_user_role(context: AuthContext = Depends(get_auth_context)):
+    return {"role": context.profile.get("role")}
 
 
 # 取得個人資料
 @router.get("/info")
-def get_user_info(user=Depends(get_current_user)):
-    res = (
-        supabase_admin.table("users")
-        .select("*")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-    return res.data
+def get_user_info(context: AuthContext = Depends(get_auth_context)):
+    return {
+        key: context.profile.get(key)
+        for key in (
+            "id",
+            "name",
+            "email",
+            "role",
+            "student_number",
+            "class_id",
+        )
+    }
 
 
 # 取得該課程學生對話
 @router.get("/lectures/{lecture_id}/chats")
-def get_lecture_chats(lecture_id: int, user=Depends(get_current_user)):
-    db_user = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("auth_id", user.id)
-        .single()
-        .execute()
-    )
-
-    if not db_user.data:
-        raise HTTPException(404, "找不到使用者資料")
-
-    student_id = db_user.data["id"]
-
+def get_lecture_chats(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     chats = (
-        supabase_admin.table("chat_messages")
+        context.database.table("chat_messages")
         .select("question, answer, video_timestamp, created_at")
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .order("created_at")
         .execute()
     )
@@ -139,9 +114,15 @@ def get_lecture_chats(lecture_id: int, user=Depends(get_current_user)):
 
 
 # 給 ai 助教的記憶函式
-def get_chat_context(lecture_id: int, student_id: int, limit: int = 10):
+def get_chat_context(
+    lecture_id: int,
+    student_id: int,
+    limit: int = 10,
+    *,
+    database=supabase_admin,
+):
     chats = (
-        supabase_admin.table("chat_messages")
+        database.table("chat_messages")
         .select("question, answer")
         .eq("lecture_id", lecture_id)
         .eq("student_id", student_id)

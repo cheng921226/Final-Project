@@ -6,8 +6,7 @@ from pydantic import BaseModel
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 
-from .security import get_current_user
-from .users import get_student_id_from_auth
+from .security import AuthContext, get_auth_context, get_current_user
 
 router = APIRouter()
 
@@ -540,27 +539,31 @@ def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
 
 
 @router.get("/lectures/{lecture_id}/question-attempts")
-def get_lecture_question_attempts(lecture_id: int, user=Depends(get_current_user)):
-    student_id = get_student_id_from_auth(user)
+def get_lecture_question_attempts(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
     response = (
-        supabase_admin.table("question_attempts")
+        context.database.table("question_attempts")
         .select("*")
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     return response.data or []
 
 
 @router.delete("/lectures/{lecture_id}/question-attempts")
-def reset_lecture_question_attempts(lecture_id: int, user=Depends(get_current_user)):
-    require_demo_user(user)
-    student_id = get_student_id_from_auth(user)
+def reset_lecture_question_attempts(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    require_demo_user(context.user)
     response = (
         supabase_admin.table("question_attempts")
         .delete()
         .eq("lecture_id", lecture_id)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     return {
@@ -572,9 +575,11 @@ def reset_lecture_question_attempts(lecture_id: int, user=Depends(get_current_us
 
 
 @router.delete("/courses/{course_id}/question-attempts")
-def reset_course_question_attempts(course_id: int, user=Depends(get_current_user)):
-    require_demo_user(user)
-    student_id = get_student_id_from_auth(user)
+def reset_course_question_attempts(
+    course_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    require_demo_user(context.user)
     lectures = (
         supabase_admin.table("lectures")
         .select("id")
@@ -598,7 +603,7 @@ def reset_course_question_attempts(course_id: int, user=Depends(get_current_user
         supabase_admin.table("question_attempts")
         .delete()
         .in_("lecture_id", lecture_ids)
-        .eq("student_id", student_id)
+        .eq("student_id", context.profile["id"])
         .execute()
     )
     return {
@@ -614,10 +619,10 @@ def reset_course_question_attempts(course_id: int, user=Depends(get_current_user
 def create_question_attempt(
     question_id: int,
     body: QuestionAttemptCreate,
-    user=Depends(get_current_user),
+    context: AuthContext = Depends(get_auth_context),
 ):
-    student_id = get_student_id_from_auth(user)
-    require_lecture_viewer(body.lecture_id, user)
+    student_id = context.profile["id"]
+    require_lecture_viewer(body.lecture_id, context.user)
     question_response = (
         supabase_admin.table("questions")
         .select("*")
@@ -655,6 +660,7 @@ def create_question_attempt(
 
     try:
         insert_response = (
+            # 正確性由後端依隱藏答案判定，不能授權學生直接寫入此表。
             supabase_admin.table("question_attempts").insert(attempt_row).execute()
         )
     except Exception as exc:

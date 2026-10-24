@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 
-from .security import get_current_user
+from .security import AuthContext, get_auth_context, get_current_user
 
 router = APIRouter()
 
@@ -187,13 +187,15 @@ def evaluate_course(
 
 
 @router.get("/student/achievements")
-def get_student_achievements(user=Depends(get_current_user)):
-    profile = user_profile(user)
+def get_student_achievements(
+    context: AuthContext = Depends(get_auth_context),
+):
+    profile = context.profile
     if profile.get("role") != "student":
         raise HTTPException(status_code=403, detail="這個頁面只有學生帳號可以使用")
     student_id = profile["id"]
     enrollments = (
-        supabase_admin.table("student_courses")
+        context.database.table("student_courses")
         .select("course_id")
         .eq("student_id", student_id)
         .execute()
@@ -230,7 +232,7 @@ def get_student_achievements(user=Depends(get_current_user)):
     progresses = []
     if lecture_ids:
         progresses = (
-            supabase_admin.table("video_progresses")
+            context.database.table("video_progresses")
             .select("*")
             .eq("student_id", student_id)
             .in_("lecture_id", lecture_ids)
@@ -245,7 +247,7 @@ def get_student_achievements(user=Depends(get_current_user)):
     if course_ids:
         try:
             final_attempts = (
-                supabase_admin.table("final_assessment_attempts")
+                context.database.table("final_assessment_attempts")
                 .select("*")
                 .eq("student_id", student_id)
                 .in_("course_id", course_ids)
@@ -255,7 +257,7 @@ def get_student_achievements(user=Depends(get_current_user)):
                 or []
             )
             certificates = (
-                supabase_admin.table("course_certifications")
+                context.database.table("course_certifications")
                 .select("*")
                 .eq("student_id", student_id)
                 .in_("course_id", course_ids)

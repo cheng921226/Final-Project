@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
-from .security import get_current_user
+from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
 
@@ -114,24 +114,16 @@ class ChatRequest(BaseModel):
 
 
 @router.post("/ai/chat")
-def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
+def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context)):
     try:
-        res = (
-            supabase_admin.table("users")
-            .select("id, role")
-            .eq("auth_id", user.id)
-            .single()
-            .execute()
-        )
-
-        if not res.data:
-            raise HTTPException(status_code=404, detail="找不到使用者")
-
-        student_id = res.data["id"]
-        user_role = res.data["role"]
+        student_id = context.profile["id"]
+        user_role = context.profile["role"]
 
         history = get_chat_context(
-            lecture_id=body.lecture_id, student_id=student_id, limit=6
+            lecture_id=body.lecture_id,
+            student_id=student_id,
+            limit=6,
+            database=context.database,
         )
 
         # 撈逐字稿
@@ -229,6 +221,7 @@ def ai_chat(body: ChatRequest, user=Depends(get_current_user)):
         except json.JSONDecodeError:
             raise HTTPException(status_code=500, detail="AI 回應格式錯誤")
 
+        # AI 回答是系統產物，必須由可信任後端寫入，避免學生直接偽造回答紀錄。
         supabase_admin.table("chat_messages").insert(
             {
                 "student_id": student_id,

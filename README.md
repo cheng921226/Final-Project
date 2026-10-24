@@ -7,4 +7,5 @@
 
 * [🎨 前端網頁操作說明](./student-platform/前端使用說明.md)
 * [⚙️ 後端 API 操作說明](./backend/後端操作方法.md)
+* [🗄️ Supabase 資料庫重建與 migration](./supabase/README.md)
 * [🎬 增加課程與 YouTube 連結流程](./增加課程與YouTube連結流程.md)

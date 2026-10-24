@@ -1,4 +1,5 @@
 import logging
+import os
 import sys
 
 logging.basicConfig(
@@ -29,6 +30,14 @@ from routers.users import router as users_router
 app = FastAPI()
 
 
+def configured_cors_origins() -> list[str]:
+    raw = os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://127.0.0.1:3000",
+    )
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 # 根目錄測試api
 @app.get("/")
 async def read_root():
@@ -38,7 +47,7 @@ async def read_root():
 # CORS (Cross-Origin Resource Sharing) 跨來源資源共用 防止前端被擋
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 允許的來源，之後會改成前端網址
+    allow_origins=configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
