@@ -21,6 +21,7 @@ from routers.email import router as email_router
 from routers.final_assessment import router as final_assessment_router
 from routers.lectures import router as lectures_router
 from routers.pipeline import router as pipeline_router
+from routers.personnel import router as personnel_router
 from routers.questions import router as questions_router
 from routers.review import router as review_router
 from routers.transcripts import router as transcripts_router
@@ -63,6 +64,7 @@ app.include_router(email_router)
 app.include_router(final_assessment_router)
 app.include_router(lectures_router)
 app.include_router(pipeline_router)
+app.include_router(personnel_router)
 app.include_router(questions_router)
 app.include_router(review_router)
 app.include_router(transcripts_router)

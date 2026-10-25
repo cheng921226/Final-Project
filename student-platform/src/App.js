@@ -17,6 +17,8 @@ import FinalAssessment from './FinalAssessment';
 import TeacherFinalAssessment from './TeacherFinalAssessment';
 import Certificate from './Certificate';
 import CourseManagement from './CourseManagement';
+import PersonnelManagement from './PersonnelManagement';
+import ResetPassword from './ResetPassword';
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -42,6 +44,7 @@ export default function App() {
           <Route path="course/:id/final-assessment" element={<RequireAuth><FinalAssessment /></RequireAuth>} />
           <Route path="login" element={<Login setToken={setToken} />} />
           <Route path="register" element={<Register />} />
+          <Route path="reset-password" element={<ResetPassword />} />
           <Route path="profile" element={<Profile />} />
           <Route path="review" element={<ReviewMode />} />
           <Route path="achievements" element={<Achievements />} />
@@ -52,6 +55,7 @@ export default function App() {
           <Route path="teacher/final-assessment" element={<TeacherFinalAssessment />} />
           <Route path="teacher/credits" element={<CreditSettings />} />
           <Route path="teacher/courses" element={<CourseManagement />} />
+          <Route path="campus/personnel" element={<RequireAuth><PersonnelManagement /></RequireAuth>} />
         </Route>
       </Routes>
     </Router>
