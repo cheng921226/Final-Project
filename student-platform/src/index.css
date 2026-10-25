@@ -3878,13 +3878,40 @@ a {
 }
 .personnel-metrics span { color: #64748b; font-size: 12px; font-weight: 700; }
 .personnel-metrics strong { margin-top: 4px; color: #172033; font-size: 24px; }
-.personnel-editor { margin-bottom: 18px; }
+.personnel-editor-backdrop {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .48);
+}
+.personnel-editor-modal {
+  width: min(820px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .25);
+}
+.personnel-editor-close {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border: 1px solid #dbe3ef;
+  border-radius: 50%;
+  background: #fff;
+  color: #64748b;
+  cursor: pointer;
+  font-size: 21px;
+  line-height: 1;
+}
 .personnel-form-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
 }
-.personnel-editor-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+.personnel-editor-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
 .personnel-list-panel { overflow: hidden; }
 .personnel-filters {
   display: grid;
@@ -3969,4 +3996,6 @@ a {
   .personnel-hero { align-items: stretch; }
   .personnel-form-grid,
   .personnel-filters { grid-template-columns: 1fr; }
+  .personnel-editor-backdrop { padding: 10px; }
+  .personnel-editor-modal { max-height: calc(100vh - 20px); }
 }

@@ -41,8 +41,12 @@ test('opens a complete account form for a new student', async () => {
   render(<PersonnelManagement />);
   fireEvent.click(await screen.findByRole('button', { name: '新增人員' }));
 
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: '新增人員' })).toBeInTheDocument();
   expect(screen.getByLabelText(/^初始密碼/)).toHaveAttribute('minLength', '9');
   expect(screen.getByLabelText('學號')).toBeRequired();
   expect(screen.getAllByRole('option', { name: '資訊三甲' })).toHaveLength(2);
+
+  fireEvent.keyDown(document, { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });

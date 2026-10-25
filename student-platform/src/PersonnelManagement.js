@@ -61,6 +61,20 @@ export default function PersonnelManagement() {
 
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!form) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    function closeOnEscape(event) {
+      if (event.key === 'Escape' && !busy) setForm(null);
+    }
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [busy, form]);
+
   const filteredPersonnel = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('zh-TW');
     return (data?.personnel || []).filter(person => {
@@ -197,17 +211,24 @@ export default function PersonnelManagement() {
       {message && <p className="question-review-message">{message}</p>}
 
       {form && (
-        <form className="teacher-panel personnel-editor" onSubmit={save}>
-          <div className="panel-title"><div><h3>{form.id ? '修改人員' : '新增人員'}</h3><p>{form.id ? '更新基本資料與角色。' : '建立 Supabase 登入帳號與人員資料。'}</p></div><button type="button" className="question-secondary-button compact" onClick={() => setForm(null)}>取消</button></div>
-          <div className="personnel-form-grid">
-            <label className="review-field"><span>姓名</span><input required value={form.name} onChange={event => updateForm('name', event.target.value)} /></label>
-            <label className="review-field"><span>Email</span><input required type="email" value={form.email} onChange={event => updateForm('email', event.target.value)} /></label>
-            {!form.id && <label className="review-field"><span>初始密碼</span><input required minLength={9} type="password" value={form.password} onChange={event => updateForm('password', event.target.value)} /><small>至少 9 個字元，系統不會顯示或保存明文密碼。</small></label>}
-            <label className="review-field"><span>角色</span><select value={form.role} onChange={event => updateForm('role', event.target.value)}><option value="student">學生</option><option value="teacher">教師</option><option value="campus">平台端</option></select></label>
-            {form.role === 'student' && <><label className="review-field"><span>學號</span><input required value={form.student_number} onChange={event => updateForm('student_number', event.target.value)} /></label><label className="review-field"><span>班級</span><select value={form.class_id} onChange={event => updateForm('class_id', event.target.value)}><option value="">未分班</option>{(data.classes || []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
-          </div>
-          <div className="personnel-editor-actions"><button type="submit" className="question-save-button" disabled={Boolean(busy)}>{busy === 'save' ? '儲存中...' : '儲存人員'}</button></div>
-        </form>
+        <div
+          className="personnel-editor-backdrop"
+          onMouseDown={event => {
+            if (event.target === event.currentTarget && !busy) setForm(null);
+          }}
+        >
+          <form className="teacher-panel personnel-editor-modal" onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="personnel-editor-title">
+            <div className="panel-title"><div><h3 id="personnel-editor-title">{form.id ? '修改人員' : '新增人員'}</h3><p>{form.id ? '更新基本資料與角色。' : '建立 Supabase 登入帳號與人員資料。'}</p></div><button type="button" className="personnel-editor-close" aria-label="關閉人員編輯視窗" onClick={() => setForm(null)}>×</button></div>
+            <div className="personnel-form-grid">
+              <label className="review-field"><span>姓名</span><input autoFocus required value={form.name} onChange={event => updateForm('name', event.target.value)} /></label>
+              <label className="review-field"><span>Email</span><input required type="email" value={form.email} onChange={event => updateForm('email', event.target.value)} /></label>
+              {!form.id && <label className="review-field"><span>初始密碼</span><input required minLength={9} type="password" value={form.password} onChange={event => updateForm('password', event.target.value)} /><small>至少 9 個字元，系統不會顯示或保存明文密碼。</small></label>}
+              <label className="review-field"><span>角色</span><select value={form.role} onChange={event => updateForm('role', event.target.value)}><option value="student">學生</option><option value="teacher">教師</option><option value="campus">平台端</option></select></label>
+              {form.role === 'student' && <><label className="review-field"><span>學號</span><input required value={form.student_number} onChange={event => updateForm('student_number', event.target.value)} /></label><label className="review-field"><span>班級</span><select value={form.class_id} onChange={event => updateForm('class_id', event.target.value)}><option value="">未分班</option>{(data.classes || []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
+            </div>
+            <div className="personnel-editor-actions"><button type="button" className="question-secondary-button" onClick={() => setForm(null)} disabled={Boolean(busy)}>取消</button><button type="submit" className="question-save-button" disabled={Boolean(busy)}>{busy === 'save' ? '儲存中...' : '儲存人員'}</button></div>
+          </form>
+        </div>
       )}
 
       <section className="teacher-panel personnel-list-panel">
