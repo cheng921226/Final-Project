@@ -18,6 +18,7 @@ from routers.chat import router as chat_router
 from routers.campus import router as campus_router
 from routers.course_management import router as course_management_router
 from routers.email import router as email_router
+from routers.enrollments import router as enrollments_router
 from routers.final_assessment import router as final_assessment_router
 from routers.lectures import router as lectures_router
 from routers.pipeline import router as pipeline_router
@@ -61,6 +62,7 @@ app.include_router(chat_router)
 app.include_router(campus_router)
 app.include_router(course_management_router)
 app.include_router(email_router)
+app.include_router(enrollments_router)
 app.include_router(final_assessment_router)
 app.include_router(lectures_router)
 app.include_router(pipeline_router)

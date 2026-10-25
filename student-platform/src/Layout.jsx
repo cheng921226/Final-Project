@@ -257,6 +257,7 @@ export default function Layout({ token, setToken }) {
                                             <Link to="/teacher/upload" onClick={() => setTeacherMenuOpen(false)}>上傳課程</Link>
                                             <Link to="/teacher/credits" onClick={() => setTeacherMenuOpen(false)}>學分設定</Link>
                                             {user.role === 'campus' && <Link to="/campus/personnel" onClick={() => setTeacherMenuOpen(false)}>人員管理</Link>}
+                                            {user.role === 'campus' && <Link to="/campus/enrollments" onClick={() => setTeacherMenuOpen(false)}>選課管理</Link>}
                                         </div>
                                     )}
                                 </div>

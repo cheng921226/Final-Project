@@ -19,6 +19,7 @@ import Certificate from './Certificate';
 import CourseManagement from './CourseManagement';
 import PersonnelManagement from './PersonnelManagement';
 import ResetPassword from './ResetPassword';
+import EnrollmentManagement from './EnrollmentManagement';
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -56,6 +57,7 @@ export default function App() {
           <Route path="teacher/credits" element={<CreditSettings />} />
           <Route path="teacher/courses" element={<CourseManagement />} />
           <Route path="campus/personnel" element={<RequireAuth><PersonnelManagement /></RequireAuth>} />
+          <Route path="campus/enrollments" element={<RequireAuth><EnrollmentManagement /></RequireAuth>} />
         </Route>
       </Routes>
     </Router>

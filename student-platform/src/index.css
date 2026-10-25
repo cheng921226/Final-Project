@@ -4032,3 +4032,60 @@ a {
   .personnel-editor-modal { max-height: calc(100vh - 20px); }
   .personnel-import-modal { max-height: calc(100vh - 20px); }
 }
+
+.enrollment-page { width: min(1280px, calc(100% - 40px)); }
+.enrollment-course-panel { margin: 18px 0; }
+.enrollment-course-panel .searchable-course-select { max-width: 620px; }
+.enrollment-course-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(180px, .7fr);
+  gap: 12px;
+  margin-top: 18px;
+}
+.enrollment-course-summary > div {
+  display: flex;
+  min-height: 94px;
+  flex-direction: column;
+  justify-content: center;
+  padding: 16px 18px;
+  border: 1px solid #e2e8f0;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.enrollment-course-summary span { color: #64748b; font-size: 12px; font-weight: 700; }
+.enrollment-course-summary strong { margin-top: 4px; color: #172033; font-size: 20px; }
+.enrollment-course-summary small { margin-top: 4px; color: #94a3b8; }
+.enrollment-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.8fr) minmax(140px, 1fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+  margin: 16px 0;
+}
+.enrollment-toolbar label { display: grid; gap: 6px; }
+.enrollment-toolbar label > span { color: #64748b; font-size: 12px; font-weight: 700; }
+.enrollment-toolbar input:not([type="checkbox"]),
+.enrollment-toolbar select {
+  min-height: 42px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  padding: 8px 11px;
+  color: #172033;
+}
+.enrollment-batch-actions { display: flex; gap: 8px; }
+.enrollment-table th:first-child,
+.enrollment-table td:first-child { width: 38px; text-align: center; }
+.enrollment-table input[type="checkbox"] { width: 17px; height: 17px; accent-color: #5b50d6; }
+
+@media (max-width: 920px) {
+  .enrollment-page { width: min(100% - 24px, 1280px); }
+  .enrollment-toolbar { grid-template-columns: 1fr 1fr; }
+  .enrollment-batch-actions { justify-content: flex-end; }
+}
+
+@media (max-width: 580px) {
+  .enrollment-course-summary,
+  .enrollment-toolbar { grid-template-columns: 1fr; }
+  .enrollment-batch-actions > * { flex: 1; }
+}
