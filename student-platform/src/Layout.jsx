@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Outlet, Link, useNavigate } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 
 const API_URL = 'http://127.0.0.1:8000';
 const TOKEN_REFRESH_EARLY_MS = 60_000;
@@ -66,10 +66,18 @@ async function refreshAccessToken() {
 
 export default function Layout({ token, setToken }) {
     const navigate = useNavigate();
+    const location = useLocation();
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [teacherMenuOpen, setTeacherMenuOpen] = useState(false);
     const teacherMenuRef = useRef(null);
+    const showBackToTop = [
+        "/teacher",
+        "/teacher/courses",
+        "/teacher/questions",
+        "/teacher/final-assessment",
+        "/campus/personnel",
+    ].includes(location.pathname) || /^\/course\/[^/]+$/.test(location.pathname);
 
     useEffect(() => {
         if (!token) return undefined;
@@ -280,6 +288,17 @@ export default function Layout({ token, setToken }) {
             <main>
                 <Outlet />
             </main>
+            {showBackToTop && (
+                <button
+                    type="button"
+                    className="back-to-top-button"
+                    aria-label="返回最上方"
+                    title="返回最上方"
+                    onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+                >
+                    <span aria-hidden="true">↑</span>
+                </button>
+            )}
         </div>
     );
 }

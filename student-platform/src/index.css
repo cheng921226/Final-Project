@@ -1680,9 +1680,21 @@ a {
   align-items: start;
 }
 
+.question-review-grid > .teacher-panel:first-child {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .question-review-list {
   display: grid;
+  min-height: 0;
+  flex: 1;
   gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  padding-right: 4px;
 }
 
 .question-review-item {
@@ -1807,11 +1819,6 @@ a {
 .question-review-item small .question-review-status.unpublished {
   color: #475569;
   background: #e2e8f0;
-}
-
-.question-editor {
-  position: sticky;
-  top: 92px;
 }
 
 .question-editor-empty {
@@ -2754,10 +2761,23 @@ a {
 
   .question-review-grid {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+
+  .question-review-grid > .teacher-panel:first-child {
+    height: auto !important;
+    overflow: visible;
+  }
+
+  .question-review-list {
+    overflow: visible;
   }
 
   .question-editor {
     position: static;
+    height: auto;
+    overflow: visible;
   }
 
   .settings-grid {
@@ -4032,7 +4052,6 @@ a {
   .personnel-editor-modal { max-height: calc(100vh - 20px); }
   .personnel-import-modal { max-height: calc(100vh - 20px); }
 }
-
 .enrollment-page { width: min(1280px, calc(100% - 40px)); }
 .enrollment-course-panel { margin: 18px 0; }
 .enrollment-course-panel .searchable-course-select { max-width: 620px; }
@@ -4088,4 +4107,30 @@ a {
   .enrollment-course-summary,
   .enrollment-toolbar { grid-template-columns: 1fr; }
   .enrollment-batch-actions > * { flex: 1; }
+}
+
+.back-to-top-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 24%);
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+  transition: background-color .2s ease, transform .2s ease;
+}
+.back-to-top-button:hover { background: #1d4ed8; transform: translateY(-2px); }
+.back-to-top-button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+
+@media (max-width: 580px) {
+  .back-to-top-button { right: 16px; bottom: 16px; width: 44px; height: 44px; }
 }

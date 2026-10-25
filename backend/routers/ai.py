@@ -497,6 +497,8 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
                     }}
                 ]}}            
             使用繁體中文。每題固定 4 個選項，且 answer 只能是 A、B、C 或 D。
+            題目、選項與解析請直接呈現課程知識，不要提及「逐字稿」或描述資訊來源。
+            不要使用「根據逐字稿」、「逐字稿提到」、「依據上述內容」等說法。
             課程逐字稿：{transcript}
             知識點列表：{knowledge_points}
         """
