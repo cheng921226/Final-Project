@@ -104,6 +104,7 @@ export default function QuestionReview() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('all');
   const questionListPanelRef = useRef(null);
   const editorRef = useRef(null);
   const questionTextRef = useRef(null);
@@ -208,6 +209,9 @@ export default function QuestionReview() {
   const pendingQuestions = questions.filter(question => question.review_status === 'pending');
   const unpublishedQuestions = questions.filter(question => question.review_status === 'unpublished');
   const publishedQuestions = questions.filter(question => question.review_status === 'published');
+  const filteredQuestions = statusFilter === 'all'
+    ? questions
+    : questions.filter(question => (question.review_status || 'published') === statusFilter);
   const knowledgePoints = lecture?.knowledge_points || [];
   const availableAnswers = useMemo(() => answerChoices(form.options_text), [form.options_text]);
 
@@ -277,6 +281,7 @@ export default function QuestionReview() {
 
   function changeLecture(nextLectureId) {
     setLectureId(nextLectureId);
+    setStatusFilter('all');
     setForm({ ...EMPTY_FORM, lecture_id: nextLectureId });
     setEditorOpen(false);
     setMessage('');
@@ -516,7 +521,20 @@ export default function QuestionReview() {
           <div className="panel-title">
             <div>
               <h3>{lecture?.title || '小節題目'}</h3>
-              <p>{pendingQuestions.length} 題待審核 · {unpublishedQuestions.length} 題未發布 · {publishedQuestions.length} 題已發布</p>
+              <div className="question-review-status-filters" aria-label="依題目狀態篩選">
+                <button type="button" className={statusFilter === 'all' ? 'active' : ''} aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
+                  全部 {questions.length}
+                </button>
+                <button type="button" className={`pending ${statusFilter === 'pending' ? 'active' : ''}`} aria-pressed={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')}>
+                  待審核 {pendingQuestions.length}
+                </button>
+                <button type="button" className={`unpublished ${statusFilter === 'unpublished' ? 'active' : ''}`} aria-pressed={statusFilter === 'unpublished'} onClick={() => setStatusFilter('unpublished')}>
+                  未發布 {unpublishedQuestions.length}
+                </button>
+                <button type="button" className={`published ${statusFilter === 'published' ? 'active' : ''}`} aria-pressed={statusFilter === 'published'} onClick={() => setStatusFilter('published')}>
+                  已發布 {publishedQuestions.length}
+                </button>
+              </div>
             </div>
             <div className="question-review-toolbar">
               {pendingQuestions.length > 0 && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>全部核准發布</button>}
@@ -526,7 +544,7 @@ export default function QuestionReview() {
 
           {questions.length ? (
             <div className="question-review-list">
-              {questions.map(question => (
+              {filteredQuestions.length ? filteredQuestions.map(question => (
                 <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
                   <button type="button" onClick={() => startEdit(question)}>
                     <small>
@@ -549,7 +567,7 @@ export default function QuestionReview() {
                     <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
                   </div>
                 </div>
-              ))}
+              )) : <div className="teacher-empty compact">這個狀態目前沒有題目。</div>}
             </div>
           ) : (
             <div className="teacher-empty compact">這個小節目前沒有題目。</div>
