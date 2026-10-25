@@ -1680,9 +1680,21 @@ a {
   align-items: start;
 }
 
+.question-review-grid > .teacher-panel:first-child {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .question-review-list {
   display: grid;
+  min-height: 0;
+  flex: 1;
   gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior-y: auto;
+  padding-right: 4px;
 }
 
 .question-review-item {
@@ -1807,11 +1819,6 @@ a {
 .question-review-item small .question-review-status.unpublished {
   color: #475569;
   background: #e2e8f0;
-}
-
-.question-editor {
-  position: sticky;
-  top: 92px;
 }
 
 .question-editor-empty {
@@ -2754,10 +2761,23 @@ a {
 
   .question-review-grid {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 0;
+  }
+
+  .question-review-grid > .teacher-panel:first-child {
+    height: auto !important;
+    overflow: visible;
+  }
+
+  .question-review-list {
+    overflow: visible;
   }
 
   .question-editor {
     position: static;
+    height: auto;
+    overflow: visible;
   }
 
   .settings-grid {

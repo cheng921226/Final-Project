@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
 
@@ -104,13 +104,40 @@ export default function QuestionReview() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
+  const questionListPanelRef = useRef(null);
   const editorRef = useRef(null);
   const questionTextRef = useRef(null);
 
+  useLayoutEffect(() => {
+    const listPanel = questionListPanelRef.current;
+    const editor = editorRef.current;
+    if (!listPanel) return undefined;
+
+    const syncPanelHeight = () => {
+      if (window.innerWidth <= 900 || !editor) {
+        listPanel.style.height = '';
+        return;
+      }
+      listPanel.style.height = `${editor.getBoundingClientRect().height}px`;
+    };
+
+    syncPanelHeight();
+    window.addEventListener('resize', syncPanelHeight);
+    const observer = typeof ResizeObserver === 'undefined' || !editor
+      ? null
+      : new ResizeObserver(syncPanelHeight);
+    observer?.observe(editor);
+
+    return () => {
+      window.removeEventListener('resize', syncPanelHeight);
+      observer?.disconnect();
+      listPanel.style.height = '';
+    };
+  }, [editorOpen, lectureId, data]);
+
   function focusEditor() {
     setTimeout(() => {
-      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      questionTextRef.current?.focus();
+      questionTextRef.current?.focus({ preventScroll: true });
     }, 0);
   }
 
@@ -183,6 +210,23 @@ export default function QuestionReview() {
   const publishedQuestions = questions.filter(question => question.review_status === 'published');
   const knowledgePoints = lecture?.knowledge_points || [];
   const availableAnswers = useMemo(() => answerChoices(form.options_text), [form.options_text]);
+
+  function updateLectureQuestions(targetLectureId, updateQuestions) {
+    setData(current => {
+      if (!current) return current;
+      return {
+        ...current,
+        courses: current.courses.map(course => ({
+          ...course,
+          lectures: (course.lectures || []).map(item => (
+            String(item.id) === String(targetLectureId)
+              ? { ...item, questions: updateQuestions(item.questions || []) }
+              : item
+          )),
+        })),
+      };
+    });
+  }
 
   function changeOptions(optionsText) {
     const nextAnswers = answerChoices(optionsText);
@@ -292,10 +336,20 @@ export default function QuestionReview() {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.detail || '儲存題目失敗');
       }
+      const savedQuestion = await res.json();
+      updateLectureQuestions(payload.lecture_id, currentQuestions => {
+        const nextQuestions = form.id
+          ? currentQuestions.map(question => (
+              String(question.id) === String(form.id) ? savedQuestion : question
+            ))
+          : [...currentQuestions, savedQuestion];
+        return nextQuestions.sort((left, right) => (
+          (Number(left.source_timestamp) || 0) - (Number(right.source_timestamp) || 0)
+        ));
+      });
       setMessage(form.id ? '題目已更新。' : '題目已新增為未發布。');
       setForm({ ...EMPTY_FORM, lecture_id: String(payload.lecture_id) });
       setEditorOpen(false);
-      await loadReviewData(String(payload.lecture_id));
     } catch (err) {
       setMessage(err.message || '儲存題目失敗');
     } finally {
@@ -319,10 +373,13 @@ export default function QuestionReview() {
         throw new Error(body.detail || '刪除題目失敗');
       }
       setMessage('題目已刪除，歷史作答仍然保留。');
+      updateLectureQuestions(lectureId, currentQuestions => (
+        currentQuestions.filter(item => String(item.id) !== String(question.id))
+      ));
       if (form.id === question.id) {
         setForm({ ...EMPTY_FORM, lecture_id: lectureId });
+        setEditorOpen(false);
       }
-      await loadReviewData(lectureId);
     } catch (err) {
       setMessage(err.message || '刪除題目失敗');
     } finally {
@@ -348,7 +405,11 @@ export default function QuestionReview() {
         throw new Error(body.detail || `${actionLabel}題目失敗`);
       }
       setMessage(isPublishing ? '題目已發布，學生現在可以看到。' : '題目已設為未發布，仍保留在題目列表。');
-      await loadReviewData(lectureId);
+      updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(item => (
+        String(item.id) === String(question.id)
+          ? { ...item, review_status: isPublishing ? 'published' : 'unpublished' }
+          : item
+      )));
     } catch (err) {
       setMessage(err.message || `${actionLabel}題目失敗`);
     } finally {
@@ -371,7 +432,21 @@ export default function QuestionReview() {
       if (!res.ok) throw new Error(body.detail || '發布題目失敗');
       setMessage(`已發布 ${body.published_count || pendingQuestions.length} 題，學生現在可以看到新版題目。`);
       setEditorOpen(false);
-      await loadReviewData(lectureId);
+      updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(question => {
+        if (question.generation_batch_id === body.generation_batch_id) {
+          return { ...question, review_status: 'published' };
+        }
+        if (question.review_status === 'pending') {
+          return { ...question, review_status: 'unpublished' };
+        }
+        if (
+          question.review_status === 'published'
+          && ['ai', 'legacy'].includes(question.source_type)
+        ) {
+          return { ...question, review_status: 'unpublished' };
+        }
+        return question;
+      }));
     } catch (err) {
       setMessage(err.message || '發布題目失敗');
     } finally {
@@ -437,7 +512,7 @@ export default function QuestionReview() {
       {message && <p className="question-review-message">{message}</p>}
 
       <section className="question-review-grid">
-        <article className="teacher-panel">
+        <article className="teacher-panel" ref={questionListPanelRef}>
           <div className="panel-title">
             <div>
               <h3>{lecture?.title || '小節題目'}</h3>
