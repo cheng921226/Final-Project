@@ -216,7 +216,14 @@ export default function CourseManagement() {
                   backup_updated_at: update.backup_updated_at,
                   content_status: {
                     ...lecture.content_status,
-                    generation_status: update.generation_status || {},
+                    // Polling only returns status rows that physically exist.
+                    // Legacy lectures infer completed states from their saved
+                    // content, so preserve those inferred values while merging
+                    // newer background-job updates.
+                    generation_status: {
+                      ...(lecture.content_status?.generation_status || {}),
+                      ...(update.generation_status || {}),
+                    },
                   },
                 };
               }),
