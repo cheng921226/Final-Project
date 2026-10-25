@@ -4032,3 +4032,28 @@ a {
   .personnel-editor-modal { max-height: calc(100vh - 20px); }
   .personnel-import-modal { max-height: calc(100vh - 20px); }
 }
+.back-to-top-button {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 1000;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: #2563eb;
+  color: #fff;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 24%);
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+  transition: background-color .2s ease, transform .2s ease;
+}
+.back-to-top-button:hover { background: #1d4ed8; transform: translateY(-2px); }
+.back-to-top-button:focus-visible { outline: 3px solid #93c5fd; outline-offset: 3px; }
+
+@media (max-width: 580px) {
+  .back-to-top-button { right: 16px; bottom: 16px; width: 44px; height: 44px; }
+}
