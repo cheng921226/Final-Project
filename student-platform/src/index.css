@@ -3860,6 +3860,7 @@ a {
 
 .personnel-page { width: min(1280px, calc(100% - 40px)); }
 .personnel-hero { align-items: center; }
+.personnel-primary-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .personnel-metrics {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -3893,6 +3894,12 @@ a {
   overflow-y: auto;
   box-shadow: 0 24px 70px rgba(15, 23, 42, .25);
 }
+.personnel-import-modal {
+  width: min(720px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+  box-shadow: 0 24px 70px rgba(15, 23, 42, .25);
+}
 .personnel-editor-close {
   display: grid;
   width: 34px;
@@ -3912,6 +3919,29 @@ a {
   gap: 14px;
 }
 .personnel-editor-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 18px; }
+.personnel-import-guide {
+  margin: 8px 0 16px;
+  padding: 14px;
+  border: 1px solid #dbe3ef;
+  border-radius: 9px;
+  background: #f8fafc;
+}
+.personnel-import-guide strong { color: #172033; }
+.personnel-import-guide p { margin: 5px 0 10px; color: #64748b; font-size: 13px; line-height: 1.6; }
+.personnel-file-field { display: grid; gap: 7px; color: #475569; font-size: 13px; font-weight: 800; }
+.personnel-file-field input {
+  padding: 12px;
+  border: 1px dashed #aebbd0;
+  border-radius: 9px;
+  background: #fff;
+}
+.personnel-import-result { margin-top: 16px; }
+.personnel-import-result > strong { color: #172033; }
+.personnel-import-errors { max-height: 230px; overflow: auto; margin-top: 9px; border: 1px solid #fecaca; border-radius: 8px; }
+.personnel-import-errors table { width: 100%; border-collapse: collapse; }
+.personnel-import-errors th,
+.personnel-import-errors td { padding: 8px 10px; border-bottom: 1px solid #fee2e2; color: #7f1d1d; font-size: 12px; text-align: left; }
+.personnel-import-errors th { position: sticky; top: 0; background: #fef2f2; }
 .personnel-list-panel { overflow: hidden; }
 .personnel-filters {
   display: grid;
@@ -3994,8 +4024,11 @@ a {
 
 @media (max-width: 580px) {
   .personnel-hero { align-items: stretch; }
+  .personnel-primary-actions { justify-content: stretch; }
+  .personnel-primary-actions > * { flex: 1; }
   .personnel-form-grid,
   .personnel-filters { grid-template-columns: 1fr; }
   .personnel-editor-backdrop { padding: 10px; }
   .personnel-editor-modal { max-height: calc(100vh - 20px); }
+  .personnel-import-modal { max-height: calc(100vh - 20px); }
 }

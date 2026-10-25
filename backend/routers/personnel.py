@@ -1,10 +1,12 @@
+import csv
+import io
 import os
 from datetime import datetime, timezone
 from typing import Literal
 
 from database.supabase import SUPABASE_KEY, SUPABASE_URL, supabase_admin
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel, EmailStr, Field, ValidationError
 from supabase import create_client
 
 from roles import CAMPUS_ROLE
@@ -38,6 +40,49 @@ class PersonnelStatusUpdate(BaseModel):
 
 class PasswordUpdate(BaseModel):
     password: str = Field(min_length=9, max_length=128)
+
+
+CSV_FIELDS = {
+    "name": ("name", "姓名"),
+    "email": ("email", "電子信箱", "信箱"),
+    "password": ("password", "初始密碼", "密碼"),
+    "role": ("role", "角色"),
+    "student_number": ("student_number", "學號"),
+    "class_name": ("class_name", "班級"),
+}
+CSV_ROLE_VALUES = {
+    "student": "student",
+    "學生": "student",
+    "teacher": "teacher",
+    "教師": "teacher",
+    "老師": "teacher",
+    "campus": "campus",
+    "平台端": "campus",
+    "校園平台端": "campus",
+}
+CLASS_GRADE_ORDER = {"一": 1, "二": 2, "三": 3, "四": 4}
+CLASS_SECTION_ORDER = {"甲": 1, "乙": 2, "丙": 3, "丁": 4}
+
+
+def class_sort_key(row: dict) -> tuple:
+    name = str(row.get("name") or "")
+    grade = next(
+        (order for marker, order in CLASS_GRADE_ORDER.items() if marker in name),
+        99,
+    )
+    section = next(
+        (order for marker, order in CLASS_SECTION_ORDER.items() if name.endswith(marker)),
+        99,
+    )
+    return grade, section, name
+
+
+def csv_value(row: dict[str, str], field: str) -> str:
+    for alias in CSV_FIELDS[field]:
+        key = alias.casefold()
+        if key in row:
+            return str(row.get(key) or "").strip()
+    return ""
 
 
 def require_campus(context: AuthContext) -> dict:
@@ -158,11 +203,11 @@ def get_personnel(context: AuthContext = Depends(get_auth_context)):
     classes = (
         supabase_admin.table("classes")
         .select("id,name")
-        .order("name")
         .execute()
         .data
         or []
     )
+    classes.sort(key=class_sort_key)
     class_map = {row["id"]: row for row in classes}
     auth_users = list_auth_users()
     return {
@@ -250,6 +295,96 @@ def create_personnel(
             except Exception:
                 pass
         raise HTTPException(status_code=400, detail=f"新增人員失敗：{exc}") from exc
+
+
+@router.post("/import.csv")
+def import_personnel_csv(
+    file: UploadFile = File(...),
+    context: AuthContext = Depends(get_auth_context),
+):
+    require_campus(context)
+    filename = (file.filename or "").lower()
+    if filename and not filename.endswith(".csv"):
+        raise HTTPException(status_code=422, detail="請上傳 CSV 檔案")
+    raw = file.file.read(2 * 1024 * 1024 + 1)
+    if len(raw) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="CSV 檔案不可超過 2 MB")
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=422, detail="CSV 必須使用 UTF-8 編碼") from exc
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise HTTPException(status_code=422, detail="CSV 沒有標題列")
+    normalized_headers = {
+        str(header or "").strip().casefold() for header in reader.fieldnames
+    }
+    if not any(alias.casefold() in normalized_headers for alias in CSV_FIELDS["name"]):
+        raise HTTPException(status_code=422, detail="CSV 缺少姓名欄位")
+    if not any(alias.casefold() in normalized_headers for alias in CSV_FIELDS["email"]):
+        raise HTTPException(status_code=422, detail="CSV 缺少 Email 欄位")
+    if not any(alias.casefold() in normalized_headers for alias in CSV_FIELDS["password"]):
+        raise HTTPException(status_code=422, detail="CSV 缺少初始密碼欄位")
+
+    classes = (
+        supabase_admin.table("classes")
+        .select("id,name")
+        .execute()
+        .data
+        or []
+    )
+    class_by_name = {
+        str(row.get("name") or "").strip().casefold(): row["id"] for row in classes
+    }
+    succeeded = 0
+    errors = []
+    processed = 0
+    for line_number, row in enumerate(reader, start=2):
+        row = {str(key or "").strip().casefold(): value for key, value in row.items()}
+        if not any(str(value or "").strip() for value in row.values()):
+            continue
+        processed += 1
+        if processed > 1000:
+            errors.append({"row": line_number, "email": "", "error": "一次最多匯入 1000 人"})
+            break
+        email = csv_value(row, "email")
+        try:
+            role_text = csv_value(row, "role") or "student"
+            role = CSV_ROLE_VALUES.get(role_text.casefold())
+            if not role:
+                raise ValueError("角色必須是學生、教師或平台端")
+            class_name = csv_value(row, "class_name")
+            class_id = None
+            if role == "student" and class_name:
+                class_id = class_by_name.get(class_name.casefold())
+                if class_id is None:
+                    raise ValueError(f"找不到班級：{class_name}")
+            payload = PersonnelCreate(
+                name=csv_value(row, "name"),
+                email=email,
+                password=csv_value(row, "password"),
+                role=role,
+                student_number=csv_value(row, "student_number") or None,
+                class_id=class_id,
+            )
+            create_personnel(payload, context)
+            succeeded += 1
+        except HTTPException as exc:
+            errors.append({"row": line_number, "email": email, "error": str(exc.detail)})
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            errors.append({"row": line_number, "email": email, "error": first.get("msg", "資料格式錯誤")})
+        except ValueError as exc:
+            errors.append({"row": line_number, "email": email, "error": str(exc)})
+
+    return {
+        "message": f"匯入完成：成功 {succeeded} 人，失敗 {len(errors)} 人",
+        "processed": processed,
+        "succeeded": succeeded,
+        "failed": len(errors),
+        "errors": errors,
+    }
 
 
 @router.patch("/{personnel_id}")

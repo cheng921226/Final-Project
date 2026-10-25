@@ -50,3 +50,37 @@ test('opens a complete account form for a new student', async () => {
   fireEvent.keyDown(document, { key: 'Escape' });
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
+
+test('imports a CSV roster and shows row errors without discarding successes', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => personnelData })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        message: '匯入完成：成功 1 人，失敗 1 人',
+        succeeded: 1,
+        failed: 1,
+        errors: [{ row: 3, email: 'bad@example.com', error: '找不到班級' }],
+      }),
+    })
+    .mockResolvedValueOnce({ ok: true, json: async () => personnelData });
+
+  render(<PersonnelManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: '匯入名冊' }));
+  const file = new File(
+    ['姓名,Email,初始密碼,角色,學號,班級\n學生一,stu1@example.com,123123123,學生,STU001,資訊三甲'],
+    'people.csv',
+    { type: 'text/csv' }
+  );
+  fireEvent.change(screen.getByLabelText('選擇 CSV 檔案'), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole('button', { name: '開始匯入' }));
+
+  expect(await screen.findByText('成功 1 人 · 失敗 1 人')).toBeInTheDocument();
+  expect(screen.getByText('bad@example.com')).toBeInTheDocument();
+  expect(screen.getByText('找不到班級')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/campus/personnel/import.csv',
+    expect.objectContaining({ method: 'POST', body: expect.any(FormData) })
+  );
+});

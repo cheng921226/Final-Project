@@ -25,6 +25,26 @@ function formFromPerson(person) {
   };
 }
 
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename, headers, rows) {
+  const csv = [headers, ...rows]
+    .map(row => row.map(csvCell).join(','))
+    .join('\r\n');
+  const url = URL.createObjectURL(new Blob([`\ufeff${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function PersonnelManagement() {
   const token = localStorage.getItem('access_token');
   const [data, setData] = useState(null);
@@ -37,6 +57,9 @@ export default function PersonnelManagement() {
   const [classFilter, setClassFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [form, setForm] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importResult, setImportResult] = useState(null);
 
   async function load() {
     if (!token) {
@@ -62,18 +85,21 @@ export default function PersonnelManagement() {
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!form) return undefined;
+    if (!form && !importOpen) return undefined;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     function closeOnEscape(event) {
-      if (event.key === 'Escape' && !busy) setForm(null);
+      if (event.key === 'Escape' && !busy) {
+        setForm(null);
+        setImportOpen(false);
+      }
     }
     document.addEventListener('keydown', closeOnEscape);
     return () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [busy, form]);
+  }, [busy, form, importOpen]);
 
   const filteredPersonnel = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase('zh-TW');
@@ -191,6 +217,58 @@ export default function PersonnelManagement() {
     }
   }
 
+  function exportPersonnel() {
+    downloadCsv(
+      `人員名冊-${new Date().toISOString().slice(0, 10)}.csv`,
+      ['姓名', 'Email', '角色', '學號', '班級', '帳號狀態', 'Email狀態', '最近登入'],
+      filteredPersonnel.map(person => [
+        person.name,
+        person.email,
+        ROLE_LABELS[person.role] || person.role,
+        person.student_number,
+        person.class_name,
+        STATUS_LABELS[person.account_status] || person.account_status,
+        person.email_confirmed ? '已確認' : '未確認',
+        person.last_sign_in_at ? new Date(person.last_sign_in_at).toLocaleString('zh-TW') : '',
+      ])
+    );
+    setMessage(`已匯出目前篩選結果，共 ${filteredPersonnel.length} 人。`);
+  }
+
+  function downloadImportTemplate() {
+    downloadCsv(
+      '人員名冊匯入範本.csv',
+      ['姓名', 'Email', '初始密碼', '角色', '學號', '班級'],
+      []
+    );
+  }
+
+  async function importPersonnel(event) {
+    event.preventDefault();
+    if (!importFile || busy) return;
+    setBusy('import');
+    setImportResult(null);
+    setMessage('');
+    try {
+      const formData = new FormData();
+      formData.append('file', importFile);
+      const response = await fetch(`${API_URL}/campus/personnel/import.csv`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || '名冊匯入失敗');
+      setImportResult(body);
+      setMessage(body.message);
+      await load();
+    } catch (err) {
+      setImportResult({ succeeded: 0, failed: 1, errors: [{ row: '—', email: '', error: err.message || '名冊匯入失敗' }] });
+    } finally {
+      setBusy('');
+    }
+  }
+
   if (loading) return <div className="teacher-state"><div className="teacher-loader" /><p>正在載入人員資料...</p></div>;
   if (error) return <div className="teacher-state"><span className="teacher-state-icon">!</span><h1>無法開啟人員管理</h1><p>{error}</p></div>;
 
@@ -198,7 +276,7 @@ export default function PersonnelManagement() {
     <div className="teacher-page personnel-page">
       <header className="teacher-hero personnel-hero">
         <div><p className="eyebrow">Personnel</p><h1>人員管理</h1><p>管理學生、教師與平台端的基本資料及登入狀態。</p></div>
-        <button type="button" className="question-save-button" onClick={() => setForm({ ...EMPTY_FORM })}>新增人員</button>
+        <div className="personnel-primary-actions"><button type="button" className="question-secondary-button" onClick={exportPersonnel}>匯出目前名單</button><button type="button" className="question-secondary-button" onClick={() => { setImportOpen(true); setImportFile(null); setImportResult(null); }}>匯入名冊</button><button type="button" className="question-save-button" onClick={() => setForm({ ...EMPTY_FORM })}>新增人員</button></div>
       </header>
 
       <section className="personnel-metrics" aria-label="人員統計">
@@ -227,6 +305,18 @@ export default function PersonnelManagement() {
               {form.role === 'student' && <><label className="review-field"><span>學號</span><input required value={form.student_number} onChange={event => updateForm('student_number', event.target.value)} /></label><label className="review-field"><span>班級</span><select value={form.class_id} onChange={event => updateForm('class_id', event.target.value)}><option value="">未分班</option>{(data.classes || []).map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></>}
             </div>
             <div className="personnel-editor-actions"><button type="button" className="question-secondary-button" onClick={() => setForm(null)} disabled={Boolean(busy)}>取消</button><button type="submit" className="question-save-button" disabled={Boolean(busy)}>{busy === 'save' ? '儲存中...' : '儲存人員'}</button></div>
+          </form>
+        </div>
+      )}
+
+      {importOpen && (
+        <div className="personnel-editor-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) setImportOpen(false); }}>
+          <form className="teacher-panel personnel-import-modal" onSubmit={importPersonnel} role="dialog" aria-modal="true" aria-labelledby="personnel-import-title">
+            <div className="panel-title"><div><h3 id="personnel-import-title">匯入人員名冊</h3><p>CSV 每一列會建立一個 Supabase 登入帳號與人員資料。</p></div><button type="button" className="personnel-editor-close" aria-label="關閉名冊匯入視窗" onClick={() => setImportOpen(false)} disabled={Boolean(busy)}>×</button></div>
+            <div className="personnel-import-guide"><strong>必要欄位</strong><p>姓名、Email、初始密碼。角色未填時預設為學生；學生必須填學號，班級名稱需和系統完全一致。CSV 含有初始密碼，匯入完成後請妥善保管或刪除檔案。</p><button type="button" className="question-secondary-button compact" onClick={downloadImportTemplate}>下載 CSV 範本</button></div>
+            <label className="personnel-file-field"><span>選擇 CSV 檔案</span><input type="file" accept=".csv,text/csv" onChange={event => { setImportFile(event.target.files?.[0] || null); setImportResult(null); }} /></label>
+            {importResult && <div className="personnel-import-result"><strong>成功 {importResult.succeeded || 0} 人 · 失敗 {importResult.failed || 0} 人</strong>{Boolean(importResult.errors?.length) && <div className="personnel-import-errors"><table><thead><tr><th>列</th><th>Email</th><th>原因</th></tr></thead><tbody>{importResult.errors.map((item, index) => <tr key={`${item.row}-${index}`}><td>{item.row}</td><td>{item.email || '—'}</td><td>{item.error}</td></tr>)}</tbody></table></div>}</div>}
+            <div className="personnel-editor-actions"><button type="button" className="question-secondary-button" onClick={() => setImportOpen(false)} disabled={Boolean(busy)}>關閉</button><button type="submit" className="question-save-button" disabled={!importFile || Boolean(busy)}>{busy === 'import' ? '匯入中...' : '開始匯入'}</button></div>
           </form>
         </div>
       )}
