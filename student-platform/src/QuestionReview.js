@@ -57,6 +57,16 @@ function answerChoices(value) {
   }));
 }
 
+function renumberOptionPrefixes(value) {
+  return String(value || '')
+    .split('\n')
+    .map((line, index) => {
+      if (index >= 26 || !/^[A-Z][.、)]\s*/i.test(line)) return line;
+      return line.replace(/^[A-Z][.、)]\s*/i, `${String.fromCharCode(65 + index)}. `);
+    })
+    .join('\n');
+}
+
 function toPayload(form) {
   return {
     lecture_id: Number(form.lecture_id),
@@ -125,9 +135,15 @@ export default function QuestionReview() {
       setData(result);
 
       const firstCourse = result.courses?.[0];
-      const nextCourseId = courseId && result.courses?.some(course => String(course.id) === String(courseId))
-        ? courseId
-        : firstCourse?.id;
+      const preferredCourse = preferredLectureId
+        ? result.courses?.find(course =>
+            course.lectures?.some(lecture => String(lecture.id) === String(preferredLectureId))
+          )
+        : null;
+      const nextCourseId = preferredCourse?.id
+        || (courseId && result.courses?.some(course => String(course.id) === String(courseId))
+          ? courseId
+          : firstCourse?.id);
       const nextCourse = result.courses?.find(course => String(course.id) === String(nextCourseId)) || firstCourse;
       const nextLectureId = preferredLectureId && nextCourse?.lectures?.some(lecture => String(lecture.id) === String(preferredLectureId))
         ? preferredLectureId
@@ -176,6 +192,43 @@ export default function QuestionReview() {
       options_text: optionsText,
       answer: answerStillExists ? form.answer : (nextAnswers[0]?.value || ''),
     });
+  }
+
+  function handleOptionsKeyDown(event) {
+    const input = event.currentTarget;
+    const { selectionStart, selectionEnd, value } = input;
+    if (selectionStart === null || selectionEnd === null) return;
+
+    if (event.key === 'Enter') {
+      const lineIndex = value.slice(0, selectionStart).split('\n').length - 1;
+      if (lineIndex >= 25) return;
+
+      event.preventDefault();
+      const marker = '__OPTION_CURSOR__';
+      const nextPrefix = `${String.fromCharCode(66 + lineIndex)}. `;
+      const withNewLine = `${value.slice(0, selectionStart)}\n${nextPrefix}${marker}${value.slice(selectionEnd)}`;
+      const renumbered = renumberOptionPrefixes(withNewLine);
+      const nextCursor = renumbered.indexOf(marker);
+      const nextValue = renumbered.replace(marker, '');
+      changeOptions(nextValue);
+      window.requestAnimationFrame(() => {
+        input.setSelectionRange(nextCursor, nextCursor);
+      });
+      return;
+    }
+
+    if (event.key === 'Backspace' && selectionStart === selectionEnd) {
+      const lineStart = value.lastIndexOf('\n', selectionStart - 1) + 1;
+      const beforeCursor = value.slice(lineStart, selectionStart);
+      if (/^[A-Z][.、)]\s?$/i.test(beforeCursor)) {
+        event.preventDefault();
+        const nextValue = value.slice(0, lineStart) + value.slice(selectionStart);
+        changeOptions(nextValue);
+        window.requestAnimationFrame(() => {
+          input.setSelectionRange(lineStart, lineStart);
+        });
+      }
+    }
   }
 
   function changeLecture(nextLectureId) {
@@ -452,7 +505,8 @@ export default function QuestionReview() {
             <span>選項，每行一個</span>
             <textarea
               value={form.options_text}
-              onChange={event => changeOptions(event.target.value)}
+              onChange={event => changeOptions(renumberOptionPrefixes(event.target.value))}
+              onKeyDown={handleOptionsKeyDown}
               rows={5}
             />
           </label>

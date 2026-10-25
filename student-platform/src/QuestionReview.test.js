@@ -29,7 +29,43 @@ const reviewData = {
 
 afterEach(() => {
   localStorage.removeItem('access_token');
+  window.history.replaceState({}, '', '/');
   jest.restoreAllMocks();
+});
+
+test('opens the course and lecture provided by the course-management link', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  window.history.replaceState({}, '', '/teacher/questions?lecture=21');
+  global.fetch = jest.fn().mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      ...reviewData,
+      courses: [
+        reviewData.courses[0],
+        {
+          id: 20,
+          title: '演算法',
+          lectures: [{
+            id: 21,
+            title: '排序演算法',
+            knowledge_points: [],
+            questions: [{
+              ...reviewData.courses[0].lectures[0].questions[0],
+              id: 22,
+              lecture_id: 21,
+              question_text: '快速排序的核心操作是什麼？',
+            }],
+          }],
+        },
+      ],
+    }),
+  });
+
+  render(<QuestionReview />);
+
+  expect(await screen.findByText('快速排序的核心操作是什麼？')).toBeInTheDocument();
+  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('演算法');
+  expect(screen.getByRole('combobox', { name: '小節' })).toHaveValue('21');
 });
 
 test('shows pending AI questions and publishes the latest batch', async () => {
@@ -82,6 +118,31 @@ test('builds correct-answer choices from non-empty option lines', async () => {
   fireEvent.change(options, { target: { value: '第一個\n第二個' } });
   expect(answer.value).toBe('A');
   expect(Array.from(answer.options).map(option => option.value)).toEqual(['A', 'B']);
+});
+
+test('continues option letters on Enter and removes an empty prefix on Backspace', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, json: async () => reviewData });
+
+  render(<QuestionReview />);
+  await screen.findByText('堆疊使用哪一種順序？');
+  fireEvent.click(screen.getByRole('button', { name: '修改' }));
+
+  const options = screen.getByLabelText('選項，每行一個');
+  const firstLineEnd = options.value.indexOf('\n');
+  options.setSelectionRange(firstLineEnd, firstLineEnd);
+  fireEvent.keyDown(options, { key: 'Enter' });
+
+  expect(options).toHaveValue('A. FIFO\nB. \nC. LIFO');
+
+  const emptyPrefixEnd = 'A. FIFO\nB. '.length;
+  options.setSelectionRange(emptyPrefixEnd, emptyPrefixEnd);
+  fireEvent.keyDown(options, { key: 'Backspace' });
+
+  expect(options).toHaveValue('A. FIFO\n\nC. LIFO');
+
+  fireEvent.change(options, { target: { value: 'A. FIFO\nC. LIFO' } });
+  expect(options).toHaveValue('A. FIFO\nB. LIFO');
 });
 
 test('keeps pending, unpublished, and published questions visible', async () => {
