@@ -300,6 +300,8 @@ retry_questions 必須測試相同知識概念，但不能只是把原題改幾�
 retry_questions 可以使用不同情境、應用方式或例子，難度需與原題接近。
 retry_questions 不需要 source_timestamp，也不可以直接透露原題答案。
 每一題正式題目與 retry_questions 都必須有明確答案與 explanation。
+題目、選項與解析請直接呈現課程知識，不要提及「逐字稿」或描述資訊來源。
+不要使用「根據逐字稿」、「逐字稿提到」、「依據上述內容」等說法。
 請只輸出 JSON，且 JSON 格式必須穩定。
 
 JSON 格式：
