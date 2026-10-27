@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
+const NEXT_KNOWLEDGE_POINT_LEAD_SECONDS = 1;
+const END_OF_VIDEO_QUESTION_LEAD_SECONDS = 5;
 
 const EMPTY_FORM = {
   id: null,
@@ -301,6 +303,37 @@ export default function QuestionReview() {
     setEditorOpen(true);
     setMessage('');
     focusEditor();
+  }
+
+  function changeKnowledgePoint(nextKnowledgePointId) {
+    const pointIndex = knowledgePoints.findIndex(
+      item => String(item.id) === String(nextKnowledgePointId)
+    );
+    const point = pointIndex >= 0 ? knowledgePoints[pointIndex] : null;
+    const nextPoint = pointIndex >= 0 ? knowledgePoints[pointIndex + 1] : null;
+    const pointStart = normalizeNumber(point?.start_time);
+    const nextPointStart = normalizeNumber(nextPoint?.start_time);
+    const explicitEndTimestamp = normalizeNumber(point?.end_time);
+    const isLastKnowledgePoint = Boolean(point) && pointIndex === knowledgePoints.length - 1;
+    const videoDuration = normalizeNumber(lecture?.duration_seconds);
+    const fallbackTimestamp = !point
+      ? null
+      : isLastKnowledgePoint
+        ? (videoDuration !== null
+          ? videoDuration - END_OF_VIDEO_QUESTION_LEAD_SECONDS
+          : null)
+        : (nextPointStart !== null
+          ? nextPointStart - NEXT_KNOWLEDGE_POINT_LEAD_SECONDS
+          : null);
+    const calculatedTimestamp = explicitEndTimestamp ?? fallbackTimestamp;
+    const endTimestamp = calculatedTimestamp === null
+      ? null
+      : Math.max(pointStart ?? 0, calculatedTimestamp);
+    setForm(current => ({
+      ...current,
+      knowledge_point_id: nextKnowledgePointId,
+      ...(!current.id ? { source_timestamp: endTimestamp ?? '' } : {}),
+    }));
   }
 
   async function saveQuestion(event) {
@@ -645,7 +678,7 @@ export default function QuestionReview() {
             <span>對應知識點</span>
             <select
               value={form.knowledge_point_id}
-              onChange={event => setForm({ ...form, knowledge_point_id: event.target.value })}
+              onChange={event => changeKnowledgePoint(event.target.value)}
             >
               <option value="">不指定</option>
               {knowledgePoints.map(point => (

@@ -120,6 +120,100 @@ test('builds correct-answer choices from non-empty option lines', async () => {
   expect(Array.from(answer.options).map(option => option.value)).toEqual(['A', 'B']);
 });
 
+test('uses the selected knowledge point end time when it is available', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      ...reviewData,
+      courses: [{
+        ...reviewData.courses[0],
+        lectures: [{
+          ...reviewData.courses[0].lectures[0],
+          knowledge_points: [
+            {
+              id: 11,
+              lecture_id: 7,
+              title: '堆疊操作',
+              start_time: 30,
+              end_time: 80,
+            },
+            {
+              id: 12,
+              lecture_id: 7,
+              title: '佇列操作',
+              start_time: 100,
+              end_time: 150,
+            },
+          ],
+        }],
+      }],
+    }),
+  });
+
+  render(<QuestionReview />);
+  await screen.findByText('堆疊使用哪一種順序？');
+  fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
+  fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
+
+  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(80);
+});
+
+test('uses one second before the next knowledge point when the selected point has no end time', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      ...reviewData,
+      courses: [{
+        ...reviewData.courses[0],
+        lectures: [{
+          ...reviewData.courses[0].lectures[0],
+          knowledge_points: [
+            { id: 11, lecture_id: 7, title: '堆疊操作', start_time: 30, end_time: null },
+            { id: 12, lecture_id: 7, title: '佇列操作', start_time: 100, end_time: 150 },
+          ],
+        }],
+      }],
+    }),
+  });
+
+  render(<QuestionReview />);
+  await screen.findByText('堆疊使用哪一種順序？');
+  fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
+  fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
+
+  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(99);
+});
+
+test('places a new question five seconds before the video ends for the last open-ended knowledge point', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValueOnce({
+    ok: true,
+    json: async () => ({
+      ...reviewData,
+      courses: [{
+        ...reviewData.courses[0],
+        lectures: [{
+          ...reviewData.courses[0].lectures[0],
+          duration_seconds: 120,
+          knowledge_points: [
+            { id: 11, lecture_id: 7, title: '基礎概念', start_time: 0, end_time: 60 },
+            { id: 12, lecture_id: 7, title: '最後總結', start_time: 60, end_time: null },
+          ],
+        }],
+      }],
+    }),
+  });
+
+  render(<QuestionReview />);
+  await screen.findByText('堆疊使用哪一種順序？');
+  fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
+  fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '12' } });
+
+  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(115);
+});
+
 test('continues option letters on Enter and removes an empty prefix on Backspace', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, json: async () => reviewData });
