@@ -18,16 +18,30 @@ AI_REQUEST_TIMEOUT_MS = int(os.getenv("AI_REQUEST_TIMEOUT_MS", "120000"))
 gemini_client = genai.Client(
     http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
 )
-CONTENT_GENERATION_MODEL = os.getenv(
-    "GEMINI_CONTENT_MODEL", "gemini-3.8-flash"
+DEFAULT_CONTENT_GENERATION_MODELS = (
+    "gemini-3.8-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3.5-flash-lite",
 )
-CONTENT_FALLBACK_MODEL = os.getenv(
-    "GEMINI_CONTENT_FALLBACK_MODEL", "gemini-2.5-flash"
-)
+
+
+def get_content_generation_models() -> tuple[str, ...]:
+    configured_models = os.getenv("GEMINI_CONTENT_MODELS", "")
+    if configured_models.strip():
+        models = [model.strip() for model in configured_models.split(",")]
+    else:
+        # Keep the former single-model variables working for existing deployments.
+        primary_model = os.getenv("GEMINI_CONTENT_MODEL", "").strip()
+        fallback_model = os.getenv("GEMINI_CONTENT_FALLBACK_MODEL", "").strip()
+        models = [model for model in (primary_model, fallback_model) if model]
+        models.extend(DEFAULT_CONTENT_GENERATION_MODELS)
+
+    return tuple(dict.fromkeys(model for model in models if model))
 
 
 def generate_json_content(prompt: str):
-    models = list(dict.fromkeys([CONTENT_GENERATION_MODEL, CONTENT_FALLBACK_MODEL]))
+    models = get_content_generation_models()
     last_error: Exception | None = None
     for index, model in enumerate(models):
         try:
