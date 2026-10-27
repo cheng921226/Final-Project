@@ -576,7 +576,7 @@ export default function CourseManagement() {
                   <div className="managed-lecture-actions">
                     <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
                     <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
-                    {content.questions_pending_review > 0 && <Link className="question-secondary-button compact" to={`/teacher/questions?lecture=${lecture.id}`}>前往審題</Link>}
+                    <Link className="question-secondary-button compact" to={`/teacher/questions?lecture=${lecture.id}`}>前往審題</Link>
                     {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
                     <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
                     <button type="button" className="course-delete-button compact" disabled={Boolean(busyKey)} onClick={() => deleteLecture(lecture)}>{busyKey === `delete-lecture-${lecture.id}` ? '刪除中...' : '刪除小節'}</button>

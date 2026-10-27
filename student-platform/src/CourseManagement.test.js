@@ -155,6 +155,43 @@ test('asks before replacing an existing video backup', async () => {
   expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
+test('every lecture links directly to its matching question review scope', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 99, role: 'campus' },
+      courses: [{
+        ...baseCourse,
+        lectures: [
+          {
+            id: 48,
+            title: '沒有待審題目的小節',
+            media_url: 'https://www.youtube.com/watch?v=one',
+            backup_status: 'not_requested',
+            content_status: { questions_pending_review: 0, generation_status: {} },
+          },
+          {
+            id: 49,
+            title: '有待審題目的小節',
+            media_url: 'https://www.youtube.com/watch?v=two',
+            backup_status: 'not_requested',
+            content_status: { questions_pending_review: 3, generation_status: {} },
+          },
+        ],
+      }],
+      teachers: [],
+    }),
+  });
+
+  render(<CourseManagement />);
+
+  const links = await screen.findAllByRole('link', { name: '前往審題' });
+  expect(links).toHaveLength(2);
+  expect(links[0]).toHaveAttribute('href', '/teacher/questions?lecture=48');
+  expect(links[1]).toHaveAttribute('href', '/teacher/questions?lecture=49');
+});
+
 test('requires the exact course title before permanently deleting a course', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn()
