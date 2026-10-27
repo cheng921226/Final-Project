@@ -168,5 +168,84 @@ test('keeps pending, unpublished, and published questions visible', async () => 
   expect(await screen.findByText('待審題目')).toBeInTheDocument();
   expect(screen.getByText('未發布題目')).toBeInTheDocument();
   expect(screen.getByText('已發布題目')).toBeInTheDocument();
-  expect(screen.getByText('1 題待審核 · 1 題未發布 · 1 題已發布')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '待審核 1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '未發布 1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '已發布 1' })).toBeInTheDocument();
+});
+
+test('unpublishes a published question and updates the review list', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  const publishedQuestion = {
+    ...reviewData.courses[0].lectures[0].questions[0],
+    review_status: 'published',
+  };
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...reviewData,
+        courses: [{
+          ...reviewData.courses[0],
+          lectures: [{
+            ...reviewData.courses[0].lectures[0],
+            questions: [publishedQuestion],
+          }],
+        }],
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({ message: 'unpublished', question_id: 5 }),
+    });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+  render(<QuestionReview />);
+
+  fireEvent.click(await screen.findByRole('button', { name: '取消發布' }));
+
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('學生將不會看到這題'));
+  expect(global.fetch).toHaveBeenLastCalledWith(
+    'http://127.0.0.1:8000/teacher/questions/5/unpublish',
+    expect.objectContaining({ method: 'POST' })
+  );
+  expect(await screen.findByText('題目已設為未發布，仍保留在題目列表。')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '未發布 1' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '已發布 0' })).toBeInTheDocument();
+});
+
+test('shows a clear inline message when unpublishing is forbidden', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  const publishedQuestion = {
+    ...reviewData.courses[0].lectures[0].questions[0],
+    review_status: 'published',
+  };
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        ...reviewData,
+        courses: [{
+          ...reviewData.courses[0],
+          lectures: [{
+            ...reviewData.courses[0].lectures[0],
+            questions: [publishedQuestion],
+          }],
+        }],
+      }),
+    })
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 403,
+      json: async () => ({ detail: '沒有權限管理這門課的題目' }),
+    });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+
+  render(<QuestionReview />);
+
+  fireEvent.click(await screen.findByRole('button', { name: '取消發布' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    '你沒有權限變更這門課的題目。請由課程建立者或授課教師操作。'
+  );
+  expect(screen.getByRole('button', { name: '已發布 1' })).toBeInTheDocument();
 });

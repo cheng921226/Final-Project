@@ -1818,6 +1818,19 @@ a {
   gap: 8px;
 }
 
+.question-review-action-error {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 9px 11px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
 .question-review-toolbar {
   display: flex;
   flex-wrap: wrap;

@@ -103,6 +103,7 @@ export default function QuestionReview() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [questionActionError, setQuestionActionError] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const questionListPanelRef = useRef(null);
@@ -285,6 +286,7 @@ export default function QuestionReview() {
     setForm({ ...EMPTY_FORM, lecture_id: nextLectureId });
     setEditorOpen(false);
     setMessage('');
+    setQuestionActionError(null);
   }
 
   function startCreate() {
@@ -400,6 +402,7 @@ export default function QuestionReview() {
 
     setSaving(true);
     setMessage('');
+    setQuestionActionError(null);
     try {
       const res = await fetch(`${API_URL}/teacher/questions/${question.id}/${action}`, {
         method: 'POST',
@@ -407,7 +410,12 @@ export default function QuestionReview() {
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || `${actionLabel}題目失敗`);
+        const error = new Error(
+          res.status === 403
+            ? '你沒有權限變更這門課的題目。請由課程建立者或授課教師操作。'
+            : body.detail || `${actionLabel}題目失敗`
+        );
+        throw error;
       }
       setMessage(isPublishing ? '題目已發布，學生現在可以看到。' : '題目已設為未發布，仍保留在題目列表。');
       updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(item => (
@@ -416,7 +424,9 @@ export default function QuestionReview() {
           : item
       )));
     } catch (err) {
-      setMessage(err.message || `${actionLabel}題目失敗`);
+      const errorMessage = err.message || `${actionLabel}題目失敗`;
+      setMessage(`${actionLabel}失敗：${errorMessage}`);
+      setQuestionActionError({ questionId: question.id, message: errorMessage });
     } finally {
       setSaving(false);
     }
@@ -566,6 +576,11 @@ export default function QuestionReview() {
                     {question.review_status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
                     <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
                   </div>
+                  {String(questionActionError?.questionId) === String(question.id) && (
+                    <p className="question-review-action-error" role="alert">
+                      {questionActionError.message}
+                    </p>
+                  )}
                 </div>
               )) : <div className="teacher-empty compact">這個狀態目前沒有題目。</div>}
             </div>
