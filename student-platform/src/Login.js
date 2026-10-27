@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import AuthStory from './AuthStory';
+import BrandMark from './BrandMark';
 import { useNavigate, useLocation } from "react-router-dom";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -44,6 +46,7 @@ export default function Login({ setToken }) {
 
     return (
         <div className="auth-page">
+            <AuthStory />
             <form
                 className="auth-card"
                 onSubmit={(e) => {
@@ -51,7 +54,7 @@ export default function Login({ setToken }) {
                     handleLogin();
                 }}
             >
-                <div className="auth-icon">L</div>
+                <div className="auth-icon"><BrandMark /></div>
                 <h1>歡迎回來</h1>
                 {fromProtectedPage && (
                     <p className="auth-alert" style={{ marginBottom: '12px', color: '#b45309', background: '#fff7ed', border: '1px solid #fdba74', borderRadius: '8px', padding: '10px 12px', fontSize: '14px' }}>

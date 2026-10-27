@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
+import BrandMark from './BrandMark';
 
 const API_URL = 'http://127.0.0.1:8000';
 const TOKEN_REFRESH_EARLY_MS = 60_000;
@@ -228,9 +229,10 @@ export default function Layout({ token, setToken }) {
 
     return (
         <div className="app-shell">
-            <nav className="topbar">
+            <nav className="topbar" aria-label="主要導覽">
                 <Link to="/" className="brand" aria-label="首頁">
-                    <span className="brand-title">AI輔助線上學習平台</span>
+                    <span className="brand-mark"><BrandMark /></span>
+                    <span className="brand-wordmark"><span className="brand-title">AI輔助線上學習平台</span><small>LEARNING, CONNECTED.</small></span>
                 </Link>
 
                 <div className="nav-user">
@@ -240,8 +242,8 @@ export default function Layout({ token, setToken }) {
                         <>
                             {user.role === 'student' && (
                                 <>
-                                    <Link to="/review" className="review-nav-link">複習模式</Link>
-                                    <Link to="/achievements" className="review-nav-link">學習成就</Link>
+                                    <Link to="/review" className="review-nav-link" aria-current={location.pathname === '/review' ? 'page' : undefined}>複習模式</Link>
+                                    <Link to="/achievements" className="review-nav-link" aria-current={location.pathname === '/achievements' ? 'page' : undefined}>學習成就</Link>
                                 </>
                             )}
                             {['teacher', 'campus'].includes(user.role) && (

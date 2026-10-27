@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import AuthStory from './AuthStory';
+import BrandMark from './BrandMark';
 import { useNavigate, Link } from "react-router-dom";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -52,8 +54,9 @@ export default function Register() {
 
     return (
         <div className="auth-page">
+            <AuthStory />
             <div className="auth-card">
-                <div className="auth-icon">L</div>
+                <div className="auth-icon"><BrandMark /></div>
                 <h1>建立學習帳號</h1>
                 <p className="intro">一個帳號，保存你的課程與學習進度。</p>
 
