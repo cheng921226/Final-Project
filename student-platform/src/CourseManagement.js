@@ -90,6 +90,7 @@ export default function CourseManagement() {
   const [openTranscriptId, setOpenTranscriptId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState('');
+  const [pendingGeneration, setPendingGeneration] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const skipNextHistoryWarning = useRef(false);
@@ -99,7 +100,7 @@ export default function CourseManagement() {
     [courseId, data]
   );
   const hasActiveJobs = useMemo(
-    () => (data?.courses || []).some(course =>
+    () => Boolean(pendingGeneration) || (data?.courses || []).some(course =>
       (course.lectures || []).some(lecture =>
         ['pending', 'processing'].includes(lecture.backup_status)
         || Object.values(lecture.content_status?.generation_status || {}).some(
@@ -107,7 +108,7 @@ export default function CourseManagement() {
         )
       )
     ),
-    [data]
+    [data, pendingGeneration]
   );
   const isCampus = data?.actor?.role === 'campus';
   const hasUnsavedChanges = useMemo(() => {
@@ -202,6 +203,14 @@ export default function CourseManagement() {
           const statuses = new Map(
             (body.lectures || []).map(lecture => [String(lecture.id), lecture])
           );
+          setPendingGeneration(current => {
+            if (!current) return current;
+            const generation = statuses.get(String(current.lectureId))?.generation_status || {};
+            // An old completed/failed status may arrive before the request starts.
+            // Keep waiting until the server confirms it has begun processing.
+            const components = current.components.filter(component => generation[component]?.status !== 'processing');
+            return components.length ? { ...current, components } : null;
+          });
           setData(current => current ? {
             ...current,
             courses: (current.courses || []).map(course => ({
@@ -443,6 +452,7 @@ export default function CourseManagement() {
         : `確定要重新產生${label}嗎？`;
     if (!window.confirm(warning) || busyKey) return;
     setBusyKey(`ai-${lecture.id}-${component}`);
+    setPendingGeneration({ lectureId: lecture.id, components: [component] });
     setMessage('');
     try {
       const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}/regenerate`, {
@@ -459,6 +469,7 @@ export default function CourseManagement() {
     } catch (err) {
       setMessage(err.message || `${label}重新產生失敗`);
     } finally {
+      setPendingGeneration(null);
       setBusyKey('');
     }
   }
@@ -466,6 +477,12 @@ export default function CourseManagement() {
   async function retryFailed(lecture) {
     if (busyKey) return;
     setBusyKey(`retry-${lecture.id}`);
+    setPendingGeneration({
+      lectureId: lecture.id,
+      components: Object.entries(lecture.content_status?.generation_status || {})
+        .filter(([, item]) => item.status === 'failed')
+        .map(([component]) => component),
+    });
     setMessage('');
     try {
       const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}/retry-failed`, {
@@ -479,6 +496,7 @@ export default function CourseManagement() {
     } catch (err) {
       setMessage(err.message || '重新執行失敗項目失敗');
     } finally {
+      setPendingGeneration(null);
       setBusyKey('');
     }
   }
@@ -566,8 +584,9 @@ export default function CourseManagement() {
                   </div>
                   <div className="managed-content-status">
                     {Object.entries(GENERATION_LABELS).map(([key, label]) => {
-                      const status = generation[key]?.status || 'pending';
-                      return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
+                      const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
+                      const status = isPending ? 'pending' : generation[key]?.status || 'pending';
+                      return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={isPending ? '' : generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
                     })}
                     {content.questions_pending_review > 0 && <span className="processing">審題：{content.questions_pending_review} 題待審核</span>}
                     {content.questions_unpublished > 0 && <span>題目：{content.questions_unpublished} 題未發布</span>}

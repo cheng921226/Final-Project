@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import CourseManagement from './CourseManagement';
 
 jest.mock('react-router-dom', () => ({ Link: ({ children, to, ...props }) => <a href={to} {...props}>{children}</a> }), { virtual: true });
@@ -21,6 +21,82 @@ afterEach(() => {
   window.history.replaceState({}, '', '/');
   global.fetch = originalFetch;
   jest.restoreAllMocks();
+  jest.useRealTimers();
+});
+
+test.each([
+  ['摘要', 'completed', true],
+  ['摘要', 'completed', false],
+  ['重新執行失敗項目', 'failed', false],
+])('%s immediately shows waiting and settles after the request (success=%s/%s)', async (button, initialStatus, success) => {
+  localStorage.setItem('access_token', 'campus-token');
+  const lecture = {
+    id: 48,
+    title: '搜尋演算法',
+    content_status: {
+      transcript: true,
+      generation_status: {
+        summary: { status: initialStatus, error_message: '舊錯誤' },
+        mindmap: { status: 'completed' },
+      },
+    },
+  };
+  const managementResponse = {
+    actor: { id: 99, role: 'campus' },
+    courses: [{ ...baseCourse, lectures: [lecture] }],
+    teachers: [],
+  };
+  let finishRequest;
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => managementResponse })
+    .mockImplementationOnce(() => new Promise(resolve => { finishRequest = resolve; }))
+    .mockResolvedValue({ ok: true, json: async () => managementResponse });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<CourseManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: button }));
+
+  expect(screen.getByText('摘要：等待處理')).toHaveAttribute('title', '');
+  expect(screen.getByText('心智圖：已完成')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: button === '摘要' ? '處理中...' : '重試中...' })).toBeDisabled();
+
+  await act(async () => {
+    finishRequest({ ok: success, json: async () => success ? {} : { detail: '生成失敗' } });
+  });
+  expect(screen.queryByText('摘要：等待處理')).not.toBeInTheDocument();
+  if (success) expect(screen.getByText('搜尋演算法的摘要已重新產生。')).toBeInTheDocument();
+  else expect(screen.getByText('生成失敗')).toBeInTheDocument();
+});
+
+test('polls regeneration progress and ignores old completed states while waiting', async () => {
+  jest.useFakeTimers();
+  localStorage.setItem('access_token', 'campus-token');
+  const managementResponse = {
+    actor: { id: 99, role: 'campus' },
+    courses: [{ ...baseCourse, lectures: [{
+      id: 48,
+      title: '搜尋演算法',
+      content_status: { transcript: true, generation_status: { summary: { status: 'completed' } } },
+    }] }],
+    teachers: [],
+  };
+  let finishRequest;
+  let polledStatus = 'completed';
+  global.fetch = jest.fn(url => {
+    if (url.endsWith('/regenerate')) return new Promise(resolve => { finishRequest = resolve; });
+    return Promise.resolve({ ok: true, json: async () => url.endsWith('/job-statuses')
+      ? { lectures: [{ id: 48, generation_status: { summary: { status: polledStatus } } }] }
+      : managementResponse });
+  });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<CourseManagement />);
+  fireEvent.click(await screen.findByRole('button', { name: '摘要' }));
+  await act(async () => { jest.advanceTimersByTime(8000); });
+  expect(screen.getByText('摘要：等待處理')).toBeInTheDocument();
+  polledStatus = 'processing';
+  await act(async () => { jest.advanceTimersByTime(8000); });
+  expect(screen.getByText('摘要：處理中')).toBeInTheDocument();
+  await act(async () => { finishRequest({ ok: true, json: async () => ({}) }); });
+  expect(screen.getByText('摘要：已完成')).toBeInTheDocument();
 });
 
 test('teacher manages owned courses without teacher assignment control', async () => {
