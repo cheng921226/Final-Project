@@ -8,9 +8,18 @@ from services.transcription import (
     normalize_youtube_url,
 )
 from services.video_backup import safe_storage_filename, safe_storage_key_part
+from services.local_video import validate_local_video
 
 
 class YoutubeUtilityTests(unittest.TestCase):
+    def test_local_video_accepts_mp4_and_webm(self):
+        self.assertEqual(validate_local_video("lesson.mp4", "video/mp4"), (".mp4", "video/mp4"))
+        self.assertEqual(validate_local_video("lesson.webm", "video/webm"), (".webm", "video/webm"))
+
+    def test_local_video_rejects_unsupported_files(self):
+        with self.assertRaises(ValueError):
+            validate_local_video("lesson.mov", "video/quicktime")
+
     def test_common_urls_share_the_same_video_id(self):
         urls = [
             "https://www.youtube.com/watch?v=JSKtJqj2pwc",

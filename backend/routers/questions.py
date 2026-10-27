@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Any
 
 from database.supabase import supabase_admin
@@ -17,6 +18,11 @@ class QuestionAttemptCreate(BaseModel):
     lecture_id: int
     selected_answer: str
     video_time: int | None = Field(default=None, ge=0)
+
+
+class QuestionSkipCreate(BaseModel):
+    lecture_id: int
+    video_time: float | None = None
 
 
 class TeacherQuestionPayload(BaseModel):
@@ -59,6 +65,75 @@ def public_question(row: dict[str, Any]) -> dict[str, Any]:
         "question_type": row.get("question_type") or "original",
         "source_question_id": row.get("source_question_id"),
     }
+
+
+def _question_learning_state_rows(student_id: int, lecture_id: int):
+    try:
+        return (
+            supabase_admin.table("question_learning_states")
+            .select("*")
+            .eq("student_id", student_id)
+            .eq("lecture_id", lecture_id)
+            .execute()
+            .data
+            or []
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "讀取課堂練習狀態失敗，請先執行 "
+                f"local_video_and_classroom_practice.sql。原始錯誤：{exc}"
+            ),
+        ) from exc
+
+
+def _set_question_learning_state(
+    *,
+    student_id: int,
+    lecture_id: int,
+    question_id: int,
+    status: str,
+) -> dict[str, Any]:
+    now = datetime.now(timezone.utc).isoformat()
+    existing_rows = (
+        supabase_admin.table("question_learning_states")
+        .select("*")
+        .eq("student_id", student_id)
+        .eq("question_id", question_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    existing = existing_rows[0] if existing_rows else None
+    if status == "completed":
+        values = {"status": "completed", "completed_at": now, "updated_at": now}
+    else:
+        values = {"status": "skipped", "last_skipped_at": now, "updated_at": now}
+
+    if existing:
+        response = (
+            supabase_admin.table("question_learning_states")
+            .update(values)
+            .eq("id", existing["id"])
+            .execute()
+        )
+    else:
+        values.update(
+            {
+                "student_id": student_id,
+                "lecture_id": lecture_id,
+                "question_id": question_id,
+                "first_triggered_at": now if status == "skipped" else None,
+            }
+        )
+        response = (
+            supabase_admin.table("question_learning_states")
+            .insert(values)
+            .execute()
+        )
+    return (response.data or [{**(existing or {}), **values}])[0]
 
 
 def teacher_question(row: dict[str, Any]) -> dict[str, Any]:
@@ -229,13 +304,17 @@ def require_demo_user(user):
 
 
 @router.get("/lectures/{lecture_id}/questions")
-def get_lecture_questions(lecture_id: int, user=Depends(get_current_user)):
-    require_lecture_viewer(lecture_id, user, allow_campus_all=True)
+def get_lecture_questions(
+    lecture_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    require_lecture_viewer(lecture_id, context.user, allow_campus_all=True)
+    student_id = context.profile["id"]
     response = (
         supabase_admin.table("questions")
         .select(
             "id, lecture_id, knowledge_point_id, question_text, options_json, "
-            "explanation, source_timestamp, question_type, source_question_id"
+            "answer, explanation, source_timestamp, question_type, source_question_id"
         )
         .eq("lecture_id", lecture_id)
         .eq("question_type", "original")
@@ -244,12 +323,53 @@ def get_lecture_questions(lecture_id: int, user=Depends(get_current_user)):
         .order("source_timestamp")
         .execute()
     )
-    return [
-        public_question(row)
+    rows = [
+        row
         for row in response.data or []
         if row.get("source_timestamp") is not None
         and (row.get("question_type") or "original") == "original"
     ]
+    states = {
+        row["question_id"]: row
+        for row in _question_learning_state_rows(student_id, lecture_id)
+        if row.get("question_id") is not None
+    }
+    attempts = (
+        supabase_admin.table("question_attempts")
+        .select("*")
+        .eq("student_id", student_id)
+        .eq("lecture_id", lecture_id)
+        .order("answered_at")
+        .execute()
+        .data
+        or []
+    )
+    latest_attempts = {
+        attempt["question_id"]: attempt
+        for attempt in attempts
+        if attempt.get("question_id") is not None
+    }
+    result = []
+    for row in rows:
+        attempt = latest_attempts.get(row["id"])
+        state = states.get(row["id"])
+        status = "completed" if attempt else (state or {}).get("status", "unanswered")
+        item = {
+            **public_question(row),
+            "learning_status": status,
+            "was_skipped": bool(state and state.get("status") == "skipped"),
+            "last_attempt": None,
+        }
+        if attempt:
+            item["last_attempt"] = {
+                "selected_answer": attempt.get("selected_answer"),
+                "is_correct": attempt.get("is_correct"),
+                "video_time": attempt.get("video_time"),
+                "answered_at": attempt.get("answered_at"),
+                "correct_answer": normalize_answer(row.get("answer")),
+            }
+        result.append(item)
+    return result
 
 
 @router.get("/teacher/question-review")
@@ -563,6 +683,56 @@ def get_lecture_question_attempts(
     return response.data or []
 
 
+@router.post("/questions/{question_id}/skip")
+def skip_question(
+    question_id: int,
+    body: QuestionSkipCreate,
+    context: AuthContext = Depends(get_auth_context),
+):
+    student_id = context.profile["id"]
+    require_lecture_viewer(body.lecture_id, context.user)
+    question = (
+        supabase_admin.table("questions")
+        .select("id,lecture_id,is_active,review_status")
+        .eq("id", question_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not question or question.get("lecture_id") != body.lecture_id:
+        raise HTTPException(status_code=404, detail="找不到這道課堂練習")
+    if not question.get("is_active", True) or (
+        question.get("review_status") or "published"
+    ) != "published":
+        raise HTTPException(status_code=410, detail="這道題目目前無法作答")
+
+    existing_attempt = (
+        supabase_admin.table("question_attempts")
+        .select("id")
+        .eq("student_id", student_id)
+        .eq("question_id", question_id)
+        .limit(1)
+        .execute()
+        .data
+        or []
+    )
+    if existing_attempt:
+        return {"question_id": question_id, "status": "completed"}
+
+    state = _set_question_learning_state(
+        student_id=student_id,
+        lecture_id=body.lecture_id,
+        question_id=question_id,
+        status="skipped",
+    )
+    return {
+        "question_id": question_id,
+        "status": "skipped",
+        "video_time": body.video_time,
+        "state": state,
+    }
+
+
 @router.delete("/lectures/{lecture_id}/question-attempts")
 def reset_lecture_question_attempts(
     lecture_id: int,
@@ -576,6 +746,9 @@ def reset_lecture_question_attempts(
         .eq("student_id", context.profile["id"])
         .execute()
     )
+    supabase_admin.table("question_learning_states").delete().eq(
+        "lecture_id", lecture_id
+    ).eq("student_id", context.profile["id"]).execute()
     return {
         "message": "question attempts reset",
         "scope": "lecture",
@@ -616,6 +789,9 @@ def reset_course_question_attempts(
         .eq("student_id", context.profile["id"])
         .execute()
     )
+    supabase_admin.table("question_learning_states").delete().in_(
+        "lecture_id", lecture_ids
+    ).eq("student_id", context.profile["id"]).execute()
     return {
         "message": "question attempts reset",
         "scope": "course",
@@ -692,6 +868,19 @@ def create_question_attempt(
                 ),
             ) from fallback_exc
 
+    state_warning = None
+    try:
+        _set_question_learning_state(
+            student_id=student_id,
+            lecture_id=body.lecture_id,
+            question_id=question_id,
+            status="completed",
+        )
+    except Exception as exc:
+        # The answer itself is authoritative, so do not make the student submit
+        # twice if the auxiliary status row could not be updated.
+        state_warning = str(exc)
+
     return {
         "question_id": question_id,
         "selected_answer": selected_answer,
@@ -699,4 +888,5 @@ def create_question_attempt(
         "correct_answer": correct_answer,
         "explanation": question.get("explanation"),
         "attempt": (insert_response.data or [attempt_row])[0],
+        "state_warning": state_warning,
     }

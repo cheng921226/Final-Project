@@ -7,11 +7,19 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
+    calculate_file_sha256,
     extract_youtube_video_id,
     get_youtube_metadata,
     save_lecture_duration,
     save_transcript_segments,
     transcribe_media,
+)
+from services.local_video import (
+    MAX_LOCAL_VIDEO_BYTES,
+    create_local_video_signed_url,
+    remove_local_video,
+    upload_local_video,
+    validate_local_video,
 )
 from services.lecture_processing import (
     GENERATION_COMPONENTS,
@@ -23,7 +31,11 @@ from services.video_backup import (
     backup_lecture_video,
     create_backup_signed_url,
 )
-from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
+from services.pipeline_runner import (
+    PipelineStepError,
+    run_media_ai_pipeline,
+    run_youtube_ai_pipeline,
+)
 from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import (
     course_owner_for_creation,
@@ -34,6 +46,14 @@ from .teacher_access import (
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+def public_lecture(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in row.items()
+        if key not in {"backup_storage_path", "media_storage_path"}
+    }
 
 
 def run_automatic_lecture_pipeline(
@@ -72,6 +92,31 @@ def run_automatic_lecture_pipeline(
         lecture_id,
         pipeline_result.get("status", "unknown"),
     )
+
+
+def run_automatic_uploaded_pipeline(
+    lecture_id: int,
+    *,
+    file_path: str,
+    language: str,
+    model_size: str,
+) -> None:
+    """Process an uploaded video with the same AI stages as YouTube media."""
+    try:
+        run_media_ai_pipeline(
+            lecture_id,
+            file_path=file_path,
+            source="upload",
+            language=language,
+            model_size=model_size,
+            skip_existing_transcript=True,
+            skip_existing_ai=True,
+        )
+    except Exception:
+        logger.exception("Uploaded media pipeline failed lecture_id=%s", lecture_id)
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 # =====================================================================
 # 🗂️ 課程總表相關 (Courses)
@@ -163,7 +208,7 @@ def get_lectures_by_course(course_id: int):
         .order("id")
         .execute()
     )
-    return res.data
+    return [public_lecture(row) for row in (res.data or [])]
 
 
 # =====================================================================
@@ -189,10 +234,7 @@ class LectureCreate(BaseModel):
 @router.get("/lectures/{lecture_id}")
 def get_selected_lecture(lecture_id: int):
     res = supabase_admin.table("lectures").select("*").eq("id", lecture_id).execute()
-    return [
-        {key: value for key, value in row.items() if key != "backup_storage_path"}
-        for row in (res.data or [])
-    ]
+    return [public_lecture(row) for row in (res.data or [])]
 
 
 @router.post("/lectures")
@@ -413,6 +455,185 @@ def create_lecture(
             "status": "processing",
             "message": "教材已開始在背景產生，可以離開此頁面。",
         },
+    }
+
+
+@router.post("/lectures/upload")
+async def upload_lecture_video(
+    background_tasks: BackgroundTasks,
+    title: str = Form(...),
+    course_id: int = Form(...),
+    file: UploadFile = File(...),
+    language: str = Form(default="zh"),
+    model_size: str = Form(default="tiny"),
+    auto_process: bool = Form(default=True),
+    user=Depends(get_current_user),
+):
+    teacher = require_teacher(user)
+    require_course_manager(course_id, teacher)
+    if not title.strip():
+        raise HTTPException(status_code=422, detail="請輸入小節名稱")
+    try:
+        suffix, content_type = validate_local_video(file.filename, file.content_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    temp_path = None
+    storage_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
+            temp_path = temp_file.name
+            total_bytes = 0
+            while chunk := await file.read(1024 * 1024):
+                total_bytes += len(chunk)
+                if total_bytes > MAX_LOCAL_VIDEO_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=(
+                            "影片超過目前 Storage 單檔上限 "
+                            f"{MAX_LOCAL_VIDEO_BYTES // (1024 * 1024)} MB"
+                        ),
+                    )
+                temp_file.write(chunk)
+        if total_bytes == 0:
+            raise HTTPException(status_code=422, detail="影片檔案是空的")
+
+        source_hash = calculate_file_sha256(temp_path)
+        duplicate = (
+            supabase_admin.table("lectures")
+            .select("id,title,course_id,status")
+            .eq("course_id", course_id)
+            .eq("source_file_hash", source_hash)
+            .maybe_single()
+            .execute()
+            .data
+        )
+        if duplicate:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "DUPLICATE_LECTURE",
+                    "message": "此影片檔案已存在於目前課程中。",
+                    "lecture": duplicate,
+                },
+            )
+
+        storage_path = upload_local_video(
+            temp_path,
+            course_id=course_id,
+            original_filename=file.filename or f"video{suffix}",
+            content_type=content_type,
+        )
+        last_lecture = (
+            supabase_admin.table("lectures")
+            .select("sort_order")
+            .eq("course_id", course_id)
+            .order("sort_order", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        sort_order = (
+            int(last_lecture[0].get("sort_order") or 0) + 1
+            if last_lecture
+            else 0
+        )
+        inserted = (
+            supabase_admin.table("lectures")
+            .insert(
+                {
+                    "title": title.strip(),
+                    "course_id": course_id,
+                    "media_url": f"storage://lecture-videos/{storage_path}",
+                    "media_source": "upload",
+                    "media_storage_path": storage_path,
+                    "media_mime_type": content_type,
+                    "media_size_bytes": total_bytes,
+                    "source_file_name": file.filename,
+                    "source_file_hash": source_hash,
+                    "status": "uploaded",
+                    "backup_status": "not_requested",
+                    "sort_order": sort_order,
+                    "is_visible": True,
+                }
+            )
+            .execute()
+            .data
+            or []
+        )
+        if not inserted:
+            raise RuntimeError("新增小節失敗")
+        lecture = inserted[0]
+        for component in GENERATION_COMPONENTS:
+            set_generation_status(lecture["id"], component, "pending")
+
+        if auto_process:
+            background_tasks.add_task(
+                run_automatic_uploaded_pipeline,
+                lecture["id"],
+                file_path=temp_path,
+                language=language,
+                model_size=model_size,
+            )
+            temp_path = None
+        return {
+            **lecture,
+            "media_storage_path": None,
+            "pipeline": {
+                "status": "processing" if auto_process else "skipped",
+                "message": (
+                    "影片已安全上傳，教材正在背景產生。"
+                    if auto_process
+                    else "影片已安全上傳。"
+                ),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Local video upload failed course_id=%s", course_id)
+        raise HTTPException(status_code=500, detail=f"影片上傳失敗：{exc}") from exc
+    finally:
+        if storage_path and "lecture" not in locals():
+            try:
+                remove_local_video(storage_path)
+            except Exception:
+                pass
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+@router.get("/lectures/{lecture_id}/media")
+def get_uploaded_lecture_media(
+    lecture_id: int,
+    user=Depends(get_current_user),
+):
+    from .questions import require_lecture_viewer
+
+    require_lecture_viewer(lecture_id, user)
+    lecture = (
+        supabase_admin.table("lectures")
+        .select("id,media_source,media_storage_path,media_mime_type")
+        .eq("id", lecture_id)
+        .maybe_single()
+        .execute()
+        .data
+    )
+    if not lecture:
+        raise HTTPException(status_code=404, detail="找不到課程小節")
+    if lecture.get("media_source") != "upload" or not lecture.get(
+        "media_storage_path"
+    ):
+        raise HTTPException(status_code=404, detail="此小節不是本機上傳影片")
+    return {
+        "lecture_id": lecture_id,
+        "source": "upload",
+        "content_type": lecture.get("media_mime_type"),
+        "playback_url": create_local_video_signed_url(
+            lecture["media_storage_path"]
+        ),
+        "expires_in": 3600,
     }
 
 

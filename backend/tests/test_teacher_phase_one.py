@@ -22,9 +22,11 @@ from routers.teacher_analytics import (
     generate_ai_teaching_recommendation,
 )
 from routers.questions import (
+    QuestionSkipCreate,
     delete_teacher_question,
     get_lecture_questions,
     require_lecture_viewer,
+    skip_question,
     validate_question_options,
 )
 from routers.course_management import (
@@ -480,9 +482,14 @@ class TeacherAuthorizationTests(unittest.TestCase):
         with (
             patch("routers.questions.supabase_admin", database),
             patch("routers.questions.require_lecture_viewer", return_value={"id": 7}),
+            patch("routers.questions._question_learning_state_rows", return_value=[]),
         ):
             result = get_lecture_questions(
-                7, SimpleNamespace(id="student-auth")
+                7,
+                SimpleNamespace(
+                    user=SimpleNamespace(id="student-auth"),
+                    profile={"id": 20},
+                ),
             )
 
         query.eq.assert_any_call("review_status", "published")
@@ -525,6 +532,57 @@ class TeacherAuthorizationTests(unittest.TestCase):
                 require_lecture_viewer(7, SimpleNamespace(id="campus-auth"))
 
         self.assertEqual(context.exception.status_code, 403)
+
+    def test_skipping_question_does_not_create_fake_attempt(self):
+        question_query = Mock()
+        question_query.select.return_value = question_query
+        question_query.eq.return_value = question_query
+        question_query.maybe_single.return_value = question_query
+        question_query.execute.return_value = FakeResponse({
+            "id": 5,
+            "lecture_id": 7,
+            "is_active": True,
+            "review_status": "published",
+        })
+
+        attempt_query = Mock()
+        attempt_query.select.return_value = attempt_query
+        attempt_query.eq.return_value = attempt_query
+        attempt_query.limit.return_value = attempt_query
+        attempt_query.execute.return_value = FakeResponse([])
+
+        state_query = Mock()
+        state_query.select.return_value = state_query
+        state_query.eq.return_value = state_query
+        state_query.limit.return_value = state_query
+        state_query.insert.return_value = state_query
+        state_query.execute.side_effect = [
+            FakeResponse([]),
+            FakeResponse([{"question_id": 5, "status": "skipped"}]),
+        ]
+
+        database = Mock()
+        database.table.side_effect = lambda name: {
+            "questions": question_query,
+            "question_attempts": attempt_query,
+            "question_learning_states": state_query,
+        }[name]
+        with (
+            patch("routers.questions.supabase_admin", database),
+            patch("routers.questions.require_lecture_viewer", return_value={"id": 7}),
+        ):
+            result = skip_question(
+                5,
+                QuestionSkipCreate(lecture_id=7, video_time=30),
+                SimpleNamespace(
+                    user=SimpleNamespace(id="student-auth"),
+                    profile={"id": 20},
+                ),
+            )
+
+        self.assertEqual(result["status"], "skipped")
+        attempt_query.insert.assert_not_called()
+        state_query.insert.assert_called_once()
 
     def test_correct_answer_must_match_the_number_of_options(self):
         validate_question_options(["選項一", "選項二", "選項三"], "C")

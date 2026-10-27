@@ -44,6 +44,140 @@ def get_existing_transcript_segments(lecture_id: int) -> list[dict[str, Any]] | 
     return None
 
 
+def run_media_ai_pipeline(
+    lecture_id: int,
+    *,
+    file_path: str | None,
+    source: str,
+    source_metadata: dict[str, Any] | None = None,
+    language: str | None = None,
+    model_size: str = "tiny",
+    word_timestamps: bool = False,
+    save_to_db: bool = True,
+    skip_existing_transcript: bool = True,
+    skip_existing_ai: bool = True,
+) -> dict[str, Any]:
+    """Run the shared transcription and AI generation stages for any media."""
+    metadata = source_metadata or {}
+    steps: dict[str, Any] = {}
+    existing_segments = (
+        get_existing_transcript_segments(lecture_id)
+        if skip_existing_transcript
+        else None
+    )
+
+    if existing_segments:
+        transcript_result = {
+            "language": language,
+            "language_probability": None,
+            "duration": metadata.get("duration"),
+            "text": " ".join(
+                segment.get("text", "")
+                for segment in existing_segments
+                if isinstance(segment, dict)
+            ),
+            "segments": existing_segments,
+        }
+        db_result = {
+            "saved_to_db": False,
+            "inserted": 0,
+            "db_error": None,
+            "status": "cached",
+        }
+        set_generation_status(lecture_id, "transcript", "completed")
+    else:
+        if not file_path:
+            raise PipelineStepError("MEDIA_MISSING", "找不到可供轉錄的媒體檔案")
+        set_generation_status(lecture_id, "transcript", "processing")
+        try:
+            transcript_result = transcribe_media(
+                file_path,
+                model_size=model_size,
+                language=language or None,
+                word_timestamps=word_timestamps,
+            )
+        except Exception as exc:
+            logger.exception("Transcription failed lecture_id=%s", lecture_id)
+            set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
+            raise PipelineStepError(
+                "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
+            ) from exc
+
+        db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
+        if save_to_db:
+            db_result = save_transcript_segments(
+                lecture_id, transcript_result["segments"]
+            )
+            if not db_result.get("saved_to_db"):
+                set_generation_status(
+                    lecture_id,
+                    "transcript",
+                    "failed",
+                    error=str(db_result.get("db_error")),
+                )
+                raise PipelineStepError(
+                    "TRANSCRIPT_SAVE_FAILED",
+                    f"逐字稿寫入資料庫失敗：{db_result.get('db_error')}",
+                )
+        set_generation_status(lecture_id, "transcript", "completed")
+
+    duration = metadata.get("duration") or transcript_result.get("duration")
+    if duration is not None:
+        try:
+            save_lecture_duration(lecture_id, duration)
+        except Exception as exc:
+            logger.warning(
+                "Failed to save lecture duration lecture_id=%s error_type=%s",
+                lecture_id,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            steps["duration"] = {
+                "status": "failed",
+                "code": "DURATION_SAVE_FAILED",
+                "error": str(exc),
+            }
+
+    try:
+        ai_steps = run_ai_generation_pipeline(
+            lecture_id,
+            transcript_result["segments"],
+            skip_existing=skip_existing_ai,
+        )
+    except Exception as exc:
+        raise PipelineStepError(
+            "AI_GENERATION_FAILED", f"AI 生成流程失敗：{exc}"
+        ) from exc
+
+    steps.update(ai_steps)
+    has_ai_error = any(
+        step.get("status") == "failed"
+        for step in ai_steps.values()
+        if isinstance(step, dict)
+    )
+    pipeline_status = "partial_success" if has_ai_error else "success"
+    logger.info(
+        "%s AI pipeline completed lecture_id=%s status=%s",
+        source,
+        lecture_id,
+        pipeline_status,
+    )
+    return {
+        "status": pipeline_status,
+        "lecture_id": lecture_id,
+        "source": source,
+        "transcription": {
+            "language": transcript_result["language"],
+            "language_probability": transcript_result["language_probability"],
+            "duration": transcript_result["duration"],
+            "text": transcript_result["text"],
+            "segments": transcript_result["segments"],
+            **db_result,
+        },
+        "ai_generation": steps,
+    }
+
+
 def run_youtube_ai_pipeline(
     lecture_id: int,
     url: str,
@@ -55,7 +189,6 @@ def run_youtube_ai_pipeline(
     skip_existing_ai: bool = True,
 ) -> dict[str, Any]:
     download_dir = None
-    steps: dict[str, Any] = {}
 
     try:
         existing_segments = (
@@ -78,26 +211,8 @@ def run_youtube_ai_pipeline(
                     "duration": None,
                 }
 
-            transcript_result = {
-                "language": language,
-                "language_probability": None,
-                "duration": None,
-                "text": " ".join(
-                    segment.get("text", "")
-                    for segment in existing_segments
-                    if isinstance(segment, dict)
-                ),
-                "segments": existing_segments,
-            }
-            db_result = {
-                "saved_to_db": False,
-                "inserted": 0,
-                "db_error": None,
-                "status": "cached",
-            }
-            set_generation_status(lecture_id, "transcript", "completed")
+            media_path = None
         else:
-            set_generation_status(lecture_id, "transcript", "processing")
             download_dir = tempfile.mkdtemp(prefix="youtube_pipeline_")
             try:
                 youtube_info = download_youtube_audio(url, output_dir=download_dir)
@@ -110,120 +225,24 @@ def run_youtube_ai_pipeline(
                     "DOWNLOAD_FAILED", f"無法下載 YouTube 音訊：{exc}"
                 ) from exc
 
-            try:
-                save_lecture_duration(lecture_id, youtube_info.get("duration"))
-            except Exception as exc:
-                logger.warning(
-                    "Failed to save lecture duration lecture_id=%s error_type=%s",
-                    lecture_id,
-                    type(exc).__name__,
-                    exc_info=True,
-                )
-                steps["duration"] = {
-                    "status": "failed",
-                    "code": "DURATION_SAVE_FAILED",
-                    "error": str(exc),
-                }
+            media_path = youtube_info["file_path"]
 
-            try:
-                transcript_result = transcribe_media(
-                    youtube_info["file_path"],
-                    model_size=model_size,
-                    language=language or None,
-                    word_timestamps=word_timestamps,
-                )
-            except Exception as exc:
-                logger.exception("Transcription failed lecture_id=%s", lecture_id)
-                set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
-                raise PipelineStepError(
-                    "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
-                ) from exc
-
-            db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
-            if save_to_db:
-                db_result = save_transcript_segments(
-                    lecture_id, transcript_result["segments"]
-                )
-                if not db_result.get("saved_to_db"):
-                    logger.error(
-                        "Transcript save failed for lecture_id=%s segments=%s: %s",
-                        lecture_id,
-                        len(transcript_result["segments"]),
-                        db_result.get("db_error"),
-                    )
-                    set_generation_status(
-                        lecture_id,
-                        "transcript",
-                        "failed",
-                        error=str(db_result.get("db_error")),
-                    )
-                    raise PipelineStepError(
-                        "TRANSCRIPT_SAVE_FAILED",
-                        f"逐字稿寫入資料庫失敗：{db_result.get('db_error')}",
-                    )
-                logger.info(
-                    "Transcript saved for lecture_id=%s segments=%s inserted=%s",
-                    lecture_id,
-                    len(transcript_result["segments"]),
-                    db_result.get("inserted", 0),
-                )
-            set_generation_status(lecture_id, "transcript", "completed")
-
-        if youtube_info.get("duration") is not None:
-            try:
-                save_lecture_duration(lecture_id, youtube_info["duration"])
-            except Exception as exc:
-                logger.warning(
-                    "Failed to save lecture duration lecture_id=%s error_type=%s",
-                    lecture_id,
-                    type(exc).__name__,
-                    exc_info=True,
-                )
-                steps["duration"] = {
-                    "status": "failed",
-                    "code": "DURATION_SAVE_FAILED",
-                    "error": str(exc),
-                }
-
-        try:
-            ai_steps = run_ai_generation_pipeline(
-                lecture_id,
-                transcript_result["segments"],
-                skip_existing=skip_existing_ai,
-            )
-        except Exception as exc:
-            raise PipelineStepError(
-                "AI_GENERATION_FAILED", f"AI 生成流程失敗：{exc}"
-            ) from exc
-
-        steps.update(ai_steps)
-        has_ai_error = any(
-            step.get("status") == "failed"
-            for step in ai_steps.values()
-            if isinstance(step, dict)
-        )
-        pipeline_status = "partial_success" if has_ai_error else "success"
-        logger.info(
-            "YouTube AI pipeline completed lecture_id=%s status=%s",
+        result = run_media_ai_pipeline(
             lecture_id,
-            pipeline_status,
+            file_path=media_path,
+            source="youtube",
+            source_metadata=youtube_info,
+            language=language,
+            model_size=model_size,
+            word_timestamps=word_timestamps,
+            save_to_db=save_to_db,
+            skip_existing_transcript=skip_existing_transcript,
+            skip_existing_ai=skip_existing_ai,
         )
-
         return {
-            "status": pipeline_status,
-            "lecture_id": lecture_id,
-            "source": "youtube",
+            **result,
             "youtube_title": youtube_info["title"],
             "youtube_url": youtube_info["webpage_url"],
-            "transcription": {
-                "language": transcript_result["language"],
-                "language_probability": transcript_result["language_probability"],
-                "duration": transcript_result["duration"],
-                "text": transcript_result["text"],
-                "segments": transcript_result["segments"],
-                **db_result,
-            },
-            "ai_generation": steps,
         }
     finally:
         if download_dir:

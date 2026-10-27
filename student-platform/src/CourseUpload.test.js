@@ -41,6 +41,8 @@ test('starts empty and lets the teacher search for a course', async () => {
   );
 
   const searchInput = await screen.findByRole('combobox', { name: '課程' });
+  expect(screen.getByRole('radio', { name: 'YouTube 連結' })).toBeChecked();
+  expect(screen.getByRole('radio', { name: '本機影片' })).toBeInTheDocument();
   expect(searchInput).toHaveValue('');
 
   fireEvent.change(searchInput, { target: { value: '資料' } });

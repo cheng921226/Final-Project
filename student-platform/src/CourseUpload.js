@@ -26,7 +26,10 @@ export default function CourseUpload() {
   const [activeCourseIndex, setActiveCourseIndex] = useState(0);
   const [newCourseTitle, setNewCourseTitle] = useState('');
   const [lectureTitle, setLectureTitle] = useState('');
+  const [sourceMode, setSourceMode] = useState('youtube');
   const [youtubeUrl, setYoutubeUrl] = useState('');
+  const [videoFile, setVideoFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [modelSize, setModelSize] = useState('tiny');
   const [backupVideo, setBackupVideo] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -118,10 +121,46 @@ export default function CourseUpload() {
 
   const canSubmit = useMemo(() => (
     lectureTitle.trim()
-    && youtubeUrl.trim()
+    && (sourceMode === 'youtube' ? youtubeUrl.trim() : videoFile)
     && (courseMode === 'new' ? newCourseTitle.trim() : courseId)
     && !processing
-  ), [courseId, courseMode, lectureTitle, newCourseTitle, processing, youtubeUrl]);
+  ), [courseId, courseMode, lectureTitle, newCourseTitle, processing, sourceMode, videoFile, youtubeUrl]);
+
+  function uploadLocalVideo(targetCourseId) {
+    const form = new FormData();
+    form.append('title', lectureTitle.trim());
+    form.append('course_id', String(targetCourseId));
+    form.append('file', videoFile);
+    form.append('language', 'zh');
+    form.append('model_size', modelSize);
+    form.append('auto_process', 'true');
+
+    return new Promise((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      request.open('POST', `${API_URL}/lectures/upload`);
+      request.setRequestHeader('Authorization', `Bearer ${token}`);
+      request.upload.onprogress = event => {
+        if (event.lengthComputable) {
+          setUploadProgress(Math.round((event.loaded / event.total) * 100));
+        }
+      };
+      request.onerror = () => reject(new Error('無法連線至後端，影片上傳失敗'));
+      request.onload = () => {
+        let body = {};
+        try { body = JSON.parse(request.responseText || '{}'); } catch { }
+        if (request.status >= 200 && request.status < 300) {
+          resolve(body);
+          return;
+        }
+        const detail = body.detail;
+        const message = typeof detail === 'object'
+          ? detail.message || JSON.stringify(detail)
+          : detail;
+        reject(new Error(message || '本機影片上傳失敗'));
+      };
+      request.send(form);
+    });
+  }
 
   async function createCourseIfNeeded() {
     if (courseMode === 'existing') return Number(courseId);
@@ -150,10 +189,23 @@ export default function CourseUpload() {
     if (!canSubmit) return;
 
     setProcessing(true);
+    setUploadProgress(0);
     setError('');
     setResult(null);
     try {
       const targetCourseId = await createCourseIfNeeded();
+      if (sourceMode === 'upload') {
+        const body = await uploadLocalVideo(targetCourseId);
+        setResult({ ...body, course_id: body.course_id ?? targetCourseId });
+        setLectureTitle('');
+        setVideoFile(null);
+        setUploadProgress(100);
+        if (courseMode === 'new') {
+          setNewCourseTitle('');
+          setCourseMode('existing');
+        }
+        return;
+      }
       const submitPayload = async overwriteExisting => {
         const response = await fetch(`${API_URL}/lectures`, {
           method: 'POST',
@@ -231,7 +283,7 @@ export default function CourseUpload() {
         <div>
           <p className="eyebrow">Course upload</p>
           <h1>上傳課程</h1>
-          <p>輸入 YouTube 連結後，後端會建立小節並自動產生逐字稿、摘要、知識點、心智圖與題目。</p>
+          <p>選擇 YouTube 或本機影片，後端會共用同一套流程產生逐字稿、摘要、知識點、心智圖與題目。</p>
         </div>
       </header>
 
@@ -239,6 +291,11 @@ export default function CourseUpload() {
         <div className="settings-switches segmented">
           <label><input type="radio" name="courseMode" checked={courseMode === 'existing'} onChange={() => setCourseMode('existing')} /> 選擇既有課程</label>
           <label><input type="radio" name="courseMode" checked={courseMode === 'new'} onChange={() => setCourseMode('new')} /> 建立新課程</label>
+        </div>
+
+        <div className="settings-switches segmented upload-source-switch" aria-label="影片來源">
+          <label><input type="radio" name="sourceMode" checked={sourceMode === 'youtube'} onChange={() => setSourceMode('youtube')} /> YouTube 連結</label>
+          <label><input type="radio" name="sourceMode" checked={sourceMode === 'upload'} onChange={() => setSourceMode('upload')} /> 本機影片</label>
         </div>
 
         {courseMode === 'existing' ? (
@@ -303,25 +360,46 @@ export default function CourseUpload() {
           </label>
         </div>
 
-        <label className="review-field">
-          <span>YouTube 連結</span>
-          <input value={youtubeUrl} onChange={event => setYoutubeUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
-        </label>
+        {sourceMode === 'youtube' ? (
+          <>
+            <label className="review-field">
+              <span>YouTube 連結</span>
+              <input value={youtubeUrl} onChange={event => setYoutubeUrl(event.target.value)} placeholder="https://www.youtube.com/watch?v=..." />
+            </label>
 
-        <label className="visibility-toggle upload-backup-toggle">
-          <input
-            type="checkbox"
-            checked={backupVideo}
-            onChange={event => setBackupVideo(event.target.checked)}
-          />
-          下載並備份影片
-          <small>備份會獨立處理；即使備份失敗，也不會中斷逐字稿與 AI 教材生成。</small>
-        </label>
+            <label className="visibility-toggle upload-backup-toggle">
+              <input
+                type="checkbox"
+                checked={backupVideo}
+                onChange={event => setBackupVideo(event.target.checked)}
+              />
+              下載並備份影片
+              <small>備份會獨立處理；即使備份失敗，也不會中斷逐字稿與 AI 教材生成。</small>
+            </label>
+          </>
+        ) : (
+          <label className="review-field upload-file-field">
+            <span>影片檔案</span>
+            <input
+              type="file"
+              accept="video/mp4,video/webm,.mp4,.webm"
+              onChange={event => setVideoFile(event.target.files?.[0] || null)}
+            />
+            <small>支援 MP4、WebM；目前單檔上限 48 MB。</small>
+          </label>
+        )}
+
+        {sourceMode === 'upload' && processing && (
+          <div className="upload-progress" aria-live="polite">
+            <div className="upload-progress-label"><span>影片上傳進度</span><strong>{uploadProgress}%</strong></div>
+            <div className="upload-progress-track"><span style={{ width: `${uploadProgress}%` }} /></div>
+          </div>
+        )}
 
         {error && <p className="auth-error">{error}</p>}
         <div className="question-editor-actions">
           <button className="question-save-button" type="submit" disabled={!canSubmit}>
-            {processing ? '正在產生 AI 資料...' : '建立並自動生成'}
+            {processing ? (sourceMode === 'upload' && uploadProgress < 100 ? '正在上傳影片...' : '正在建立教材...') : '建立並自動生成'}
           </button>
         </div>
       </form>
@@ -343,7 +421,8 @@ export default function CourseUpload() {
             <span>小節 ID：{result.id}</span>
             <span>狀態：{result.status}</span>
             <span>逐字稿：{result.pipeline?.status === 'processing' ? '處理中' : result.pipeline?.transcription?.saved_to_db ? '已寫入' : '使用既有資料或未寫入'}</span>
-            <span>影片備份：{result.backup_status === 'pending' ? '已排入處理' : '未要求'}</span>
+            <span>影片來源：{result.media_source === 'upload' ? '本機上傳' : 'YouTube'}</span>
+            {result.media_source !== 'upload' && <span>影片備份：{result.backup_status === 'pending' ? '已排入處理' : '未要求'}</span>}
           </div>
           <Link className="primary-link inline-action" to={`/course/${result.course_id}/lecture/${result.id}`}>前往小節</Link>
           <Link className="secondary-button inline-action" to={`/teacher/courses?course=${result.course_id}`}>前往課程管理查看進度</Link>

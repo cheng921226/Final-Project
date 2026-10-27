@@ -1,7 +1,12 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
+import {
+  findTimedQuestion,
+  lecturePlayerMode,
+  partitionPracticeQuestions,
+} from './classroomPractice';
 
 const API_URL = 'http://127.0.0.1:8000';
 const COMPLETION_THRESHOLD = 0.8;
@@ -127,6 +132,16 @@ async function fetchTimedQuestions(lectureId, signal, token) {
     .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
 }
 
+async function optionalRequest(request, fallback = null) {
+  try {
+    return await request;
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+    console.error('Optional lecture request failed:', error);
+    return fallback;
+  }
+}
+
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
   const token = localStorage.getItem('access_token');
   if (!token) return;
@@ -161,6 +176,7 @@ function LectureDetail() {
   const [videoError, setVideoError] = useState('');
   const [playerMode, setPlayerMode] = useState('youtube');
   const [backupInfo, setBackupInfo] = useState(null);
+  const [mediaInfo, setMediaInfo] = useState(null);
   const [mindmapMarkdown, setMindmapMarkdown] = useState('');
   const [notes, setNotes] = useState([]);
   const [noteTitle, setNoteTitle] = useState('');
@@ -177,6 +193,9 @@ function LectureDetail() {
   const [userProfile, setUserProfile] = useState(null);
   const [questions, setQuestions] = useState([]);
   const [activeQuestion, setActiveQuestion] = useState(null);
+  const [questionOrigin, setQuestionOrigin] = useState('timed');
+  const [welcomeReminder, setWelcomeReminder] = useState(false);
+  const [leavePrompt, setLeavePrompt] = useState(null);
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
@@ -186,6 +205,11 @@ function LectureDetail() {
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
   const [resettingQuestions, setResettingQuestions] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
+  const questionGroups = useMemo(
+    () => partitionPracticeQuestions(questions),
+    [questions]
+  );
+  const pendingQuestions = questionGroups.pending;
 
   // 進度顯示用 state
   const [watchedPercent, setWatchedPercent] = useState(0);
@@ -193,6 +217,7 @@ function LectureDetail() {
 
   const mindmapSvgRef = useRef(null);
   const playerRef = useRef(null);
+  const youtubeContainerRef = useRef(null);
   const htmlVideoRef = useRef(null);
   const switchPositionRef = useRef(null);
   const playerReadyRef = useRef(false);
@@ -213,6 +238,10 @@ function LectureDetail() {
   const questionsRef = useRef([]);
   const activeQuestionRef = useRef(null);
   const shownQuestionIdsRef = useRef(new Set());
+  const completedQuestionIdsRef = useRef(new Set());
+  const lastQuestionCheckTimeRef = useRef(null);
+  const practiceSectionRef = useRef(null);
+  const allowLeaveRef = useRef(false);
 
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInitialized, setChatInitialized] = useState(false);
@@ -267,11 +296,12 @@ function LectureDetail() {
   }
 
   const showTimedQuestion = useCallback((question, currentTime) => {
-    if (!question || activeQuestionRef.current) return;
+    if (!question || activeQuestionRef.current || completedQuestionIdsRef.current.has(question.id)) return;
 
     shownQuestionIdsRef.current.add(question.id);
     activeQuestionRef.current = question;
     setActiveQuestion(question);
+    setQuestionOrigin('timed');
     setSelectedAnswer('');
     setQuestionFeedback(null);
     // This pause is caused by the timed-question system, not by the student.
@@ -287,13 +317,14 @@ function LectureDetail() {
   const maybeShowTimedQuestion = useCallback((currentTime) => {
     if (activeQuestionRef.current) return;
 
-    const nextQuestion = questionsRef.current.find(question => {
-      const triggerTime = Number(question.source_timestamp);
-      return (
-        Number.isFinite(triggerTime) &&
-        currentTime >= triggerTime &&
-        !shownQuestionIdsRef.current.has(question.id)
-      );
+    const previousTime = lastQuestionCheckTimeRef.current;
+    lastQuestionCheckTimeRef.current = currentTime;
+    const nextQuestion = findTimedQuestion({
+      questions: questionsRef.current,
+      currentTime,
+      previousTime,
+      shownIds: shownQuestionIdsRef.current,
+      completedIds: completedQuestionIdsRef.current,
     });
 
     if (!nextQuestion) return;
@@ -501,6 +532,30 @@ function LectureDetail() {
     activeQuestionRef.current = activeQuestion;
   }, [activeQuestion]);
 
+  useEffect(() => {
+    if (!pendingQuestions.length) return undefined;
+    const handleBeforeUnload = event => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    const handleLinkClick = event => {
+      if (allowLeaveRef.current || event.defaultPrevented || event.button !== 0) return;
+      const anchor = event.target.closest?.('a[href]');
+      if (!anchor || anchor.target === '_blank' || anchor.hasAttribute('download')) return;
+      const target = new URL(anchor.href, window.location.href);
+      if (target.origin !== window.location.origin || target.href === window.location.href) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setLeavePrompt({ href: target.href });
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    document.addEventListener('click', handleLinkClick, true);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      document.removeEventListener('click', handleLinkClick, true);
+    };
+  }, [pendingQuestions.length]);
+
   // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
     const controller = new AbortController();
@@ -524,38 +579,53 @@ function LectureDetail() {
           chatRes,
         ] = await Promise.all([
           fetch(`${API_URL}/lectures/${lectureId}`, { signal }),
-          fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`, { signal }),
-          fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal }),
-          fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal }),
-          fetchTimedQuestions(lectureId, signal, token),
+          optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`, { signal })),
+          optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal })),
+          optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal })),
+          optionalRequest(fetchTimedQuestions(lectureId, signal, token), []),
           authOptions
-            ? fetch(`${API_URL}/video_progresses/${lectureId}`, authOptions)
+            ? optionalRequest(fetch(`${API_URL}/video_progresses/${lectureId}`, authOptions))
             : Promise.resolve(null),
           authOptions
-            ? fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, authOptions)
+            ? optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/question-attempts`, authOptions))
             : Promise.resolve(null),
           authOptions
-            ? fetch(`${API_URL}/lectures/${lectureId}/chats`, authOptions)
+            ? optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/chats`, authOptions))
             : Promise.resolve(null),
         ]);
 
         if (signal.aborted) return;
+        if (!lectureRes.ok) {
+          throw new Error(`無法載入小節資料 (HTTP ${lectureRes.status})`);
+        }
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const lecture = lectureData[0] || {};
-          const raw = lecture.media_url;
-          if (raw) {
+          if (lecturePlayerMode(lecture) === 'local') {
+            setVideoId('');
+            setBackupInfo(null);
+            const mediaRes = await fetch(`${API_URL}/lectures/${lectureId}/media`, {
+              headers: { Authorization: `Bearer ${token}` },
+              signal,
+            });
+            if (!mediaRes.ok) throw new Error('無法取得本機影片播放網址');
+            setMediaInfo(await mediaRes.json());
+            setPlayerMode('local');
+            setVideoError('');
+          } else {
+            const raw = lecture.media_url;
             const vid = extractYouTubeVideoId(raw);
+            setMediaInfo(null);
             if (vid) {
               setVideoId(vid);
               setVideoError('');
             } else {
               setVideoError('影片連結格式無法解析');
             }
+            setPlayerMode('youtube');
+            setBackupInfo({ status: lecture.backup_status || 'not_requested' });
           }
-          setPlayerMode('youtube');
-          setBackupInfo({ status: lecture.backup_status || 'not_requested' });
-          if (token && lecture.backup_status === 'completed') {
+          if (lecture.media_source !== 'upload' && token && lecture.backup_status === 'completed') {
             const backupRes = await fetch(`${API_URL}/lectures/${lectureId}/backup`, {
               headers: { Authorization: `Bearer ${token}` },
               signal,
@@ -638,7 +708,20 @@ function LectureDetail() {
 
         setChatInitialized(true);
 
+        completedQuestionIdsRef.current = new Set(
+          pendingQuestions
+            .filter(question => question.learning_status === 'completed')
+            .map(question => question.id)
+        );
+        shownQuestionIdsRef.current = new Set([
+          ...shownQuestionIdsRef.current,
+          ...completedQuestionIdsRef.current,
+        ]);
         setQuestions(pendingQuestions);
+        setWelcomeReminder(
+          pendingQuestions.some(question => question.learning_status === 'skipped')
+        );
+        lastQuestionCheckTimeRef.current = null;
       } catch (err) {
         if (err.name !== 'AbortError') setError(err.message || '取得資料失敗');
       } finally {
@@ -706,6 +789,8 @@ function LectureDetail() {
   // 初始化 YouTube IFrame API
   useEffect(() => {
     if (!videoId || playerMode !== 'youtube') return;
+    const youtubeContainer = youtubeContainerRef.current;
+    if (!youtubeContainer) return;
     const watchedSegments = watchedSegmentsRef.current;
     setVideoError('');
     playerReadyRef.current = false;
@@ -755,7 +840,15 @@ function LectureDetail() {
         playerRef.current = null;
       }
 
-      playerRef.current = new window.YT.Player('yt-player', {
+      // YouTube replaces its target node with an iframe. Keep that mutation
+      // inside a wrapper owned by React so source switching cannot make React
+      // remove a node that YouTube has already replaced.
+      const mountNode = document.createElement('div');
+      youtubeContainer.replaceChildren(mountNode);
+
+      playerRef.current = new window.YT.Player(mountNode, {
+        width: '100%',
+        height: '100%',
         videoId: videoId,
         playerVars: {
           rel: 0,
@@ -936,12 +1029,16 @@ function LectureDetail() {
       playerReadyRef.current = false;
       playerRef.current?.destroy?.();
       playerRef.current = null;
+      youtubeContainer.replaceChildren();
     };
   }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, schedulePauseHelp]);
 
-  // 備份影片 adapter：提供與 YouTube Player 相同的控制方法。
+  // HTML5 adapter：供備份影片與本機上傳影片共用。
   useEffect(() => {
-    if (playerMode !== 'backup' || !backupInfo?.playback_url) return;
+    const playbackUrl = playerMode === 'local'
+      ? mediaInfo?.playback_url
+      : backupInfo?.playback_url;
+    if (!['backup', 'local'].includes(playerMode) || !playbackUrl) return;
     const video = htmlVideoRef.current;
     if (!video) return;
     const watchedSegments = watchedSegmentsRef.current;
@@ -1085,7 +1182,7 @@ function LectureDetail() {
       if (playerRef.current === adapter) playerRef.current = null;
       playerReadyRef.current = false;
     };
-  }, [playerMode, backupInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, schedulePauseHelp]);
+  }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, schedulePauseHelp]);
 
   useEffect(() => {
     chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -1107,7 +1204,7 @@ function LectureDetail() {
       from: Math.floor(currentTime),
       to: seconds,
       triggered_by: triggeredBy,
-      player_type: playerMode === 'backup' ? 'html5' : 'youtube',
+      player_type: ['backup', 'local'].includes(playerMode) ? 'html5' : 'youtube',
     });
 
     ignoreSeekUntilRef.current = Date.now() + 3000;
@@ -1205,6 +1302,72 @@ function LectureDetail() {
     return [];
   }
 
+  function scrollToPractice() {
+    setWelcomeReminder(false);
+    setLeavePrompt(null);
+    practiceSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function openPracticeQuestion(question) {
+    if (!question) return;
+    cancelPauseHelp();
+    suppressNextPauseEventRef.current = true;
+    playerRef.current?.pauseVideo?.();
+    shownQuestionIdsRef.current.add(question.id);
+    activeQuestionRef.current = question;
+    setActiveQuestion(question);
+    setQuestionOrigin('practice');
+    setSelectedAnswer(question.last_attempt?.selected_answer || '');
+    setQuestionFeedback(question.learning_status === 'completed'
+      ? {
+          is_correct: question.last_attempt?.is_correct,
+          correct_answer: question.last_attempt?.correct_answer,
+          explanation: question.explanation,
+        }
+      : null);
+  }
+
+  async function skipActiveQuestion() {
+    if (!activeQuestion || questionSubmitting || questionFeedback) return;
+    setQuestionSubmitting(true);
+    try {
+      const currentTime = getPlayerCurrentTime(activeQuestion.source_timestamp);
+      const res = await fetch(`${API_URL}/questions/${activeQuestion.id}/skip`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          lecture_id: parseInt(lectureId),
+          video_time: currentTime,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || '無法保留待作答狀態');
+      }
+      setQuestions(current => current.map(question => (
+        question.id === activeQuestion.id
+          ? { ...question, learning_status: 'skipped', was_skipped: true }
+          : question
+      )));
+      logEvent(lectureId, 'question_skipped', {
+        question_id: activeQuestion.id,
+        timestamp: Math.floor(currentTime),
+      });
+      activeQuestionRef.current = null;
+      setActiveQuestion(null);
+      setSelectedAnswer('');
+      setQuestionFeedback(null);
+      playerRef.current?.playVideo?.();
+    } catch (err) {
+      setQuestionFeedback({ error: err.message || '稍後再試' });
+    } finally {
+      setQuestionSubmitting(false);
+    }
+  }
+
   async function submitQuestionAnswer() {
     if (!activeQuestion || !selectedAnswer || questionSubmitting) return;
     if (!token) {
@@ -1237,6 +1400,23 @@ function LectureDetail() {
       }
       const data = await res.json();
       setQuestionFeedback(data);
+      completedQuestionIdsRef.current.add(activeQuestion.id);
+      setQuestions(current => current.map(question => (
+        question.id === activeQuestion.id
+          ? {
+              ...question,
+              learning_status: 'completed',
+              was_skipped: false,
+              last_attempt: {
+                selected_answer: selectedAnswer,
+                is_correct: data.is_correct,
+                correct_answer: data.correct_answer,
+                video_time: currentTime,
+                answered_at: data.attempt?.answered_at,
+              },
+            }
+          : question
+      )));
       logEvent(lectureId, 'question_answered', {
         question_id: activeQuestion.id,
         selected_answer: selectedAnswer,
@@ -1269,6 +1449,13 @@ function LectureDetail() {
       }
 
       shownQuestionIdsRef.current = new Set();
+      completedQuestionIdsRef.current = new Set();
+      setQuestions(current => current.map(question => ({
+        ...question,
+        learning_status: 'unanswered',
+        was_skipped: false,
+        last_attempt: null,
+      })));
       activeQuestionRef.current = null;
       setActiveQuestion(null);
       setSelectedAnswer('');
@@ -1308,12 +1495,18 @@ function LectureDetail() {
   }
 
   function continueAfterQuestion() {
+    const shouldResume = questionOrigin === 'timed'
+      || activeQuestion?.learning_status !== 'completed';
     activeQuestionRef.current = null;
     setActiveQuestion(null);
     setSelectedAnswer('');
     setQuestionFeedback(null);
-    playerRef.current?.playVideo?.();
+    if (shouldResume) playerRef.current?.playVideo?.();
   }
+
+  const htmlPlaybackUrl = playerMode === 'local'
+    ? mediaInfo?.playback_url
+    : backupInfo?.playback_url;
 
   return (
     <div className="learning-shell h-screen overflow-hidden flex flex-col bg-[#f4f5fa]">
@@ -1381,20 +1574,26 @@ function LectureDetail() {
         <main className="learning-main flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
           {error && <div className="auth-error">{error}</div>}
           <div className="lecture-player-shell flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
-            {(videoId || backupInfo?.playback_url) ? (
+            {(videoId || htmlPlaybackUrl) ? (
               <div className="relative w-full h-full">
-                {playerMode === 'youtube' ? (
-                  <div id="yt-player" style={{ width: '100%', height: '100%' }} />
-                ) : (
+                <div
+                  ref={youtubeContainerRef}
+                  style={{
+                    display: playerMode === 'youtube' ? 'block' : 'none',
+                    width: '100%',
+                    height: '100%',
+                  }}
+                />
+                {playerMode !== 'youtube' && (
                   <video
                     ref={htmlVideoRef}
-                    src={backupInfo?.playback_url}
+                    src={htmlPlaybackUrl}
                     controls
                     playsInline
                     preload="metadata"
                     className="w-full h-full bg-black"
                   >
-                    你的瀏覽器不支援備份影片播放器。
+                    你的瀏覽器不支援 HTML5 影片播放器。
                   </video>
                 )}
                 {backupInfo?.status === 'completed' && backupInfo?.playback_url && !videoError && (
@@ -1421,6 +1620,45 @@ function LectureDetail() {
               </div>
             )}
           </div>
+
+          <section ref={practiceSectionRef} className="classroom-practice" aria-labelledby="classroom-practice-title">
+            <div className="classroom-practice-header">
+              <div>
+                <p className="eyebrow">Classroom practice</p>
+                <h2 id="classroom-practice-title">課堂練習</h2>
+              </div>
+              <div className="classroom-practice-counts">
+                <span>待作答 <strong>{pendingQuestions.length}</strong> 題</span>
+              </div>
+            </div>
+
+            {!pendingQuestions.length ? (
+              <p className="classroom-practice-empty">目前沒有待作答的題目。</p>
+            ) : (
+              <div className="classroom-practice-list">
+                {pendingQuestions.map((question, index) => (
+                  <article key={question.id} className="classroom-practice-row">
+                    <div className="classroom-practice-number">{index + 1}</div>
+                    <div className="classroom-practice-content">
+                      <div className="classroom-practice-meta">
+                        <span>{formatVideoTime(question.source_timestamp)}</span>
+                        <span className="status-pending">稍後作答</span>
+                      </div>
+                      <p>{question.question_text}</p>
+                    </div>
+                    <div className="classroom-practice-actions">
+                      <button type="button" onClick={() => openPracticeQuestion(question)}>
+                        開始作答
+                      </button>
+                      <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
+                        跳至時間點
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
 
           <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm overflow-hidden">
             <div className="flex border-b border-slate-100">
@@ -1758,8 +1996,10 @@ function LectureDetail() {
             <div className="px-6 py-4 border-b border-slate-100">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <p className="text-xs font-bold text-blue-500 mb-1">隨堂小測驗</p>
-                  <h3 className="text-lg font-bold text-slate-800">影片時間到，先回答這題</h3>
+                  <p className="text-xs font-bold text-blue-500 mb-1">課堂練習</p>
+                  <h3 className="text-lg font-bold text-slate-800">
+                    {activeQuestion.learning_status === 'completed' ? '原本的作答結果' : questionOrigin === 'timed' ? '影片時間到，要現在作答嗎？' : '完成這道課堂練習'}
+                  </h3>
                 </div>
                 <span className="text-xs font-mono text-slate-400">
                   {Math.floor(Number(activeQuestion.source_timestamp) || 0)} 秒
@@ -1818,14 +2058,24 @@ function LectureDetail() {
 
             <div className="px-6 py-4 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
               {!questionFeedback ? (
-                <button
-                  type="button"
-                  onClick={submitQuestionAnswer}
-                  disabled={!selectedAnswer || questionSubmitting}
-                  className="px-5 py-2 rounded-xl bg-blue-500 text-white text-sm font-bold disabled:bg-slate-300 hover:bg-blue-400 transition"
-                >
-                  {questionSubmitting ? '送出中...' : '提交答案'}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    onClick={skipActiveQuestion}
+                    disabled={questionSubmitting}
+                    className="px-5 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 text-sm font-bold hover:bg-slate-100 transition"
+                  >
+                    稍後再答
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitQuestionAnswer}
+                    disabled={!selectedAnswer || questionSubmitting}
+                    className="px-5 py-2 rounded-xl bg-blue-500 text-white text-sm font-bold disabled:bg-slate-300 hover:bg-blue-400 transition"
+                  >
+                    {questionSubmitting ? '送出中...' : '立即作答'}
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -1835,6 +2085,35 @@ function LectureDetail() {
                   繼續播放
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {welcomeReminder && pendingQuestions.length > 0 && !activeQuestion && (
+        <div className="practice-dialog-backdrop">
+          <div className="practice-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-practice-title">
+            <h3 id="welcome-practice-title">歡迎回來！</h3>
+            <p>你上次還有 {pendingQuestions.length} 題課堂練習尚未完成，記得完成這些題目。</p>
+            <div>
+              <button type="button" className="secondary" onClick={() => setWelcomeReminder(false)}>稍後再說</button>
+              <button type="button" onClick={scrollToPractice}>前往作答</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {leavePrompt && (
+        <div className="practice-dialog-backdrop">
+          <div className="practice-dialog" role="dialog" aria-modal="true" aria-labelledby="leave-practice-title">
+            <h3 id="leave-practice-title">你還有 {pendingQuestions.length} 題課堂練習尚未完成！</h3>
+            <p>未完成的題目將會保留，下次進入課程時仍會提醒你作答。</p>
+            <div>
+              <button type="button" className="secondary" onClick={() => {
+                allowLeaveRef.current = true;
+                window.location.assign(leavePrompt.href);
+              }}>仍要離開</button>
+              <button type="button" onClick={scrollToPractice}>返回完成題目</button>
             </div>
           </div>
         </div>
