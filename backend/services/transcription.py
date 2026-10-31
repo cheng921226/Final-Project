@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlparse
 from database.supabase import supabase_admin
 
 
-DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "tiny")
+DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
 DEFAULT_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 DEFAULT_VIDEO_BACKUP_MAX_BYTES = 48 * 1024**2

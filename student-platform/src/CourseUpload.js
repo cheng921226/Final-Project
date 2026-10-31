@@ -30,7 +30,7 @@ export default function CourseUpload() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [videoFile, setVideoFile] = useState(null);
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [modelSize, setModelSize] = useState('tiny');
+  const [modelSize, setModelSize] = useState('small');
   const [backupVideo, setBackupVideo] = useState(false);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
@@ -353,9 +353,9 @@ export default function CourseUpload() {
           <label className="review-field">
             <span>模型大小</span>
             <select value={modelSize} onChange={event => setModelSize(event.target.value)}>
+              <option value="small">small：較慢但更準（預設）</option>
               <option value="tiny">tiny：測試最快</option>
               <option value="base">base：品質較穩</option>
-              <option value="small">small：較慢但更準</option>
             </select>
           </label>
         </div>

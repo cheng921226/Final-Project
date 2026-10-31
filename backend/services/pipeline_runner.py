@@ -7,6 +7,7 @@ from database.supabase import supabase_admin
 from services.ai_generation import run_ai_generation_pipeline
 from services.lecture_processing import set_generation_status
 from services.transcription import (
+    DEFAULT_MODEL_SIZE,
     download_youtube_audio,
     get_youtube_metadata,
     save_lecture_duration,
@@ -51,7 +52,7 @@ def run_media_ai_pipeline(
     source: str,
     source_metadata: dict[str, Any] | None = None,
     language: str | None = None,
-    model_size: str = "tiny",
+    model_size: str = DEFAULT_MODEL_SIZE,
     word_timestamps: bool = False,
     save_to_db: bool = True,
     skip_existing_transcript: bool = True,
@@ -182,7 +183,7 @@ def run_youtube_ai_pipeline(
     lecture_id: int,
     url: str,
     language: str | None = None,
-    model_size: str = "tiny",
+    model_size: str = DEFAULT_MODEL_SIZE,
     word_timestamps: bool = False,
     save_to_db: bool = True,
     skip_existing_transcript: bool = True,

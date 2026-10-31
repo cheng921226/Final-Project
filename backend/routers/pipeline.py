@@ -7,6 +7,7 @@ from services.pipeline_runner import (
     PipelineStepError,
     run_youtube_ai_pipeline as run_pipeline,
 )
+from services.transcription import DEFAULT_MODEL_SIZE
 
 from .security import get_current_user
 from .teacher_access import require_lecture_manager, require_teacher
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 class YoutubePipelineRequest(BaseModel):
     url: str
     language: str | None = None
-    model_size: str = "tiny"
+    model_size: str = DEFAULT_MODEL_SIZE
     word_timestamps: bool = False
     save_to_db: bool = True
     skip_existing_transcript: bool = True

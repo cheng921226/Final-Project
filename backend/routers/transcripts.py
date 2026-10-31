@@ -6,6 +6,7 @@ from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 from services.transcription import (
+    DEFAULT_MODEL_SIZE,
     download_youtube_audio,
     save_lecture_duration,
     save_transcript_segments,
@@ -21,7 +22,7 @@ router = APIRouter()
 class YoutubeTranscribeRequest(BaseModel):
     url: str
     language: str | None = None
-    model_size: str = "tiny"
+    model_size: str = DEFAULT_MODEL_SIZE
     word_timestamps: bool = False
     save_to_db: bool = True
 
@@ -32,7 +33,7 @@ async def transcribe_lecture_media(
     lecture_id: int,
     file: UploadFile = File(...),
     language: str | None = Form(default=None),
-    model_size: str = Form(default="tiny"),
+    model_size: str = Form(default=DEFAULT_MODEL_SIZE),
     word_timestamps: bool = Form(default=False),
     save_to_db: bool = Form(default=True),
     user=Depends(get_current_user),

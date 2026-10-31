@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Uploa
 from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
+    DEFAULT_MODEL_SIZE,
     calculate_file_sha256,
     extract_youtube_video_id,
     get_youtube_metadata,
@@ -223,7 +224,7 @@ class LectureCreate(BaseModel):
     duration_seconds: int | None = None
     auto_process: bool = True
     language: str | None = "zh"
-    model_size: str = "tiny"
+    model_size: str = DEFAULT_MODEL_SIZE
     skip_existing_transcript: bool = True
     skip_existing_ai: bool = True
     backup_video: bool = False
@@ -465,7 +466,7 @@ async def upload_lecture_video(
     course_id: int = Form(...),
     file: UploadFile = File(...),
     language: str = Form(default="zh"),
-    model_size: str = Form(default="tiny"),
+    model_size: str = Form(default=DEFAULT_MODEL_SIZE),
     auto_process: bool = Form(default=True),
     user=Depends(get_current_user),
 ):
@@ -976,7 +977,7 @@ async def transcribe_lecture_media(
     lecture_id: int,
     file: UploadFile = File(...),
     language: str | None = Form(default=None),
-    model_size: str = Form(default="tiny"),
+    model_size: str = Form(default=DEFAULT_MODEL_SIZE),
     word_timestamps: bool = Form(default=False),
     save_to_db: bool = Form(default=True),
     user=Depends(get_current_user),
