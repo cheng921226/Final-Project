@@ -25,7 +25,9 @@ class PersonnelTests(unittest.TestCase):
         self.assertEqual(context.exception.status_code, 403)
 
     def test_student_fields_are_normalized_and_required(self):
-        self.assertEqual(normalize_student_fields("student", " stu001 ", 3), ("STU001", 3))
+        self.assertEqual(
+            normalize_student_fields("student", " stu001 ", 3), ("STU001", 3)
+        )
         self.assertEqual(normalize_student_fields("teacher", "STU001", 3), (None, None))
         with self.assertRaises(HTTPException) as context:
             normalize_student_fields("student", "", None)
@@ -33,7 +35,9 @@ class PersonnelTests(unittest.TestCase):
 
     def test_banned_auth_user_is_reported_as_disabled(self):
         active = SimpleNamespace(banned_until=None)
-        banned = SimpleNamespace(banned_until=datetime.now(timezone.utc) + timedelta(days=1))
+        banned = SimpleNamespace(
+            banned_until=datetime.now(timezone.utc) + timedelta(days=1)
+        )
         self.assertTrue(auth_user_active(active))
         self.assertFalse(auth_user_active(banned))
 
@@ -79,14 +83,18 @@ class PersonnelTests(unittest.TestCase):
             file=io.BytesIO(
                 "姓名,Email,初始密碼,角色,學號,班級\n"
                 "學生一,stu1@example.com,123123123,學生,STU001,資訊三甲\n"
-                "學生二,stu2@example.com,123123123,學生,STU002,不存在班級\n".encode("utf-8")
+                "學生二,stu2@example.com,123123123,學生,STU002,不存在班級\n".encode(
+                    "utf-8"
+                )
             ),
         )
         context = SimpleNamespace(profile={"id": 22, "role": "campus"})
 
         with (
             patch("routers.personnel.supabase_admin", database),
-            patch("routers.personnel.create_personnel", return_value={"id": 1}) as create,
+            patch(
+                "routers.personnel.create_personnel", return_value={"id": 1}
+            ) as create,
         ):
             result = import_personnel_csv(upload, context)
 

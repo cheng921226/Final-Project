@@ -10,7 +10,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test('starts empty and lets the teacher search for a course', async () => {
+test('prefills the course from navigation state and lets the teacher search for another course', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn(url => Promise.resolve({
     ok: true,
@@ -43,7 +43,7 @@ test('starts empty and lets the teacher search for a course', async () => {
   const searchInput = await screen.findByRole('combobox', { name: '課程' });
   expect(screen.getByRole('radio', { name: 'YouTube 連結' })).toBeChecked();
   expect(screen.getByRole('radio', { name: '本機影片' })).toBeInTheDocument();
-  expect(searchInput).toHaveValue('');
+  expect(searchInput).toHaveValue('離散數學');
 
   fireEvent.change(searchInput, { target: { value: '資料' } });
   const result = screen.getByRole('option', { name: '資料結構｜尚未指派' });

@@ -25,6 +25,8 @@ DEFAULT_CONTENT_GENERATION_MODELS = (
     "gemini-3.5-flash-lite",
 )
 
+CONTENT_SYSTEM_INSTRUCTION = "你是課程內容助理。請根據使用者提供的課程資料完成任務，使用繁體中文；只輸出符合要求格式的內容，不要加入未要求的說明或 Markdown。"
+
 
 def get_content_generation_models() -> tuple[str, ...]:
     configured_models = os.getenv("GEMINI_CONTENT_MODELS", "")
@@ -48,7 +50,10 @@ def generate_json_content(prompt: str):
             return gemini_client.models.generate_content(
                 model=model,
                 contents=prompt,
-                config={"response_mime_type": "application/json"},
+                config={
+                    "response_mime_type": "application/json",
+                    "system_instruction": CONTENT_SYSTEM_INSTRUCTION,
+                },
             )
         except (errors.ClientError, errors.ServerError) as exc:
             last_error = exc
@@ -115,16 +120,11 @@ def generate_summary(
     if skip_existing and existing:
         return {"status": "cached", "data": existing[0]}
 
-    prompt = f"""
-請根據以下課程逐字稿，產生 150 字內的繁體中文課程摘要。
-請只輸出 JSON。
-
-JSON 格式：
-{{"summary":"摘要內容"}}
+    prompt = f'''請根據以下課程逐字稿，產生 150 字內的課程摘要。
+JSON 格式：{{"summary":"摘要內容"}}
 
 課程逐字稿：
-{transcript_text}
-"""
+{transcript_text}'''
 
     ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
@@ -147,18 +147,12 @@ def generate_knowledge_points(
     if skip_existing and existing:
         return {"status": "cached", "data": existing}
 
-    prompt = f"""
-請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
-請依照逐字稿中的時間段推估每個知識點的 start_time / end_time。
-start_time / end_time 請輸出秒數，可以是整數或小數；如果無法判斷請填 null。
-請只輸出 JSON。
-
-JSON 格式：
-{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":0,"end_time":30}}]}}
+    prompt = f'''請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
+依照逐字稿時間推估 start_time / end_time，使用秒數；無法判斷時填 null。
+JSON 格式：{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":0,"end_time":30}}]}}
 
 課程逐字稿：
-{transcript_text}
-"""
+{transcript_text}'''
 
     ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
@@ -200,22 +194,12 @@ def generate_mindmap(
     if skip_existing and existing:
         return {"status": "cached", "data": existing[0]}
 
-    prompt = f"""
-請根據以下課程逐字稿，產生最多 3 層的課程心智圖。
-心智圖只需要呈現知識架構，不需要影片時間點。
-請只輸出 JSON。
-
-JSON 格式：
-{{"mind_map":{{"title":"主題名稱","description":"整體說明","children":[{{"title":"概念一","description":"概念說明","children":[]}}]}}}}
-
-規則：
-1. 所有節點都必須包含 title、description、children。
-2. 沒有子節點時 children 填 []。
-3. 使用繁體中文。
+    prompt = f'''請根據以下課程逐字稿，產生最多 3 層的課程心智圖，只呈現知識架構，不需要影片時間點。
+每個節點都必須包含 title、description、children；沒有子節點時 children 填 []。
+JSON 格式：{{"mind_map":{{"title":"主題名稱","description":"整體說明","children":[{{"title":"概念一","description":"概念說明","children":[]}}]}}}}
 
 課程逐字稿：
-{transcript_text}
-"""
+{transcript_text}'''
 
     ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)
@@ -300,33 +284,18 @@ def generate_questions(
         return {"status": "cached", "data": existing}
 
     kp_text = format_knowledge_points_for_prompt(knowledge_points)
-    prompt = f"""
-請根據以下課程逐字稿和知識點列表，產生 5 到 10 題正式選擇題。
-每題固定 4 個選項，answer 只能是 A、B、C 或 D。
-related_knowledge_point 請使用知識點列表中的 id；如果無法對應請填 null。
-每一題正式題目都必須對應影片中的一個出題時間點。
-source_timestamp 必須是純整數秒數，代表影片播放到該秒數時要跳出題目。
-請根據逐字稿段落時間與知識點內容推估 source_timestamp，不可以填 null。
-
-每一題正式題目都必須另外產生 1 到 2 題 retry_questions。
-retry_questions 是補測延伸題，只用於複習模式重新測驗，不會在影片播放時跳出。
-retry_questions 必須測試相同知識概念，但不能只是把原題改幾個字。
-retry_questions 可以使用不同情境、應用方式或例子，難度需與原題接近。
-retry_questions 不需要 source_timestamp，也不可以直接透露原題答案。
-每一題正式題目與 retry_questions 都必須有明確答案與 explanation。
-題目、選項與解析請直接呈現課程知識，不要提及「逐字稿」或描述資訊來源。
-不要使用「根據逐字稿」、「逐字稿提到」、「依據上述內容」等說法。
-請只輸出 JSON，且 JSON 格式必須穩定。
-
-JSON 格式：
-{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"B","explanation":"延伸題解析"}}]}}]}}
+    prompt = f'''請根據以下課程逐字稿和知識點列表，產生 5 到 10 題正式選擇題。
+每題固定 4 個選項，answer 只能是 A、B、C 或 D。related_knowledge_point 使用知識點 id，無法對應時填 null。
+每題都必須有影片出題時間點 source_timestamp，以逐字稿時間推估純整數秒數，不可為 null。
+每題另外產生 1 到 2 題 retry_questions，測試相同知識概念，不可只是改寫原題；延伸題不需要 source_timestamp，也不能直接透露原題答案。所有題目都要有答案與 explanation。
+題目、選項與解析直接呈現課程知識，不提及逐字稿或描述資訊來源。
+JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"B","explanation":"延伸題解析"}}]}}]}}
 
 課程逐字稿：
 {transcript_text}
 
 知識點列表：
-{kp_text}
-"""
+{kp_text}'''
 
     ai_response = generate_json_content(prompt)
     result_json = parse_json_response(ai_response.text)

@@ -1,6 +1,10 @@
 import unittest
 
-from services.time_values import normalize_seconds, normalize_time_range, time_to_seconds
+from services.time_values import (
+    normalize_seconds,
+    normalize_time_range,
+    time_to_seconds,
+)
 
 
 class TimeValuesTests(unittest.TestCase):

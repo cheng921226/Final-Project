@@ -129,9 +129,7 @@ def _set_question_learning_state(
             }
         )
         response = (
-            supabase_admin.table("question_learning_states")
-            .insert(values)
-            .execute()
+            supabase_admin.table("question_learning_states").insert(values).execute()
         )
     return (response.data or [{**(existing or {}), **values}])[0]
 
@@ -241,7 +239,9 @@ def require_lecture_viewer(
     raise HTTPException(status_code=403, detail="沒有權限查看這個小節的題目")
 
 
-def get_question_for_teacher(question_id: int, teacher: dict[str, Any]) -> dict[str, Any]:
+def get_question_for_teacher(
+    question_id: int, teacher: dict[str, Any]
+) -> dict[str, Any]:
     response = (
         supabase_admin.table("questions")
         .select("*")
@@ -262,7 +262,9 @@ def teacher_question_row(
     data = body.model_dump(exclude_unset=True)
     if "options_json" in data and data["options_json"] is not None:
         data["options_json"] = [
-            str(option).strip() for option in data["options_json"] if str(option).strip()
+            str(option).strip()
+            for option in data["options_json"]
+            if str(option).strip()
         ]
     if "answer" in data:
         data["answer"] = normalize_answer(data["answer"])
@@ -575,10 +577,7 @@ def unpublish_teacher_question(question_id: int, user=Depends(get_current_user))
     question = get_question_for_teacher(question_id, teacher)
     values = {"review_status": "unpublished", "is_active": True}
     response = (
-        supabase_admin.table("questions")
-        .update(values)
-        .eq("id", question_id)
-        .execute()
+        supabase_admin.table("questions").update(values).eq("id", question_id).execute()
     )
     supabase_admin.table("questions").update(values).eq(
         "source_question_id", question_id
@@ -609,7 +608,9 @@ def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
 
     batch_id = pending[0].get("generation_batch_id")
     if not batch_id:
-        raise HTTPException(status_code=409, detail="待審核題目缺少產生批次，請逐題核准")
+        raise HTTPException(
+            status_code=409, detail="待審核題目缺少產生批次，請逐題核准"
+        )
 
     new_rows = (
         supabase_admin.table("questions")
@@ -625,9 +626,9 @@ def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
     if not new_ids:
         raise HTTPException(status_code=409, detail="找不到可發布的待審核題目")
 
-    supabase_admin.table("questions").update(
-        {"review_status": "published"}
-    ).in_("id", new_ids).execute()
+    supabase_admin.table("questions").update({"review_status": "published"}).in_(
+        "id", new_ids
+    ).execute()
 
     previous_rows = (
         supabase_admin.table("questions")
@@ -647,9 +648,7 @@ def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
         ).execute()
 
     stale_ids = [
-        row["id"]
-        for row in pending
-        if row.get("generation_batch_id") != batch_id
+        row["id"] for row in pending if row.get("generation_batch_id") != batch_id
     ]
     if stale_ids:
         supabase_admin.table("questions").update(
@@ -661,9 +660,7 @@ def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
         "lecture_id": lecture_id,
         "generation_batch_id": batch_id,
         "published_count": sum(
-            1
-            for row in pending
-            if row.get("generation_batch_id") == batch_id
+            1 for row in pending if row.get("generation_batch_id") == batch_id
         ),
     }
 
@@ -701,9 +698,10 @@ def skip_question(
     )
     if not question or question.get("lecture_id") != body.lecture_id:
         raise HTTPException(status_code=404, detail="找不到這道課堂練習")
-    if not question.get("is_active", True) or (
-        question.get("review_status") or "published"
-    ) != "published":
+    if (
+        not question.get("is_active", True)
+        or (question.get("review_status") or "published") != "published"
+    ):
         raise HTTPException(status_code=410, detail="這道題目目前無法作答")
 
     existing_attempt = (

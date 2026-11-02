@@ -13,8 +13,12 @@ from services.local_video import validate_local_video
 
 class YoutubeUtilityTests(unittest.TestCase):
     def test_local_video_accepts_mp4_and_webm(self):
-        self.assertEqual(validate_local_video("lesson.mp4", "video/mp4"), (".mp4", "video/mp4"))
-        self.assertEqual(validate_local_video("lesson.webm", "video/webm"), (".webm", "video/webm"))
+        self.assertEqual(
+            validate_local_video("lesson.mp4", "video/mp4"), (".mp4", "video/mp4")
+        )
+        self.assertEqual(
+            validate_local_video("lesson.webm", "video/webm"), (".webm", "video/webm")
+        )
 
     def test_local_video_rejects_unsupported_files(self):
         with self.assertRaises(ValueError):
@@ -45,11 +49,13 @@ class YoutubeUtilityTests(unittest.TestCase):
             second = Path(directory) / "renamed.mp4"
             first.write_bytes(b"same video bytes")
             second.write_bytes(b"same video bytes")
-            self.assertEqual(calculate_file_sha256(first), calculate_file_sha256(second))
+            self.assertEqual(
+                calculate_file_sha256(first), calculate_file_sha256(second)
+            )
 
     def test_backup_filename_keeps_names_and_removes_path_characters(self):
         self.assertEqual(
-            safe_storage_filename('演算法／第一章: 搜尋?*', "未命名"),
+            safe_storage_filename("演算法／第一章: 搜尋?*", "未命名"),
             "演算法-第一章-搜尋",
         )
 

@@ -71,7 +71,11 @@ def class_sort_key(row: dict) -> tuple:
         99,
     )
     section = next(
-        (order for marker, order in CLASS_SECTION_ORDER.items() if name.endswith(marker)),
+        (
+            order
+            for marker, order in CLASS_SECTION_ORDER.items()
+            if name.endswith(marker)
+        ),
         99,
     )
     return grade, section, name
@@ -91,7 +95,9 @@ def require_campus(context: AuthContext) -> dict:
     return context.profile
 
 
-def normalize_student_fields(role: str, student_number: str | None, class_id: int | None):
+def normalize_student_fields(
+    role: str, student_number: str | None, class_id: int | None
+):
     if role != "student":
         return None, None
     normalized_number = (student_number or "").strip().upper()
@@ -134,10 +140,16 @@ def public_personnel(row: dict, auth_user, class_map: dict[int, dict]) -> dict:
         "account_status": (
             "incomplete"
             if not auth_user
-            else "active" if auth_user_active(auth_user) else "disabled"
+            else "active"
+            if auth_user_active(auth_user)
+            else "disabled"
         ),
-        "email_confirmed": bool(getattr(auth_user, "email_confirmed_at", None)) if auth_user else False,
-        "last_sign_in_at": getattr(auth_user, "last_sign_in_at", None) if auth_user else None,
+        "email_confirmed": bool(getattr(auth_user, "email_confirmed_at", None))
+        if auth_user
+        else False,
+        "last_sign_in_at": getattr(auth_user, "last_sign_in_at", None)
+        if auth_user
+        else None,
         "created_at": row.get("created_at"),
     }
 
@@ -200,13 +212,7 @@ def get_personnel(context: AuthContext = Depends(get_auth_context)):
         .data
         or []
     )
-    classes = (
-        supabase_admin.table("classes")
-        .select("id,name")
-        .execute()
-        .data
-        or []
-    )
+    classes = supabase_admin.table("classes").select("id,name").execute().data or []
     classes.sort(key=class_sort_key)
     class_map = {row["id"]: row for row in classes}
     auth_users = list_auth_users()
@@ -324,16 +330,12 @@ def import_personnel_csv(
         raise HTTPException(status_code=422, detail="CSV 缺少姓名欄位")
     if not any(alias.casefold() in normalized_headers for alias in CSV_FIELDS["email"]):
         raise HTTPException(status_code=422, detail="CSV 缺少 Email 欄位")
-    if not any(alias.casefold() in normalized_headers for alias in CSV_FIELDS["password"]):
+    if not any(
+        alias.casefold() in normalized_headers for alias in CSV_FIELDS["password"]
+    ):
         raise HTTPException(status_code=422, detail="CSV 缺少初始密碼欄位")
 
-    classes = (
-        supabase_admin.table("classes")
-        .select("id,name")
-        .execute()
-        .data
-        or []
-    )
+    classes = supabase_admin.table("classes").select("id,name").execute().data or []
     class_by_name = {
         str(row.get("name") or "").strip().casefold(): row["id"] for row in classes
     }
@@ -346,7 +348,9 @@ def import_personnel_csv(
             continue
         processed += 1
         if processed > 1000:
-            errors.append({"row": line_number, "email": "", "error": "一次最多匯入 1000 人"})
+            errors.append(
+                {"row": line_number, "email": "", "error": "一次最多匯入 1000 人"}
+            )
             break
         email = csv_value(row, "email")
         try:
@@ -371,10 +375,18 @@ def import_personnel_csv(
             create_personnel(payload, context)
             succeeded += 1
         except HTTPException as exc:
-            errors.append({"row": line_number, "email": email, "error": str(exc.detail)})
+            errors.append(
+                {"row": line_number, "email": email, "error": str(exc.detail)}
+            )
         except ValidationError as exc:
             first = exc.errors()[0]
-            errors.append({"row": line_number, "email": email, "error": first.get("msg", "資料格式錯誤")})
+            errors.append(
+                {
+                    "row": line_number,
+                    "email": email,
+                    "error": first.get("msg", "資料格式錯誤"),
+                }
+            )
         except ValueError as exc:
             errors.append({"row": line_number, "email": email, "error": str(exc)})
 
@@ -405,7 +417,9 @@ def update_personnel(
     if target.get("role") == CAMPUS_ROLE and body.role != CAMPUS_ROLE:
         auth_users = list_auth_users()
         if active_campus_count(auth_users) <= 1:
-            raise HTTPException(status_code=422, detail="系統至少要保留一個可用的平台端帳號")
+            raise HTTPException(
+                status_code=422, detail="系統至少要保留一個可用的平台端帳號"
+            )
     if target.get("role") == "teacher" and body.role != "teacher":
         assigned = (
             supabase_admin.table("courses")
@@ -417,16 +431,14 @@ def update_personnel(
             or []
         )
         if assigned:
-            raise HTTPException(status_code=422, detail="請先重新指派此教師的課程，再變更角色")
+            raise HTTPException(
+                status_code=422, detail="請先重新指派此教師的課程，再變更角色"
+            )
 
     name = body.name.strip()
     email = str(body.email).strip().lower()
     duplicate = (
-        supabase_admin.table("users")
-        .select("id")
-        .eq("email", email)
-        .execute()
-        .data
+        supabase_admin.table("users").select("id").eq("email", email).execute().data
         or []
     )
     if any(row["id"] != personnel_id for row in duplicate):
@@ -477,7 +489,9 @@ def update_personnel_status(
     if target.get("role") == CAMPUS_ROLE and not body.active:
         auth_users = list_auth_users()
         if active_campus_count(auth_users) <= 1:
-            raise HTTPException(status_code=422, detail="系統至少要保留一個可用的平台端帳號")
+            raise HTTPException(
+                status_code=422, detail="系統至少要保留一個可用的平台端帳號"
+            )
 
     supabase_admin.auth.admin.update_user_by_id(
         str(target["auth_id"]),

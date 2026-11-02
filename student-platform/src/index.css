@@ -644,6 +644,15 @@ a {
   padding-right: 12px;
 }
 
+.teacher-dashboard-page .teacher-filters.is-fixed {
+  position: fixed;
+  top: 82px;
+  right: max(20px, calc((100vw - 1280px) / 2));
+  z-index: 35;
+  width: max-content;
+  max-width: calc(100vw - 40px);
+}
+
 .teacher-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -2939,6 +2948,13 @@ a {
     display: grid;
   }
 
+  .teacher-dashboard-page .teacher-filters.is-fixed {
+    top: 74px;
+    right: 14px;
+    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
+  }
+
   .teacher-filters select,
   .teacher-filters .searchable-course-select>input {
     width: 100%;
@@ -3645,6 +3661,21 @@ a {
 
 /* Course management */
 .course-management-page { width: min(1180px, calc(100% - 40px)); }
+.course-management-page .teacher-filters.is-fixed {
+  position: fixed;
+  top: 82px;
+  z-index: 35;
+  right: max(20px, calc((100vw - 1180px) / 2));
+  width: max-content;
+  max-width: calc(100vw - 40px);
+}
+@media (max-width: 900px) {
+  .course-management-page .teacher-filters.is-fixed {
+    right: 14px;
+    width: calc(100vw - 28px);
+    max-width: calc(100vw - 28px);
+  }
+}
 .course-management-page .course-upload-link {
   display: inline-flex;
   flex: 0 0 auto;
