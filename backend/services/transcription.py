@@ -14,7 +14,7 @@ DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
 DEFAULT_DEVICE = os.getenv("WHISPER_DEVICE", "cpu")
 DEFAULT_COMPUTE_TYPE = os.getenv("WHISPER_COMPUTE_TYPE", "int8")
 # A short Traditional Chinese sample guides transcription style across courses.
-DEFAULT_INITIAL_PROMPT = "以下是繁體中文逐字稿。"
+#DEFAULT_INITIAL_PROMPT = "以下是繁體中文逐字稿。"
 DEFAULT_VIDEO_BACKUP_MAX_BYTES = 48 * 1024**2
 
 
