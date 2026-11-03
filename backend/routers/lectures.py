@@ -3,7 +3,15 @@ import os
 import tempfile
 
 from database.supabase import supabase_admin
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile, Depends
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+    Depends,
+)
 from pydantic import BaseModel, Field
 from typing import Any
 from services.transcription import (
@@ -118,6 +126,7 @@ def run_automatic_uploaded_pipeline(
     finally:
         if os.path.exists(file_path):
             os.remove(file_path)
+
 
 # =====================================================================
 # 🗂️ 課程總表相關 (Courses)
@@ -274,9 +283,11 @@ def create_lecture(
         )
         duplicate = next(
             (
-                row for row in duplicate
+                row
+                for row in duplicate
                 if row.get("youtube_video_id") == youtube_video_id
-                or extract_youtube_video_id(row.get("media_url") or "") == youtube_video_id
+                or extract_youtube_video_id(row.get("media_url") or "")
+                == youtube_video_id
             ),
             None,
         )
@@ -389,16 +400,18 @@ def create_lecture(
             supabase_admin.table("lectures")
             .insert(
                 {
-                "title": body.title,
-                "media_url": body.media_url,
-                "course_id": body.course_id,
-                "status": "uploaded",
-                "duration_seconds": duration_seconds,
-                "youtube_video_id": youtube_video_id,
-                "source_file_hash": body.source_file_hash,
-                "backup_status": "pending" if body.backup_video else "not_requested",
-                "sort_order": next_sort_order,
-                "is_visible": True,
+                    "title": body.title,
+                    "media_url": body.media_url,
+                    "course_id": body.course_id,
+                    "status": "uploaded",
+                    "duration_seconds": duration_seconds,
+                    "youtube_video_id": youtube_video_id,
+                    "source_file_hash": body.source_file_hash,
+                    "backup_status": "pending"
+                    if body.backup_video
+                    else "not_requested",
+                    "sort_order": next_sort_order,
+                    "is_visible": True,
                 }
             )
             .execute()
@@ -446,9 +459,7 @@ def create_lecture(
         skip_existing_ai=body.skip_existing_ai,
     )
     if body.backup_video:
-        background_tasks.add_task(
-            backup_lecture_video, lecture["id"], body.media_url
-        )
+        background_tasks.add_task(backup_lecture_video, lecture["id"], body.media_url)
     return {
         **lecture,
         "status": "uploaded",
@@ -536,9 +547,7 @@ async def upload_lecture_video(
             or []
         )
         sort_order = (
-            int(last_lecture[0].get("sort_order") or 0) + 1
-            if last_lecture
-            else 0
+            int(last_lecture[0].get("sort_order") or 0) + 1 if last_lecture else 0
         )
         inserted = (
             supabase_admin.table("lectures")
@@ -623,17 +632,13 @@ def get_uploaded_lecture_media(
     )
     if not lecture:
         raise HTTPException(status_code=404, detail="找不到課程小節")
-    if lecture.get("media_source") != "upload" or not lecture.get(
-        "media_storage_path"
-    ):
+    if lecture.get("media_source") != "upload" or not lecture.get("media_storage_path"):
         raise HTTPException(status_code=404, detail="此小節不是本機上傳影片")
     return {
         "lecture_id": lecture_id,
         "source": "upload",
         "content_type": lecture.get("media_mime_type"),
-        "playback_url": create_local_video_signed_url(
-            lecture["media_storage_path"]
-        ),
+        "playback_url": create_local_video_signed_url(lecture["media_storage_path"]),
         "expires_in": 3600,
     }
 
@@ -675,7 +680,10 @@ def get_lecture_backup(lecture_id: int, user=Depends(get_current_user)):
 @router.get("/lectures/{lecture_id}/transcripts")
 def get_lecture_transcript(lecture_id: int):
     res = (
-        supabase_admin.table("transcripts").select("*").eq("lecture_id", lecture_id).execute()
+        supabase_admin.table("transcripts")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .execute()
     )
     return res.data
 
@@ -706,7 +714,12 @@ def get_lecture_knowledge_points(lecture_id: int):
 
 @router.get("/lectures/{lecture_id}/mindmaps")
 def get_lecture_mindmap(lecture_id: int):
-    res = supabase_admin.table("mindmaps").select("*").eq("lecture_id", lecture_id).execute()
+    res = (
+        supabase_admin.table("mindmaps")
+        .select("*")
+        .eq("lecture_id", lecture_id)
+        .execute()
+    )
     return res.data
 
 

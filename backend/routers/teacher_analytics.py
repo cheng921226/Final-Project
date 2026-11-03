@@ -27,9 +27,21 @@ class RecommendationSnoozeRequest(BaseModel):
 def _clean_ai_recommendation(value: Any) -> dict[str, Any] | None:
     if not isinstance(value, dict):
         return None
-    actions = [str(item).strip() for item in value.get("teaching_actions", []) if str(item).strip()]
-    causes = [str(item).strip() for item in value.get("likely_causes", []) if str(item).strip()]
-    target_classes = [str(item).strip() for item in value.get("target_classes", []) if str(item).strip()]
+    actions = [
+        str(item).strip()
+        for item in value.get("teaching_actions", [])
+        if str(item).strip()
+    ]
+    causes = [
+        str(item).strip()
+        for item in value.get("likely_causes", [])
+        if str(item).strip()
+    ]
+    target_classes = [
+        str(item).strip()
+        for item in value.get("target_classes", [])
+        if str(item).strip()
+    ]
     overview = str(value.get("overview") or "").strip()
     if not overview or not actions:
         return None
@@ -43,7 +55,9 @@ def _clean_ai_recommendation(value: Any) -> dict[str, Any] | None:
         "teaching_actions": actions[:4],
         "target_classes": target_classes[:5],
         "follow_up_days": follow_up_days,
-        "follow_up_metric": str(value.get("follow_up_metric") or "完成率與答題正確率").strip(),
+        "follow_up_metric": str(
+            value.get("follow_up_metric") or "完成率與答題正確率"
+        ).strip(),
     }
 
 
@@ -233,7 +247,9 @@ def _teaching_recommendations(
                     "completion_rate": completion_rate,
                 }
             )
-    low_completion_classes.sort(key=lambda item: (item["completion_rate"], item["name"]))
+    low_completion_classes.sort(
+        key=lambda item: (item["completion_rate"], item["name"])
+    )
     if low_completion_classes:
         class_count = len(low_completion_classes)
         lowest_rate = low_completion_classes[0]["completion_rate"]
@@ -250,7 +266,8 @@ def _teaching_recommendations(
                 "evidence": "、".join(
                     f"{item['name']} {item['completion_rate']}%（{item['students']} 人）"
                     for item in low_completion_classes
-                ) + "。",
+                )
+                + "。",
                 "action": "確認課程進度與截止時間，並針對完成率偏低的班級發送學習提醒。",
                 "affected_classes": low_completion_classes,
             }
@@ -277,16 +294,23 @@ def _teaching_recommendations(
 
         if lecture.get("attempts", 0) >= 5 and lecture.get("accuracy", 0) < 65:
             ranked_hotspots = sorted(
-                combined_hotspots.items(), key=lambda item: item[1]["count"], reverse=True
+                combined_hotspots.items(),
+                key=lambda item: item[1]["count"],
+                reverse=True,
             )
-            if ranked_hotspots and ranked_hotspots[0][1]["count"] >= minimum_interactions:
+            if (
+                ranked_hotspots
+                and ranked_hotspots[0][1]["count"] >= minimum_interactions
+            ):
                 (start, end), hotspot = ranked_hotspots[0]
                 topic = "、".join(hotspot["knowledge_points"]) or "該段內容"
                 recommendations.append(
                     {
                         "id": f"bottleneck-{lecture['id']}-{start}",
                         "category": "comprehension",
-                        "priority": "high" if lecture.get("accuracy", 0) < 50 else "medium",
+                        "priority": "high"
+                        if lecture.get("accuracy", 0) < 50
+                        else "medium",
                         "title": f"{lecture['title']}可能有理解瓶頸",
                         "evidence": (
                             f"{start // 60}:{start % 60:02d}–{end // 60}:{end % 60:02d}"
@@ -348,7 +372,9 @@ def _teaching_recommendations(
                 {
                     "name": class_name,
                     "students": int(stats["students"]),
-                    "accuracy": round(stats["estimated_correct"] / stats["attempts"] * 100),
+                    "accuracy": round(
+                        stats["estimated_correct"] / stats["attempts"] * 100
+                    ),
                 }
             )
     if len(comparable_classes) >= 2:
@@ -397,9 +423,13 @@ def snooze_teaching_recommendation(
     require_course_manager(course_id, teacher, allow_campus_all=True)
     recommendation_id = payload.recommendation_id.strip()
     if recommendation_id != "class-completion":
-        raise HTTPException(status_code=400, detail="只有班級完成率建議可以延後重新計算")
+        raise HTTPException(
+            status_code=400, detail="只有班級完成率建議可以延後重新計算"
+        )
     if payload.days not in {1, 3, 7, 14, 30}:
-        raise HTTPException(status_code=400, detail="延後天數只能選擇 1、3、7、14 或 30 天")
+        raise HTTPException(
+            status_code=400, detail="延後天數只能選擇 1、3、7、14 或 30 天"
+        )
 
     now = datetime.now(timezone.utc)
     snoozed_until = now + timedelta(days=payload.days)
@@ -440,7 +470,9 @@ def generate_ai_teaching_recommendation(
         raise HTTPException(status_code=404, detail="找不到課程分析資料")
     recommendations = course.get("recommendations") or []
     if not recommendations:
-        raise HTTPException(status_code=400, detail="目前沒有達到門檻的數據問題，不需要產生 AI 建議")
+        raise HTTPException(
+            status_code=400, detail="目前沒有達到門檻的數據問題，不需要產生 AI 建議"
+        )
 
     source_data = {
         "course": course.get("title"),
@@ -490,7 +522,9 @@ JSON 格式：
         ai_response = generate_json_content(prompt)
         recommendation = _clean_ai_recommendation(parse_json_response(ai_response.text))
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"AI 教學建議產生失敗：{exc}") from exc
+        raise HTTPException(
+            status_code=502, detail=f"AI 教學建議產生失敗：{exc}"
+        ) from exc
     if not recommendation:
         raise HTTPException(status_code=502, detail="AI 回傳的教學建議格式不完整")
 
@@ -565,7 +599,11 @@ def get_teacher_analytics(user=Depends(get_current_user)):
     active_snoozes = {
         (row.get("course_id"), row.get("recommendation_key"))
         for row in snooze_rows
-        if (_parse_datetime(row.get("snoozed_until")) or datetime.min.replace(tzinfo=timezone.utc)) > now
+        if (
+            _parse_datetime(row.get("snoozed_until"))
+            or datetime.min.replace(tzinfo=timezone.utc)
+        )
+        > now
     }
 
     lectures = _rows("lectures", course_id=course_ids)
@@ -578,9 +616,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         .execute()
     ).data or []
     all_student_ids = {row["id"] for row in students}
-    class_ids = {
-        row["class_id"] for row in students if row.get("class_id") is not None
-    }
+    class_ids = {row["class_id"] for row in students if row.get("class_id") is not None}
     class_rows = _rows("classes", id=class_ids)
     class_map = {row["id"]: row for row in class_rows}
     enrollments = (
@@ -828,9 +864,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             question_results,
         )
         recommendations = [
-            item
-            for item in recommendations
-            if (cid, item["id"]) not in active_snoozes
+            item for item in recommendations if (cid, item["id"]) not in active_snoozes
         ]
 
         result_courses.append(

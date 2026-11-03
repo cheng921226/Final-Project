@@ -68,10 +68,7 @@ def get_user_id(context: AuthContext = Depends(get_auth_context)):
 # 取得用戶名
 @router.get("/name")
 def get_user_name(context: AuthContext = Depends(get_auth_context)):
-    return {
-        key: context.profile.get(key)
-        for key in ("name", "email", "role")
-    }
+    return {key: context.profile.get(key) for key in ("name", "email", "role")}
 
 
 # 取得用戶身分

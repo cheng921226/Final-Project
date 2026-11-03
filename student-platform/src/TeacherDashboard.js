@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
 
@@ -152,6 +152,8 @@ export default function TeacherDashboard() {
   const [courseId, setCourseId] = useState('');
   const [lectureId, setLectureId] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [filterPanelFixed, setFilterPanelFixed] = useState(false);
+  const filterPanelRef = useRef(null);
   const [error, setError] = useState('');
   const [showAllQuestions, setShowAllQuestions] = useState(false);
   const [selectedStudentIds, setSelectedStudentIds] = useState([]);
@@ -167,6 +169,21 @@ export default function TeacherDashboard() {
   const [snoozingRecommendationId, setSnoozingRecommendationId] = useState('');
   const [recommendationMessage, setRecommendationMessage] = useState('');
   const [generatingAiRecommendation, setGeneratingAiRecommendation] = useState(false);
+
+  useEffect(() => {
+    const filterPanel = filterPanelRef.current;
+    if (!filterPanel || loading) return undefined;
+
+    const stickyStart = filterPanel.getBoundingClientRect().top + window.scrollY - 82;
+    const updatePosition = () => setFilterPanelFixed(window.scrollY >= stickyStart);
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, { passive: true });
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [data?.courses?.length, loading]);
 
   useEffect(() => {
     setShowAllQuestions(false);
@@ -532,7 +549,7 @@ export default function TeacherDashboard() {
   }
 
   return (
-    <div className="teacher-page">
+    <div className="teacher-page teacher-dashboard-page">
       {showEmailPreview && (
         <div className="email-preview-backdrop" onClick={() => setShowEmailPreview(false)}>
           <div className="email-preview" onClick={event => event.stopPropagation()}>
@@ -585,7 +602,10 @@ export default function TeacherDashboard() {
           <h1>學習成效，一眼看懂</h1>
           <p>從觀看行為與作答表現，找到學生真正需要協助的地方。</p>
         </div>
-        <div className="teacher-filters">
+        <div
+          ref={filterPanelRef}
+          className={`teacher-filters${filterPanelFixed ? ' is-fixed' : ''}`}
+        >
           <SearchableCourseSelect
             courses={data.courses}
             value={courseId}

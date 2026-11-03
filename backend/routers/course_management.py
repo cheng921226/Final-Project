@@ -383,9 +383,7 @@ def delete_course(course_id: int, user=Depends(get_current_user)):
             detail="這門課仍有教材或影片正在處理，請等待完成後再刪除",
         )
 
-    response = (
-        supabase_admin.table("courses").delete().eq("id", course_id).execute()
-    )
+    response = supabase_admin.table("courses").delete().eq("id", course_id).execute()
     if response.data is not None and not response.data:
         raise HTTPException(status_code=500, detail="課程刪除失敗")
 
@@ -510,9 +508,7 @@ def delete_lecture(lecture_id: int, user=Depends(get_current_user)):
             detail="這個小節仍有教材或影片正在處理，請等待完成後再刪除",
         )
 
-    response = (
-        supabase_admin.table("lectures").delete().eq("id", lecture_id).execute()
-    )
+    response = supabase_admin.table("lectures").delete().eq("id", lecture_id).execute()
     if response.data is not None and not response.data:
         raise HTTPException(status_code=500, detail="小節刪除失敗")
 
@@ -642,9 +638,7 @@ def regenerate_lecture_content(
     return _regenerate_components(lecture_id, components)
 
 
-def _regenerate_components(
-    lecture_id: int, components: list[str]
-) -> dict[str, Any]:
+def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, Any]:
     transcript_text = _transcript_text(lecture_id)
     if not transcript_text:
         raise HTTPException(status_code=400, detail="這個小節沒有逐字稿，無法重新產生")
@@ -766,13 +760,17 @@ def retry_failed_generation(
     teacher = require_teacher(user)
     lecture = require_lecture_manager(lecture_id, teacher)
     statuses = get_generation_statuses(lecture_id)
-    failed = [name for name, value in statuses.items() if value.get("status") == "failed"]
+    failed = [
+        name for name, value in statuses.items() if value.get("status") == "failed"
+    ]
     if not failed:
         return {"lecture_id": lecture_id, "retried": [], "message": "目前沒有失敗項目"}
 
     if "transcript" in failed:
         if not extract_youtube_video_id(lecture.get("media_url") or ""):
-            raise HTTPException(status_code=400, detail="只有 YouTube 小節可自動重試逐字稿")
+            raise HTTPException(
+                status_code=400, detail="只有 YouTube 小節可自動重試逐字稿"
+            )
         try:
             result = run_youtube_ai_pipeline(
                 lecture_id,
@@ -785,7 +783,8 @@ def retry_failed_generation(
         return {"lecture_id": lecture_id, "retried": failed, "pipeline": result}
 
     components = [
-        name for name in failed
+        name
+        for name in failed
         if name in {"summary", "knowledge_points", "mindmap", "questions"}
     ]
     return _regenerate_components(lecture_id, components)

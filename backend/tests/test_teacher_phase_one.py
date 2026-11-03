@@ -35,7 +35,9 @@ from routers.course_management import (
     _segments_from_edited_transcript,
     update_course,
 )
-from routers.final_assessment import require_course_manager as require_final_course_manager
+from routers.final_assessment import (
+    require_course_manager as require_final_course_manager,
+)
 
 
 class FakeResponse:
@@ -86,14 +88,16 @@ class FakeSupabase:
 
 class TeacherAnalyticsTests(unittest.TestCase):
     def test_ai_recommendation_is_normalized_and_follow_up_days_are_bounded(self):
-        result = _clean_ai_recommendation({
-            "overview": "完成率偏低",
-            "likely_causes": ["可能是課程剛開始"],
-            "teaching_actions": ["發送提醒", "加入範例"],
-            "target_classes": ["資訊三甲"],
-            "follow_up_days": 99,
-            "follow_up_metric": "班級完成率",
-        })
+        result = _clean_ai_recommendation(
+            {
+                "overview": "完成率偏低",
+                "likely_causes": ["可能是課程剛開始"],
+                "teaching_actions": ["發送提醒", "加入範例"],
+                "target_classes": ["資訊三甲"],
+                "follow_up_days": 99,
+                "follow_up_metric": "班級完成率",
+            }
+        )
         self.assertEqual(result["follow_up_days"], 30)
         self.assertEqual(result["teaching_actions"], ["發送提醒", "加入範例"])
 
@@ -112,27 +116,41 @@ class TeacherAnalyticsTests(unittest.TestCase):
             "follow_up_metric": "完成率",
         }
         analytics = {
-            "courses": [{
-                "id": 12,
-                "title": "演算法",
-                "summary": {"students": 30, "completion_rate": 40},
-                "recommendations": [{"id": "class-completion", "evidence": "甲班 40%"}],
-                "lectures": [],
-                "questions": [],
-            }]
+            "courses": [
+                {
+                    "id": 12,
+                    "title": "演算法",
+                    "summary": {"students": 30, "completion_rate": 40},
+                    "recommendations": [
+                        {"id": "class-completion", "evidence": "甲班 40%"}
+                    ],
+                    "lectures": [],
+                    "questions": [],
+                }
+            ]
         }
 
         with (
-            patch("routers.teacher_analytics.require_teacher", return_value={"id": 9, "role": "teacher"}),
+            patch(
+                "routers.teacher_analytics.require_teacher",
+                return_value={"id": 9, "role": "teacher"},
+            ),
             patch("routers.teacher_analytics.require_course_manager"),
-            patch("routers.teacher_analytics.get_teacher_analytics", return_value=analytics),
+            patch(
+                "routers.teacher_analytics.get_teacher_analytics",
+                return_value=analytics,
+            ),
             patch(
                 "routers.teacher_analytics.generate_json_content",
-                return_value=SimpleNamespace(text=json.dumps(ai_payload, ensure_ascii=False)),
+                return_value=SimpleNamespace(
+                    text=json.dumps(ai_payload, ensure_ascii=False)
+                ),
             ) as generate,
             patch("routers.teacher_analytics.supabase_admin", database),
         ):
-            result = generate_ai_teaching_recommendation(12, SimpleNamespace(id="teacher-auth"))
+            result = generate_ai_teaching_recommendation(
+                12, SimpleNamespace(id="teacher-auth")
+            )
 
         self.assertEqual(result["overview"], "甲班需要優先協助")
         self.assertIn("甲班 40%", generate.call_args.args[0])
@@ -174,20 +192,41 @@ class TeacherAnalyticsTests(unittest.TestCase):
         self.assertEqual(segments[1]["text"], "第二段內容")
 
     def test_teaching_recommendations_require_evidence_and_sample_size(self):
-        lectures = [{
-            "id": 7,
-            "title": "遞迴",
-            "students_started": 10,
-            "completion_rate": 35,
-            "attempts": 20,
-            "accuracy": 45,
-            "pause_hotspots": [{"start": 120, "end": 150, "count": 8, "knowledge_points": ["遞迴終止條件"]}],
-            "seek_hotspots": [{"start": 120, "end": 150, "count": 6, "knowledge_points": ["遞迴終止條件"]}],
-        }]
+        lectures = [
+            {
+                "id": 7,
+                "title": "遞迴",
+                "students_started": 10,
+                "completion_rate": 35,
+                "attempts": 20,
+                "accuracy": 45,
+                "pause_hotspots": [
+                    {
+                        "start": 120,
+                        "end": 150,
+                        "count": 8,
+                        "knowledge_points": ["遞迴終止條件"],
+                    }
+                ],
+                "seek_hotspots": [
+                    {
+                        "start": 120,
+                        "end": 150,
+                        "count": 6,
+                        "knowledge_points": ["遞迴終止條件"],
+                    }
+                ],
+            }
+        ]
         students = [
             {
                 "id": index,
-                "classes": [{"id": 1 if index < 5 else 2, "name": "資訊三甲" if index < 5 else "資訊三乙"}],
+                "classes": [
+                    {
+                        "id": 1 if index < 5 else 2,
+                        "name": "資訊三甲" if index < 5 else "資訊三乙",
+                    }
+                ],
                 "attempts": 10,
                 "accuracy": 90 if index < 5 else 40,
                 "completed_lectures": 0,
@@ -197,7 +236,16 @@ class TeacherAnalyticsTests(unittest.TestCase):
             }
             for index in range(10)
         ]
-        questions = [{"id": 3, "lecture_id": 7, "text": "終止條件是什麼？", "attempts": 20, "students_answered": 3, "accuracy": 20}]
+        questions = [
+            {
+                "id": 3,
+                "lecture_id": 7,
+                "text": "終止條件是什麼？",
+                "attempts": 20,
+                "students_answered": 3,
+                "accuracy": 20,
+            }
+        ]
 
         recommendations = _teaching_recommendations(lectures, students, questions)
         categories = {item["category"] for item in recommendations}
@@ -206,7 +254,9 @@ class TeacherAnalyticsTests(unittest.TestCase):
             categories,
             {"engagement", "comprehension", "question", "class_gap"},
         )
-        completion = next(item for item in recommendations if item["id"] == "class-completion")
+        completion = next(
+            item for item in recommendations if item["id"] == "class-completion"
+        )
         self.assertEqual(completion["title"], "2 個班級的課程完成率偏低")
         self.assertEqual(
             [item["name"] for item in completion["affected_classes"]],
@@ -219,7 +269,12 @@ class TeacherAnalyticsTests(unittest.TestCase):
         students = [
             {
                 "id": index,
-                "classes": [{"id": 1 if index < 5 else 2, "name": "甲班" if index < 5 else "乙班"}],
+                "classes": [
+                    {
+                        "id": 1 if index < 5 else 2,
+                        "name": "甲班" if index < 5 else "乙班",
+                    }
+                ],
                 "completed_lectures": 0 if index < 5 else 2,
                 "total_lectures": 2,
             }
@@ -233,62 +288,87 @@ class TeacherAnalyticsTests(unittest.TestCase):
         )
 
         self.assertEqual(recommendation["title"], "甲班的課程完成率偏低")
-        self.assertEqual(recommendation["affected_classes"], [
-            {"name": "甲班", "students": 5, "completion_rate": 0}
-        ])
+        self.assertEqual(
+            recommendation["affected_classes"],
+            [{"name": "甲班", "students": 5, "completion_rate": 0}],
+        )
 
     def test_question_quality_includes_one_quarter_and_fifty_percent_boundaries(self):
         students = [{"id": index} for index in range(20)]
-        exactly_one_quarter = [{
-            "id": 1,
-            "lecture_id": 7,
-            "text": "只有五人作答",
-            "attempts": 20,
-            "students_answered": 5,
-            "accuracy": 10,
-        }]
-        more_than_one_quarter = [{
-            **exactly_one_quarter[0],
-            "students_answered": 6,
-        }]
-        less_than_one_quarter = [{
-            **exactly_one_quarter[0],
-            "students_answered": 4,
-        }]
+        exactly_one_quarter = [
+            {
+                "id": 1,
+                "lecture_id": 7,
+                "text": "只有五人作答",
+                "attempts": 20,
+                "students_answered": 5,
+                "accuracy": 10,
+            }
+        ]
+        more_than_one_quarter = [
+            {
+                **exactly_one_quarter[0],
+                "students_answered": 6,
+            }
+        ]
+        less_than_one_quarter = [
+            {
+                **exactly_one_quarter[0],
+                "students_answered": 4,
+            }
+        ]
 
-        self.assertTrue(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations([], students, exactly_one_quarter)
-        ))
-        self.assertFalse(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations([], students, less_than_one_quarter)
-        ))
-        self.assertTrue(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations([], students, more_than_one_quarter)
-        ))
-        self.assertTrue(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations(
-                [], students, [{**more_than_one_quarter[0], "accuracy": 50}]
+        self.assertTrue(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations([], students, exactly_one_quarter)
             )
-        ))
-        self.assertTrue(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations(
-                [], students, [{**more_than_one_quarter[0], "accuracy": 49}]
+        )
+        self.assertFalse(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations(
+                    [], students, less_than_one_quarter
+                )
             )
-        ))
-        self.assertFalse(any(
-            item["category"] == "question"
-            for item in _teaching_recommendations(
-                [], students, [{**more_than_one_quarter[0], "accuracy": 51}]
+        )
+        self.assertTrue(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations(
+                    [], students, more_than_one_quarter
+                )
             )
-        ))
+        )
+        self.assertTrue(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations(
+                    [], students, [{**more_than_one_quarter[0], "accuracy": 50}]
+                )
+            )
+        )
+        self.assertTrue(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations(
+                    [], students, [{**more_than_one_quarter[0], "accuracy": 49}]
+                )
+            )
+        )
+        self.assertFalse(
+            any(
+                item["category"] == "question"
+                for item in _teaching_recommendations(
+                    [], students, [{**more_than_one_quarter[0], "accuracy": 51}]
+                )
+            )
+        )
 
     def test_snooze_recommendation_saves_the_selected_delay(self):
-        response = SimpleNamespace(data=[{"snoozed_until": "2026-11-04T00:00:00+00:00"}])
+        response = SimpleNamespace(
+            data=[{"snoozed_until": "2026-11-04T00:00:00+00:00"}]
+        )
         query = Mock()
         query.upsert.return_value = query
         query.execute.return_value = response
@@ -296,13 +376,18 @@ class TeacherAnalyticsTests(unittest.TestCase):
         database.table.return_value = query
 
         with (
-            patch("routers.teacher_analytics.require_teacher", return_value={"id": 9, "role": "teacher"}),
+            patch(
+                "routers.teacher_analytics.require_teacher",
+                return_value={"id": 9, "role": "teacher"},
+            ),
             patch("routers.teacher_analytics.require_course_manager"),
             patch("routers.teacher_analytics.supabase_admin", database),
         ):
             result = snooze_teaching_recommendation(
                 12,
-                RecommendationSnoozeRequest(recommendation_id="class-completion", days=14),
+                RecommendationSnoozeRequest(
+                    recommendation_id="class-completion", days=14
+                ),
                 SimpleNamespace(id="teacher-auth"),
             )
 
@@ -310,11 +395,17 @@ class TeacherAnalyticsTests(unittest.TestCase):
         upserted = query.upsert.call_args.args[0]
         self.assertEqual(upserted["user_id"], 9)
         self.assertEqual(upserted["course_id"], 12)
-        self.assertEqual(query.upsert.call_args.kwargs["on_conflict"], "user_id,course_id,recommendation_key")
+        self.assertEqual(
+            query.upsert.call_args.kwargs["on_conflict"],
+            "user_id,course_id,recommendation_key",
+        )
 
     def test_only_class_completion_can_be_snoozed(self):
         with (
-            patch("routers.teacher_analytics.require_teacher", return_value={"id": 9, "role": "teacher"}),
+            patch(
+                "routers.teacher_analytics.require_teacher",
+                return_value={"id": 9, "role": "teacher"},
+            ),
             patch("routers.teacher_analytics.require_course_manager"),
         ):
             with self.assertRaises(HTTPException) as context:
@@ -430,7 +521,10 @@ class TeacherAuthorizationTests(unittest.TestCase):
 
     def test_campus_cannot_manage_another_uploaders_final_assessment(self):
         with (
-            patch("routers.final_assessment.require_teacher", return_value={"id": 22, "role": "campus"}),
+            patch(
+                "routers.final_assessment.require_teacher",
+                return_value={"id": 22, "role": "campus"},
+            ),
             patch(
                 "routers.final_assessment.get_course",
                 return_value={"id": 10, "teacher_id": 1, "created_by_user_id": 1},
@@ -497,10 +591,12 @@ class TeacherAuthorizationTests(unittest.TestCase):
         self.assertEqual([row["id"] for row in result], [5])
 
     def test_campus_can_read_questions_from_any_course(self):
-        database = FakeSupabase({
-            "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
-            "lectures": [{"id": 7, "course_id": 10}],
-        })
+        database = FakeSupabase(
+            {
+                "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
+                "lectures": [{"id": 7, "course_id": 10}],
+            }
+        )
 
         with (
             patch("routers.questions.supabase_admin", database),
@@ -516,10 +612,12 @@ class TeacherAuthorizationTests(unittest.TestCase):
         manager_check.assert_not_called()
 
     def test_campus_read_access_does_not_apply_to_write_paths(self):
-        database = FakeSupabase({
-            "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
-            "lectures": [{"id": 7, "course_id": 10}],
-        })
+        database = FakeSupabase(
+            {
+                "users": [{"id": 99, "auth_id": "campus-auth", "role": "campus"}],
+                "lectures": [{"id": 7, "course_id": 10}],
+            }
+        )
 
         with (
             patch("routers.questions.supabase_admin", database),
@@ -538,12 +636,14 @@ class TeacherAuthorizationTests(unittest.TestCase):
         question_query.select.return_value = question_query
         question_query.eq.return_value = question_query
         question_query.maybe_single.return_value = question_query
-        question_query.execute.return_value = FakeResponse({
-            "id": 5,
-            "lecture_id": 7,
-            "is_active": True,
-            "review_status": "published",
-        })
+        question_query.execute.return_value = FakeResponse(
+            {
+                "id": 5,
+                "lecture_id": 7,
+                "is_active": True,
+                "review_status": "published",
+            }
+        )
 
         attempt_query = Mock()
         attempt_query.select.return_value = attempt_query

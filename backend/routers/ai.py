@@ -9,6 +9,7 @@ from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
 from services.time_values import normalize_time_range, time_to_seconds
+from services.ai_generation import CONTENT_SYSTEM_INSTRUCTION
 from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
@@ -18,6 +19,20 @@ router = APIRouter()
 gemini_client = genai.Client()
 
 GEMINI_MODEL = "gemini-3.8-flash"
+
+def generate_json_content(
+    prompt: str,
+    system_instruction: str | None = CONTENT_SYSTEM_INSTRUCTION,
+    model: str = GEMINI_MODEL,
+):
+    config = {"response_mime_type": "application/json"}
+    if system_instruction:
+        config["system_instruction"] = system_instruction
+    return gemini_client.models.generate_content(
+        model=model,
+        contents=prompt,
+        config=config,
+    )
 
 
 def parse_transcript_rows(rows):
@@ -157,47 +172,34 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
             role = "學生" if msg["role"] == "user" else "助教"
             history_text += f"{role}：{msg['content']}\n"
 
-        # Prompt
-        prompt = f"""
-        你是一位親切、有耐心的專業課程 AI 助教。
-        請使用繁體中文，語氣要像資工系的學長姐或助教一樣，說話自然不要太正式。
-        回答字數控制在 100~200 字內。
-        回答時可以適時舉例或用比喻幫助理解。
+        prompt = f"""課程小節 ID：{body.lecture_id}
+影片時間：{timestamp_str}
 
-        【規則】
-        1. 只能根據課程逐字稿和知識點內容回答，不可自行編造。
-        2. 如果學生問了非課程相關的問題（例如天氣、娛樂八卦、情感問題），請禮貌拒絕並引導回課程，例如：「這個我幫不上忙，不過如果你有課程相關的問題，我很樂意幫你解答！」
-        3. 如果學生說「不懂」或「再解釋一次」，請換個方式或用更簡單的比喻重新說明。
-        4. 直接回答問題，不要使用「嗨」、「學弟妹」、「很好的問題」等寒暄或稱讚，也不要自我介紹或重述學生的問題。
+附近逐字稿：
+{transcript_context}
 
-        【目前學習情況】
-        學生正在觀看小節 ID：{body.lecture_id}
-        學生提問時，影片正播放到：{timestamp_str}（分:秒）
+本節知識點：
+{kp_text}
 
-        【當前時間點附近的逐字稿】
-        {transcript_context}
+完整逐字稿備用參考：
+{transcript_text[:2000]}
 
-        【本節課核心知識點】
-        {kp_text}
+先前對話：
+{history_text if history_text else "（本次對話剛開始）"}
 
-        【完整逐字稿（備用參考）】
-        {transcript_text[:2000]}
+學生問題：
+{body.question}"""
 
-        【先前對話紀錄】
-        {history_text if history_text else "（本次對話剛開始）"}
+        chat_prompt = f'''你是一位親切、有耐心的專業課程 AI 助教，使用繁體中文，回答約 100 到 200 字，語氣自然。
+只能根據課程逐字稿和知識點回答，不可編造；非課程問題請禮貌拒絕並引導回課程。學生表示不懂時，換個方式或用簡單比喻說明。
+直接回答，不要寒暄、稱讚、自我介紹、重述問題或加「助教：」前綴。
+請輸出 JSON：{{"answer":"助教回答內容"}}
 
-        【學生問題】
-        {body.question}
-
-        請從實際答案的第一句開始，不需要任何開場白，也不要加「助教：」前綴。
-        JSON 格式：
-        {{"answer": "助教回答內容"}}
-        """
-
-        ai_response = gemini_client.models.generate_content(
+{prompt}'''
+        ai_response = generate_json_content(
+            chat_prompt,
+            system_instruction=None,
             model="gemini-3.5-flash-lite",
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
         )
 
         try:
@@ -263,19 +265,12 @@ def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
                 status_code=400, detail="Transcript not found for this lecture."
             )
 
-        prompt = f"""
-            請根據以下課程逐字稿，產生 150 字內的繁體中文課程摘要。
-            JSON格式：
-            {{"summary":"摘要內容"}}
-            課程逐字稿：
-            {transcript}
-        """
+        prompt = f'''請根據以下課程逐字稿，產生 150 字內的繁體中文課程摘要。
+JSON 格式：{{"summary":"摘要內容"}}
 
-        ai_response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
+課程逐字稿：
+{transcript}'''
+        ai_response = generate_json_content(prompt)
 
         try:
             result_json = json.loads(ai_response.text)
@@ -321,32 +316,13 @@ def generate_mindmap(body: MindMapRequest, user=Depends(get_current_user)):
                 status_code=400, detail="Transcript not found for this lecture."
             )
 
-        prompt = f"""
-        請根據以下課程逐字稿，產生一份適合用 Markmap 渲染的「Markdown 格式課程心智圖」。
-        心智圖只需要呈現知識架構，不需要影片時間點。
-        請只輸出 JSON。
+        prompt = f'''請根據以下課程逐字稿，產生一份適合用 Markmap 渲染的 Markdown 格式課程心智圖，只呈現知識架構，不需要影片時間點。
+第一層使用 # 作為根節點，第二層使用 ## 作為主觀念，第三層使用 - 作為子細節。不要使用程式碼區塊，每個節點控制在 15 字以內。
+JSON 格式：{{"markdown":"# 課程總主題\\n## 核心概念一\\n- 概念說明"}}
 
-        JSON 格式：
-        {{"markdown": "# 課程總主題\\n## 核心概念一\\n- 概念說明\\n## 核心概念二\\n- 概念說明"}}
-
-        規則：
-        1. 階層設計：
-        - 第一層（根節點）：使用一個 `#` （例如：# 課程總主題）
-        - 第二層（主觀念）：使用兩個 `##` （例如：## 主要概念一）
-        - 第三層（子細節）：使用 `-` 無序清單（例如：- 觀念詳細說明）
-        2. 不要使用任何 Markdown 程式碼區塊標記（如 ```markdown）。
-        3. 內容必須簡潔，每個節點字數控制在 15 字以內。
-        4. 使用繁體中文。
-
-        課程逐字稿：
-        {transcript}
-        """
-
-        ai_response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
+課程逐字稿：
+{transcript}'''
+        ai_response = generate_json_content(prompt)
 
         try:
             result_json = json.loads(ai_response.text)
@@ -409,21 +385,13 @@ def generate_knowledge_points(
                 status_code=400, detail="Transcript not found for this lecture."
             )
 
-        prompt = f"""
-            請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
-            JSON格式：
-            {{ "knowledge_points": [ {{ "title": "知識點標題", "description": "知識點說明", "start_time": null, "end_time": null }} ] }}
-            使用繁體中文。如果沒有時間資訊請填 null。
-            start_time / end_time 請輸出非負整數秒數，不可輸出 mm:ss。
-            課程逐字稿：
-            {transcript}
-        """
+        prompt = f'''請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
+依逐字稿時間推估 start_time / end_time，輸出非負整數秒數，不可使用 mm:ss，無時間資訊則填 null。
+JSON 格式：{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":null,"end_time":null}}]}}
 
-        ai_response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
+課程逐字稿：
+{transcript}'''
+        ai_response = generate_json_content(prompt)
 
         try:
             result_json = json.loads(ai_response.text)
@@ -479,35 +447,17 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
                 status_code=400, detail="Transcript not found for this lecture."
             )
 
-        prompt = f"""
-            1.請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。
-            2.每一題都必須對應影片中的一個出題時間點。
-            3.source_timestamp 必須是純整數秒數，代表影片播放到該秒數時要跳出題目。
-            4.請根據逐字稿段落時間與知識點 start_time / end_time 推估，不可以填 null。
-              例如：如果教授在 12 分 25 秒講到這個觀念，請轉換為 745 存入 source_timestamp。
-            JSON格式：
-            {{"questions": [
-                    {{
-                        "question_text": "題目文字內容",
-                        "options": ["A. 選項A內容", "B. 選項B內容", "C. 選項C內容", "D. 選項D內容"],
-                        "answer": "A",
-                        "explanation": "對四個選項進行對錯的精簡專業解釋",
-                        "related_knowledge_point": "使用提供的知識點 id，若無則填 null",
-                        "source_timestamp": 745
-                    }}
-                ]}}            
-            使用繁體中文。每題固定 4 個選項，且 answer 只能是 A、B、C 或 D。
-            題目、選項與解析請直接呈現課程知識，不要提及「逐字稿」或描述資訊來源。
-            不要使用「根據逐字稿」、「逐字稿提到」、「依據上述內容」等說法。
-            課程逐字稿：{transcript}
-            知識點列表：{knowledge_points}
-        """
+        prompt = f'''請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。每題固定 4 個選項，answer 只能是 A、B、C 或 D。
+每題都要對應影片出題時間點，依逐字稿段落時間與知識點時間推估非空的整數秒 source_timestamp；related_knowledge_point 使用知識點 id，無法對應時填 null。
+題目、選項與解析使用繁體中文，直接呈現課程知識，不提及逐字稿或資訊來源。
+JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":745}}]}}
 
-        ai_response = gemini_client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={"response_mime_type": "application/json"},
-        )
+課程逐字稿：
+{transcript}
+
+知識點列表：
+{knowledge_points}'''
+        ai_response = generate_json_content(prompt)
 
         try:
             result_json = json.loads(ai_response.text)

@@ -93,6 +93,8 @@ export default function CourseManagement() {
   const [pendingGeneration, setPendingGeneration] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [coursePickerFixed, setCoursePickerFixed] = useState(false);
+  const coursePickerRef = useRef(null);
   const skipNextHistoryWarning = useRef(false);
 
   const selectedCourse = useMemo(
@@ -118,6 +120,21 @@ export default function CourseManagement() {
       !formsMatch(lectureForms[lecture.id] || lectureForm(), lectureForm(lecture))
     );
   }, [form, lectureForms, selectedCourse]);
+
+  useEffect(() => {
+    const picker = coursePickerRef.current;
+    if (!picker) return undefined;
+
+    const stickyStart = picker.getBoundingClientRect().top + window.scrollY - 82;
+    const updatePosition = () => setCoursePickerFixed(window.scrollY >= stickyStart);
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, { passive: true });
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [data?.courses?.length, loading]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return undefined;
@@ -533,7 +550,10 @@ export default function CourseManagement() {
           <h1>{isCampus ? '平台課程管理' : '我的課程管理'}</h1>
           <p>{isCampus ? '管理平台上的所有課程，包括老師建立的課程、授課教師指派與發布狀態。' : '管理自己上傳或被指派授課的課程、安排小節並管理 AI 教材。'}</p>
         </div>
-        <div className="teacher-filters">
+        <div
+          ref={coursePickerRef}
+          className={`teacher-filters${coursePickerFixed ? ' is-fixed' : ''}`}
+        >
           <SearchableCourseSelect
             courses={data?.courses || []}
             value={courseId}

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -16,6 +16,7 @@ function courseTitle(course) {
 }
 
 export default function CourseUpload() {
+  const location = useLocation();
   const token = localStorage.getItem('access_token');
   const [courses, setCourses] = useState([]);
   const [teacherId, setTeacherId] = useState(null);
@@ -64,8 +65,11 @@ export default function CourseUpload() {
         setTeacherId(idData.id);
         const ownCourses = courseData.courses || [];
         setCourses(ownCourses);
-        setCourseId('');
-        setCourseSearch('');
+        const requestedCourse = ownCourses.find(
+          course => String(course.id) === String(location.state?.courseId)
+        );
+        setCourseId(requestedCourse ? String(requestedCourse.id) : '');
+        setCourseSearch(requestedCourse ? courseTitle(requestedCourse) : '');
       } catch (err) {
         setError(err.message || '載入上傳資料失敗');
       } finally {
@@ -74,7 +78,7 @@ export default function CourseUpload() {
     }
 
     loadInitialData();
-  }, [token]);
+  }, [location.state?.courseId, token]);
 
   const courseOptions = useMemo(() => {
     const keyword = courseSearch.trim().toLocaleLowerCase('zh-TW');

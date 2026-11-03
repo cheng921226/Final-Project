@@ -7,16 +7,16 @@ from services.video_backup import safe_storage_key_part
 
 
 LOCAL_VIDEO_BUCKET = os.getenv("SUPABASE_LOCAL_VIDEO_BUCKET", "lecture-videos")
-MAX_LOCAL_VIDEO_BYTES = int(
-    os.getenv("LOCAL_VIDEO_MAX_BYTES", str(48 * 1024**2))
-)
+MAX_LOCAL_VIDEO_BYTES = int(os.getenv("LOCAL_VIDEO_MAX_BYTES", str(48 * 1024**2)))
 ALLOWED_VIDEO_TYPES = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
 }
 
 
-def validate_local_video(filename: str | None, content_type: str | None) -> tuple[str, str]:
+def validate_local_video(
+    filename: str | None, content_type: str | None
+) -> tuple[str, str]:
     extension = Path(filename or "").suffix.lower()
     expected_type = ALLOWED_VIDEO_TYPES.get(extension)
     if not expected_type:
@@ -38,9 +38,7 @@ def upload_local_video(
 ) -> str:
     extension = Path(original_filename).suffix.lower()
     stem = safe_storage_key_part(Path(original_filename).stem, "video")
-    storage_path = (
-        f"courses/{course_id}/{uuid.uuid4().hex}-{stem}{extension}"
-    )
+    storage_path = f"courses/{course_id}/{uuid.uuid4().hex}-{stem}{extension}"
     with open(file_path, "rb") as source:
         supabase_admin.storage.from_(LOCAL_VIDEO_BUCKET).upload(
             storage_path,
@@ -54,12 +52,9 @@ def remove_local_video(storage_path: str) -> None:
     supabase_admin.storage.from_(LOCAL_VIDEO_BUCKET).remove([storage_path])
 
 
-def create_local_video_signed_url(
-    storage_path: str, expires_in: int = 3600
-) -> str:
-    response = (
-        supabase_admin.storage.from_(LOCAL_VIDEO_BUCKET)
-        .create_signed_url(storage_path, expires_in)
+def create_local_video_signed_url(storage_path: str, expires_in: int = 3600) -> str:
+    response = supabase_admin.storage.from_(LOCAL_VIDEO_BUCKET).create_signed_url(
+        storage_path, expires_in
     )
     url = response.get("signedURL") or response.get("signedUrl")
     if not url:

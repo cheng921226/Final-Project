@@ -46,7 +46,9 @@ def validate_student_ids(student_ids: list[int]) -> list[int]:
         or []
     )
     valid_ids = {row["id"] for row in rows}
-    invalid_ids = [student_id for student_id in unique_ids if student_id not in valid_ids]
+    invalid_ids = [
+        student_id for student_id in unique_ids if student_id not in valid_ids
+    ]
     if invalid_ids:
         raise HTTPException(
             status_code=422,
@@ -101,9 +103,7 @@ def get_enrollment_management(
         return {"courses": [], "classes": [], "course_id": None, "students": []}
     get_course_or_404(selected_course_id, courses)
 
-    classes = (
-        supabase_admin.table("classes").select("id,name").execute().data or []
-    )
+    classes = supabase_admin.table("classes").select("id,name").execute().data or []
     classes.sort(key=class_sort_key)
     class_map = {row["id"]: row for row in classes}
     students = (
@@ -131,10 +131,14 @@ def get_enrollment_management(
         "students": [
             {
                 **student,
-                "class_name": (class_map.get(student.get("class_id")) or {}).get("name"),
+                "class_name": (class_map.get(student.get("class_id")) or {}).get(
+                    "name"
+                ),
                 "enrolled": student["id"] in enrollment_map,
                 "enrollment_id": (enrollment_map.get(student["id"]) or {}).get("id"),
-                "enrolled_at": (enrollment_map.get(student["id"]) or {}).get("created_at"),
+                "enrolled_at": (enrollment_map.get(student["id"]) or {}).get(
+                    "created_at"
+                ),
             }
             for student in students
         ],
@@ -151,8 +155,7 @@ def enroll_students(
     get_course_or_404(course_id)
     student_ids = validate_student_ids(body.student_ids)
     rows = [
-        {"course_id": course_id, "student_id": student_id}
-        for student_id in student_ids
+        {"course_id": course_id, "student_id": student_id} for student_id in student_ids
     ]
     supabase_admin.table("student_courses").upsert(
         rows, on_conflict="student_id,course_id"

@@ -115,7 +115,9 @@ class StudentDataBoundaryTests(unittest.TestCase):
 
         self.assertIn("revoke all privileges on all tables", migration.lower())
         self.assertIn("question_attempts_select_own", migration)
-        self.assertNotIn("grant select on public.questions to authenticated", migration.lower())
+        self.assertNotIn(
+            "grant select on public.questions to authenticated", migration.lower()
+        )
         self.assertNotIn(
             "grant select on public.final_assessment_questions to authenticated",
             migration.lower(),
