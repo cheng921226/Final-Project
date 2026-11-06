@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from database.supabase import supabase_admin
+from opencc import OpenCC
 
 
 DEFAULT_MODEL_SIZE = os.getenv("WHISPER_MODEL_SIZE", "small")
@@ -55,9 +56,12 @@ def transcribe_media(
 
     segments = []
     full_text_parts = []
+    converter = OpenCC("s2tw.json") if info.language == "zh" else None
 
     for segment in segments_iter:
         text = segment.text.strip()
+        if converter is not None:
+            text = converter.convert(text)
         full_text_parts.append(text)
 
         item: dict[str, Any] = {
@@ -71,7 +75,11 @@ def transcribe_media(
                 {
                     "start_time": round(float(word.start), 3),
                     "end_time": round(float(word.end), 3),
-                    "word": word.word.strip(),
+                    "word": (
+                        converter.convert(word.word.strip())
+                        if converter is not None
+                        else word.word.strip()
+                    ),
                 }
                 for word in segment.words
             ]
