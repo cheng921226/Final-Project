@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import SearchableCourseSelect from './SearchableCourseSelect';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -25,6 +24,20 @@ const studentCollator = new Intl.Collator('zh-TW', {
   numeric: true,
   sensitivity: 'base',
 });
+
+const CLASS_GRADE_ORDER = { 一: 1, 二: 2, 三: 3, 四: 4 };
+const CLASS_SECTION_ORDER = { 甲: 1, 乙: 2, 丙: 3, 丁: 4 };
+
+function classSortValue(name, order) {
+  const marker = Object.keys(order).find(value => name.includes(value));
+  return marker ? order[marker] : Number.MAX_SAFE_INTEGER;
+}
+
+function compareClassNames(left, right) {
+  return classSortValue(left, CLASS_GRADE_ORDER) - classSortValue(right, CLASS_GRADE_ORDER)
+    || classSortValue(left, CLASS_SECTION_ORDER) - classSortValue(right, CLASS_SECTION_ORDER)
+    || studentCollator.compare(left, right);
+}
 
 const STUDENT_SORT_COLUMNS = [
   ['student_number', '學號'],
@@ -223,7 +236,7 @@ export default function TeacherDashboard() {
   const classOptions = useMemo(() => {
     const classes = new Map();
     students.forEach(student => (student.classes || []).forEach(item => classes.set(String(item.id), item.name)));
-    return [...classes.entries()].sort((a, b) => a[1].localeCompare(b[1], 'zh-TW'));
+    return [...classes.entries()].sort((a, b) => compareClassNames(a[1], b[1]));
   }, [students]);
   const filteredStudents = useMemo(() => {
     const keyword = studentKeyword.trim().toLocaleLowerCase('zh-TW');
@@ -606,14 +619,20 @@ export default function TeacherDashboard() {
           ref={filterPanelRef}
           className={`teacher-filters${filterPanelFixed ? ' is-fixed' : ''}`}
         >
-          <SearchableCourseSelect
-            courses={data.courses}
-            value={courseId}
-            onChange={nextCourseId => {
-              setCourseId(nextCourseId);
-              setLectureId('all');
-            }}
-          />
+          <label>
+            <span>課程</span>
+            <select
+              value={courseId}
+              onChange={event => {
+                setCourseId(event.target.value);
+                setLectureId('all');
+              }}
+            >
+              {data.courses.map(item => (
+                <option key={item.id} value={item.id}>{item.title || item.course_name || `課程 ${item.id}`}</option>
+              ))}
+            </select>
+          </label>
           <label>
             <span>分析範圍</span>
             <select value={lectureId} onChange={event => setLectureId(event.target.value)}>

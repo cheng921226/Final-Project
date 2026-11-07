@@ -644,6 +644,76 @@ a {
   padding-right: 12px;
 }
 
+.question-review-page .teacher-hero {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.question-review-page .teacher-filters {
+  flex: 0 1 540px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.question-review-page .teacher-filters .searchable-course-select,
+.question-review-page .teacher-filters > label {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.question-review-page .teacher-filters select,
+.question-review-page .teacher-filters .searchable-course-select > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.teacher-dashboard-page .teacher-filters {
+  display: flex;
+  flex: 0 1 auto;
+  flex-wrap: nowrap;
+  width: max-content;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.teacher-dashboard-page .teacher-hero {
+  flex-wrap: wrap;
+}
+
+.teacher-dashboard-page .teacher-hero > div:first-child {
+  flex: 1 1 420px;
+  min-width: 0;
+}
+
+.teacher-dashboard-page .teacher-filters .searchable-course-select,
+.teacher-dashboard-page .teacher-filters > label {
+  flex: 0 0 220px;
+  min-width: 0;
+}
+
+.teacher-dashboard-page .teacher-filters .searchable-course-select {
+  width: 220px;
+}
+
+.teacher-dashboard-page .teacher-filters select,
+.teacher-dashboard-page .teacher-filters .searchable-course-select > input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
+}
+
+.teacher-dashboard-page .teacher-filters > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
 .teacher-dashboard-page .teacher-filters.is-fixed {
   position: fixed;
   top: 82px;
@@ -1845,6 +1915,11 @@ a {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.question-review-toolbar > button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .question-review-item small .question-review-status {
