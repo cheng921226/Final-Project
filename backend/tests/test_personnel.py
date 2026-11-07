@@ -6,14 +6,17 @@ from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 from fastapi import UploadFile
+from postgrest.exceptions import APIError
 
 from routers.personnel import (
+    PersonnelUpdate,
     PersonnelStatusUpdate,
     auth_user_active,
     class_sort_key,
     import_personnel_csv,
     normalize_student_fields,
     require_campus,
+    update_personnel,
     update_personnel_status,
 )
 
@@ -32,6 +35,46 @@ class PersonnelTests(unittest.TestCase):
         with self.assertRaises(HTTPException) as context:
             normalize_student_fields("student", "", None)
         self.assertEqual(context.exception.status_code, 422)
+
+    def test_duplicate_student_number_returns_conflict(self):
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.update.return_value = query
+        query.execute.side_effect = [
+            SimpleNamespace(data=[]),
+            APIError(
+                {
+                    "code": "23505",
+                    "message": 'duplicate key value violates unique constraint "users_student_number_unique_idx"',
+                }
+            ),
+        ]
+        database = Mock()
+        database.table.return_value = query
+        context = SimpleNamespace(profile={"id": 22, "role": "campus"})
+
+        with (
+            patch("routers.personnel.supabase_admin", database),
+            patch(
+                "routers.personnel.get_personnel_or_404",
+                return_value={"id": 18, "auth_id": None, "role": "student"},
+            ),
+        ):
+            with self.assertRaises(HTTPException) as error:
+                update_personnel(
+                    18,
+                    PersonnelUpdate(
+                        name="學生",
+                        email="student@example.com",
+                        role="student",
+                        student_number="D1285028",
+                    ),
+                    context,
+                )
+
+        self.assertEqual(error.exception.status_code, 409)
+        self.assertEqual(error.exception.detail, "此學號已被其他學生使用，請輸入不同學號")
 
     def test_banned_auth_user_is_reported_as_disabled(self):
         active = SimpleNamespace(banned_until=None)

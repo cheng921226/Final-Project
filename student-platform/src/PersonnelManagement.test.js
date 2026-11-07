@@ -51,6 +51,26 @@ test('opens a complete account form for a new student', async () => {
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
+test('shows a duplicate student number warning in the editor when saving', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => personnelData })
+    .mockResolvedValueOnce({
+      ok: false,
+      status: 409,
+      json: async () => ({ detail: '此學號已被其他學生使用，請輸入不同學號' }),
+    });
+
+  render(<PersonnelManagement />);
+  fireEvent.click((await screen.findAllByRole('button', { name: '修改' }))[0]);
+  fireEvent.click(screen.getByRole('button', { name: '儲存人員' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    '此學號已被其他學生使用，請輸入不同學號'
+  );
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+});
+
 test('imports a CSV roster and shows row errors without discarding successes', async () => {
   localStorage.setItem('access_token', 'campus-token');
   global.fetch = jest.fn()
