@@ -7,8 +7,10 @@ import {
   lecturePlayerMode,
   partitionPracticeQuestions,
 } from './classroomPractice';
+import { lectureDetailCache } from './lectureDetailCache';
 
 const API_URL = 'http://127.0.0.1:8000';
+const LECTURE_DETAIL_CACHE_TTL_MS = 60_000;
 const COMPLETION_THRESHOLD = 0.8;
 const PAUSE_HELP_DELAY_MS = 30000;
 const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 };
@@ -132,14 +134,31 @@ async function fetchTimedQuestions(lectureId, signal, token) {
     .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
 }
 
-async function optionalRequest(request, fallback = null) {
+async function optionalRequest(request, fallback = null, onError) {
   try {
     return await request;
   } catch (error) {
     if (error.name === 'AbortError') throw error;
     console.error('Optional lecture request failed:', error);
+    onError?.(error);
     return fallback;
   }
+}
+
+async function responseErrorMessage(response, label) {
+  let detail = '';
+  try {
+    const body = await response.clone().json();
+    detail = body?.detail || body?.message || '';
+  } catch {
+    try {
+      detail = (await response.clone().text()).trim();
+    } catch {
+      detail = '';
+    }
+  }
+  const suffix = detail ? `：${detail}` : '';
+  return `${label}（HTTP ${response.status}）${suffix}`;
 }
 
 async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDuration) {
@@ -160,6 +179,14 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
         completed,
       }),
     });
+    const cached = lectureDetailCache.get(`${lectureId}:${token}`);
+    if (cached) {
+      cached.data.watchedSeconds = Math.floor(watchedSeconds);
+      cached.data.isCompleted = completed;
+      cached.data.watchedPercent = totalDuration
+        ? Math.min(Math.round((watchedSeconds / totalDuration) * 100), 100)
+        : cached.data.watchedPercent;
+    }
   } catch (e) { }
 }
 
@@ -170,6 +197,8 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
 function LectureDetail() {
   const { id, lectureId } = useParams();
   const token = localStorage.getItem('access_token');
+  const cacheKey = `${lectureId}:${token || 'anonymous'}`;
+  const invalidateLectureDetailCache = () => lectureDetailCache.delete(cacheKey);
   const [summary, setSummary] = useState('');
   const [knowledgePoints, setKnowledgePoints] = useState([]);
   const [videoId, setVideoId] = useState('');
@@ -191,6 +220,7 @@ function LectureDetail() {
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
   const [userProfile, setUserProfile] = useState(null);
+  const [summaryError, setSummaryError] = useState('');
   const [questions, setQuestions] = useState([]);
   const [activeQuestion, setActiveQuestion] = useState(null);
   const [questionOrigin, setQuestionOrigin] = useState('timed');
@@ -560,10 +590,51 @@ function LectureDetail() {
   useEffect(() => {
     const controller = new AbortController();
     const { signal } = controller;
+    const cached = lectureDetailCache.get(cacheKey);
+    const applyCachedData = data => {
+      setSummary(data.summary);
+      setKnowledgePoints(data.knowledgePoints);
+      setVideoId(data.videoId);
+      setVideoError(data.videoError);
+      setPlayerMode(data.playerMode);
+      setBackupInfo(data.backupInfo);
+      setMediaInfo(data.mediaInfo);
+      setMindmapMarkdown(data.mindmapMarkdown);
+      setQuestions(data.questions);
+      setChatMessages(data.chatMessages);
+      setChatInitialized(true);
+      prevWatchedSecondsRef.current = data.watchedSeconds;
+      setIsCompleted(data.isCompleted);
+      setWatchedPercent(data.watchedPercent);
+      shownQuestionIdsRef.current = new Set(data.shownQuestionIds);
+      completedQuestionIdsRef.current = new Set(data.completedQuestionIds);
+      setWelcomeReminder(data.welcomeReminder);
+      lastQuestionCheckTimeRef.current = null;
+    };
 
     async function fetchData() {
-      setLoading(true);
+      if (!cached) setLoading(true);
       setError(null);
+      if (!cached) setSummaryError('');
+      let summaryRequestFailed = false;
+      const data = cached ? { ...cached.data } : {
+        summary: '',
+        knowledgePoints: [],
+        videoId: '',
+        videoError: '',
+        playerMode: 'youtube',
+        backupInfo: null,
+        mediaInfo: null,
+        mindmapMarkdown: '',
+        questions: [],
+        chatMessages: [],
+        watchedSeconds: 0,
+        isCompleted: false,
+        watchedPercent: 0,
+        shownQuestionIds: [],
+        completedQuestionIds: [],
+        welcomeReminder: false,
+      };
       try {
         const authOptions = token
           ? { headers: { Authorization: `Bearer ${token}` }, signal }
@@ -580,7 +651,16 @@ function LectureDetail() {
         ] = await Promise.all([
           fetch(`${API_URL}/lectures/${lectureId}`, { signal }),
           optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/knowledge_points`, { signal })),
-          optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal })),
+          optionalRequest(
+            fetch(`${API_URL}/lectures/${lectureId}/summaries`, { signal }),
+            null,
+            error => {
+              summaryRequestFailed = true;
+              if (!signal.aborted) {
+                setSummaryError(`連線失敗：${error.message || '無法連線到伺服器'}`);
+              }
+            }
+          ),
           optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal })),
           optionalRequest(fetchTimedQuestions(lectureId, signal, token), []),
           authOptions
@@ -602,6 +682,11 @@ function LectureDetail() {
           const lectureData = await lectureRes.json();
           const lecture = lectureData[0] || {};
           if (lecturePlayerMode(lecture) === 'local') {
+            data.videoId = '';
+            data.backupInfo = null;
+            data.mediaInfo = null;
+            data.playerMode = 'local';
+            data.videoError = '';
             setVideoId('');
             setBackupInfo(null);
             const mediaRes = await fetch(`${API_URL}/lectures/${lectureId}/media`, {
@@ -609,12 +694,18 @@ function LectureDetail() {
               signal,
             });
             if (!mediaRes.ok) throw new Error('無法取得本機影片播放網址');
-            setMediaInfo(await mediaRes.json());
+            data.mediaInfo = await mediaRes.json();
+            setMediaInfo(data.mediaInfo);
             setPlayerMode('local');
             setVideoError('');
           } else {
             const raw = lecture.media_url;
             const vid = extractYouTubeVideoId(raw);
+            data.videoId = vid || '';
+            data.mediaInfo = null;
+            data.playerMode = 'youtube';
+            data.videoError = vid ? '' : '影片連結格式無法解析';
+            data.backupInfo = { status: lecture.backup_status || 'not_requested' };
             setMediaInfo(null);
             if (vid) {
               setVideoId(vid);
@@ -630,59 +721,67 @@ function LectureDetail() {
               headers: { Authorization: `Bearer ${token}` },
               signal,
             });
-            if (backupRes.ok) setBackupInfo(await backupRes.json());
-          }
-        }
-
-        if (kpRes.ok) {
-          const kpData = await kpRes.json();
-          if (Array.isArray(kpData)) setKnowledgePoints(kpData);
-        }
-
-        if (summaryRes.ok) {
-          const summaryData = await summaryRes.json();
-          if (summaryData?.summary_text) {
-            try {
-              const parsed = JSON.parse(summaryData.summary_text);
-              setSummary(parsed.summary ?? summaryData.summary_text);
-            } catch {
-              setSummary(summaryData.summary_text);
+            if (backupRes.ok) {
+              data.backupInfo = await backupRes.json();
+              setBackupInfo(data.backupInfo);
             }
           }
         }
 
-        if (mmRes.ok) {
+        if (kpRes?.ok) {
+          const kpData = await kpRes.json();
+          if (Array.isArray(kpData)) {
+            data.knowledgePoints = kpData;
+            setKnowledgePoints(kpData);
+          }
+        }
+
+        if (summaryRes && !summaryRes.ok) {
+          summaryRequestFailed = true;
+          setSummaryError(await responseErrorMessage(summaryRes, '摘要請求失敗'));
+        } else if (summaryRes?.ok) {
+          const summaryData = await summaryRes.json();
+          if (summaryData?.summary_text) {
+            try {
+              const parsed = JSON.parse(summaryData.summary_text);
+              data.summary = parsed.summary ?? summaryData.summary_text;
+            } catch {
+              data.summary = summaryData.summary_text;
+            }
+            setSummary(data.summary);
+          }
+          setSummaryError('');
+        }
+
+        if (mmRes?.ok) {
           const mmData = await mmRes.json();
           const mindmapJson = mmData?.[0]?.mindmap_json;
           if (mindmapJson?.markdown) {
-            setMindmapMarkdown(mindmapJson.markdown);
+            data.mindmapMarkdown = mindmapJson.markdown;
           } else if (mindmapJson?.mind_map) {
-            setMindmapMarkdown(convertLegacyMindmapToMarkdown(mindmapJson.mind_map));
-          } else {
-            setMindmapMarkdown('');
+            data.mindmapMarkdown = convertLegacyMindmapToMarkdown(mindmapJson.mind_map);
           }
+          setMindmapMarkdown(data.mindmapMarkdown);
         }
 
         // 提早撈觀看進度，確保在 onReady 前就設好 prevWatchedSecondsRef
         if (progressRes?.ok) {
           const progressData = await progressRes.json();
+          data.watchedSeconds = progressData?.watched_seconds || 0;
+          data.isCompleted = !!progressData?.completed;
+          data.watchedPercent = data.isCompleted ? 100 : 0;
           if (progressData?.watched_seconds > 0) {
             prevWatchedSecondsRef.current = progressData.watched_seconds;
           }
-          if (progressData?.completed) {
-            setIsCompleted(true);
-            setWatchedPercent(100);
-          }
+          setIsCompleted(data.isCompleted);
+          setWatchedPercent(data.watchedPercent);
         }
 
         if (attemptsRes?.ok) {
           const attempts = await attemptsRes.json();
-          shownQuestionIdsRef.current = new Set(
-            (attempts || []).map(attempt => attempt.question_id)
-          );
-        } else {
-          shownQuestionIdsRef.current = new Set();
+          data.shownQuestionIds = (attempts || []).map(attempt => attempt.question_id);
         }
+        shownQuestionIdsRef.current = new Set(data.shownQuestionIds);
 
         if (chatRes?.ok) {
           const chatData = await chatRes.json();
@@ -701,10 +800,10 @@ function LectureDetail() {
             });
           });
 
+          data.chatMessages = messages;
           setChatMessages(messages);
-        } else {
-          setChatMessages([]);
         }
+        if (!chatRes?.ok && !cached) setChatMessages([]);
 
         setChatInitialized(true);
 
@@ -713,24 +812,61 @@ function LectureDetail() {
             .filter(question => question.learning_status === 'completed')
             .map(question => question.id)
         );
+        data.questions = pendingQuestions;
+        data.completedQuestionIds = [...completedQuestionIdsRef.current];
+        data.welcomeReminder = pendingQuestions.some(
+          question => question.learning_status === 'skipped'
+        );
         shownQuestionIdsRef.current = new Set([
           ...shownQuestionIdsRef.current,
           ...completedQuestionIdsRef.current,
         ]);
+        data.shownQuestionIds = [...shownQuestionIdsRef.current];
         setQuestions(pendingQuestions);
-        setWelcomeReminder(
-          pendingQuestions.some(question => question.learning_status === 'skipped')
-        );
+        setWelcomeReminder(data.welcomeReminder);
         lastQuestionCheckTimeRef.current = null;
+        if (!signal.aborted && !summaryRequestFailed) {
+          lectureDetailCache.set(cacheKey, { data, fetchedAt: Date.now() });
+        }
       } catch (err) {
-        if (err.name !== 'AbortError') setError(err.message || '取得資料失敗');
+        if (err.name !== 'AbortError' && !signal.aborted) {
+          setError(err.message || '取得資料失敗');
+        }
       } finally {
         if (!signal.aborted) setLoading(false);
       }
     }
+    if (cached) {
+      applyCachedData(cached.data);
+      setLoading(false);
+      setError(null);
+      if (Date.now() - cached.fetchedAt < LECTURE_DETAIL_CACHE_TTL_MS) {
+        return () => controller.abort();
+      }
+    } else {
+      setSummary('');
+      setSummaryError('');
+      setKnowledgePoints([]);
+      setVideoId('');
+      setVideoError('');
+      setPlayerMode('youtube');
+      setBackupInfo(null);
+      setMediaInfo(null);
+      setMindmapMarkdown('');
+      setQuestions([]);
+      setChatMessages([]);
+      setChatInitialized(false);
+      prevWatchedSecondsRef.current = 0;
+      setIsCompleted(false);
+      setWatchedPercent(0);
+      shownQuestionIdsRef.current = new Set();
+      completedQuestionIdsRef.current = new Set();
+      setWelcomeReminder(false);
+    }
+
     fetchData();
     return () => controller.abort();
-  }, [lectureId, token]);
+  }, [cacheKey, lectureId, token]);
 
   // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。
   useEffect(() => {
@@ -1233,6 +1369,7 @@ function LectureDetail() {
     const question = (questionOverride ?? chatInput).trim();
     if (!question || chatLoading) return;
 
+    invalidateLectureDetailCache();
     const currentTime = Math.floor(getPlayerCurrentTime());
 
     logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
@@ -1347,6 +1484,7 @@ function LectureDetail() {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.detail || '無法保留待作答狀態');
       }
+      invalidateLectureDetailCache();
       setQuestions(current => current.map(question => (
         question.id === activeQuestion.id
           ? { ...question, learning_status: 'skipped', was_skipped: true }
@@ -1398,6 +1536,7 @@ function LectureDetail() {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.detail || '作答紀錄儲存失敗');
       }
+      invalidateLectureDetailCache();
       const data = await res.json();
       setQuestionFeedback(data);
       completedQuestionIdsRef.current.add(activeQuestion.id);
@@ -1448,6 +1587,7 @@ function LectureDetail() {
         throw new Error(errorData.detail || '重置測驗失敗');
       }
 
+      invalidateLectureDetailCache();
       shownQuestionIdsRef.current = new Set();
       completedQuestionIdsRef.current = new Set();
       setQuestions(current => current.map(question => ({
@@ -1682,9 +1822,16 @@ function LectureDetail() {
             </div>
             <div className="p-5">
               {activeTab === 'summary' && (
-                <p className="text-slate-600 text-sm leading-relaxed">
-                  {loading ? '載入中...' : summary || '無摘要資料'}
-                </p>
+                <>
+                  {summaryError && (
+                    <p className="mb-3 text-sm text-red-600" role="alert">
+                      摘要載入失敗：{summaryError}
+                    </p>
+                  )}
+                  <p className="text-slate-600 text-sm leading-relaxed">
+                    {loading ? '載入中...' : summary || '無摘要資料'}
+                  </p>
+                </>
               )}
               {activeTab === 'mindmap' && (
                 loading ? (

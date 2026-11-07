@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 const ROLE_LABELS = { student: '學生', teacher: '教師', campus: '平台端' };

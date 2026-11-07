@@ -2,13 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
+const COURSE_DETAIL_CACHE_TTL_MS = 60_000;
+const courseDetailCache = new Map();
 
 function CourseDetail() {
   const { id } = useParams();
-  const [lectures, setLectures] = useState([]);
-  const [progressMap, setProgressMap] = useState({}); // { lectureId: { watched_seconds, completed } }
-  const [finalAssessment, setFinalAssessment] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const token = localStorage.getItem('access_token');
+  const cacheKey = `${id}:${token || 'anonymous'}`;
+  const cachedCourseDetail = courseDetailCache.get(cacheKey);
+  const [lectures, setLectures] = useState(cachedCourseDetail?.lectures || []);
+  const [progressMap, setProgressMap] = useState(cachedCourseDetail?.progressMap || {});
+  const [finalAssessment, setFinalAssessment] = useState(cachedCourseDetail?.finalAssessment || null);
+  const [loading, setLoading] = useState(!cachedCourseDetail);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -31,28 +36,61 @@ function CourseDetail() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const lectureList = Array.isArray(data) ? data : [];
-        setLectures(lectureList);
-
+        let nextProgressMap = {};
+        let nextFinalAssessment = null;
         if (!token) {
-          setProgressMap({});
-          return;
-        }
-        if (progressRes?.ok) {
+          nextProgressMap = {};
+        } else if (progressRes?.ok) {
           const rows = await progressRes.json();
-          setProgressMap(Object.fromEntries(
+          nextProgressMap = Object.fromEntries(
             (rows || []).map(progress => [progress.lecture_id, progress])
-          ));
+          );
         }
-        if (assessmentRes?.ok) setFinalAssessment(await assessmentRes.json());
+        if (assessmentRes?.ok) nextFinalAssessment = await assessmentRes.json();
+
+        const courseDetail = {
+          lectures: lectureList,
+          progressMap: nextProgressMap,
+          finalAssessment: nextFinalAssessment,
+          fetchedAt: Date.now(),
+        };
+        courseDetailCache.set(cacheKey, courseDetail);
+        if (!controller.signal.aborted) {
+          setLectures(courseDetail.lectures);
+          setProgressMap(courseDetail.progressMap);
+          setFinalAssessment(courseDetail.finalAssessment);
+          setError(null);
+        }
       } catch (err) {
-        if (err.name !== 'AbortError') setError(err.message || '取得小節列表失敗');
+        if (err.name !== 'AbortError' && !controller.signal.aborted) {
+          setError(err.message || '取得小節列表失敗');
+        }
       } finally {
         if (!controller.signal.aborted) setLoading(false);
       }
     }
+
+    const cached = courseDetailCache.get(cacheKey);
+    if (cached) {
+      setLectures(cached.lectures);
+      setProgressMap(cached.progressMap);
+      setFinalAssessment(cached.finalAssessment);
+      setLoading(false);
+      setError(null);
+      if (Date.now() - cached.fetchedAt < COURSE_DETAIL_CACHE_TTL_MS) {
+        return () => controller.abort();
+      }
+    } else {
+      setLectures([]);
+      setProgressMap({});
+      setFinalAssessment(null);
+      setLoading(true);
+      setError(null);
+    }
+
     fetchLectures();
     return () => controller.abort();
-  }, [id]);
+  }, [cacheKey, id, token]);
 
   function getProgressDisplay(lecture) {
     const p = progressMap[lecture.id];
@@ -75,9 +113,14 @@ function CourseDetail() {
       </header>
 
       <main>
-        {loading ? (
+        {error && lectures.length > 0 && (
+          <div className="empty-card" role="alert">
+            課程內容更新失敗，以下顯示最近載入的資料：{error}
+          </div>
+        )}
+        {loading && !lectures.length ? (
           <div className="empty-card">正在整理課程內容...</div>
-        ) : error ? (
+        ) : error && !lectures.length ? (
           <div className="empty-card">暫時無法取得課程內容：{error}</div>
         ) : lectures.length === 0 ? (
           <div className="empty-card">這門課程目前還沒有小節內容。</div>

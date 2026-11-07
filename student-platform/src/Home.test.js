@@ -44,7 +44,7 @@ test('teachers see published and owned courses, with analysis only for owned cou
       : publicCourses,
   }));
 
-  render(<HomeHarness user={{ role: 'teacher' }} />);
+  render(<HomeHarness user={{ role: 'teacher', email: 'teacher@example.com' }} />);
 
   expect(await screen.findByRole('heading', { name: '教師草稿' })).toBeInTheDocument();
   expect(screen.getByRole('heading', { name: '已發布課程' })).toBeInTheDocument();
@@ -72,7 +72,7 @@ test('campus users see all managed courses and can analyze each one', async () =
     json: async () => ({ actor: { id: 22, role: 'campus' }, courses: allManagedCourses }),
   });
 
-  render(<HomeHarness user={{ role: 'campus' }} />);
+  render(<HomeHarness user={{ role: 'campus', email: 'campus@example.com' }} />);
 
   expect(await screen.findByRole('heading', { name: '教師草稿' })).toBeInTheDocument();
   expect(screen.getAllByRole('link', { name: '課程分析' })).toHaveLength(3);
@@ -87,7 +87,7 @@ test('students see published courses without status or analysis controls', async
     json: async () => publicCourses,
   });
 
-  render(<HomeHarness user={{ id: 1, role: 'student' }} />);
+  render(<HomeHarness user={{ id: 1, role: 'student', email: 'student@example.com' }} />);
 
   await screen.findByRole('heading', { name: '已發布課程' });
   expect(screen.queryByText('已發布')).not.toBeInTheDocument();
@@ -107,4 +107,22 @@ test('unauthenticated visitors do not see course statuses or analysis controls',
   expect(screen.queryByText('已發布')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '課程分析' })).not.toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledTimes(1);
+});
+
+test('reuses the recent course list when returning to the home page', async () => {
+  const fetchMock = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => publicCourses,
+  });
+  global.fetch = fetchMock;
+  const user = { id: 2, role: 'student', email: 'cache-test@example.com' };
+
+  const firstRender = render(<HomeHarness user={user} />);
+  expect(await screen.findByRole('heading', { name: '已發布課程' })).toBeInTheDocument();
+  firstRender.unmount();
+
+  render(<HomeHarness user={user} />);
+
+  expect(screen.getByRole('heading', { name: '已發布課程' })).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 

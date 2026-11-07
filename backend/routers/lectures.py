@@ -694,7 +694,7 @@ def get_lecture_summary(lecture_id: int):
         supabase_admin.table("summaries")
         .select("*")
         .eq("lecture_id", lecture_id)
-        .single()
+        .maybe_single()
         .execute()
     )
     return res.data
