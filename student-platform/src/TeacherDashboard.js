@@ -509,7 +509,13 @@ export default function TeacherDashboard() {
       })
       .then(result => {
         setData(result);
-        if (result.courses?.length) setCourseId(String(result.courses[0].id));
+        if (result.courses?.length) {
+          const requestedCourseId = new URLSearchParams(window.location.search).get('course');
+          const initialCourse = result.courses.find(
+            item => String(item.id) === requestedCourseId
+          ) || result.courses[0];
+          setCourseId(String(initialCourse.id));
+        }
       })
       .catch(err => setError(err.message))
       .finally(() => setLoading(false));

@@ -288,7 +288,7 @@ export default function Layout({ token, setToken }) {
             </nav>
 
             <main>
-                <Outlet />
+                <Outlet context={{ user }} />
             </main>
             {showBackToTop && (
                 <button

@@ -279,6 +279,48 @@ test('uses matching native select controls for course and analysis range', async
   }
 });
 
+test('opens the requested course from the course analysis link', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  window.history.replaceState({}, '', '/teacher?course=2');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [
+        {
+          id: 1,
+          title: '第一門課',
+          summary: { students: 0, active_students: 0, lectures: 0, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+        {
+          id: 2,
+          title: '第二門課',
+          summary: { students: 0, active_students: 0, lectures: 0, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+      ],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    expect(await screen.findByRole('combobox', { name: '課程' })).toHaveValue('2');
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('sorts the student roster independently by each column', async () => {
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');
