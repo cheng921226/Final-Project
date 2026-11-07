@@ -3906,6 +3906,7 @@ a {
 }
 
 .certificate-inner {
+  position: relative;
   display: flex;
   height: 100%;
   flex-direction: column;
@@ -3913,6 +3914,23 @@ a {
   justify-content: center;
   border: 1px solid #cbd5e1;
   text-align: center;
+}
+
+.certificate-watermark {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: min(68%, 660px);
+  height: auto;
+  object-fit: contain;
+  opacity: .13;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+}
+
+.certificate-inner > :not(.certificate-watermark) {
+  position: relative;
+  z-index: 1;
 }
 
 .certificate-kicker {
