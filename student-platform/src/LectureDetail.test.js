@@ -1,17 +1,40 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { Markmap } from 'markmap-view';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import LectureDetail from './LectureDetail';
+import { clearLectureDetailCache } from './lectureDetailCache';
 
 jest.mock('markmap-view', () => ({
   Markmap: { create: jest.fn() },
 }));
 
-test('uses measured zoom bounds and cancels mindmap animations when leaving the tab', async () => {
-  const originalFetch = global.fetch;
-  const originalScrollIntoView = Element.prototype.scrollIntoView;
-  Element.prototype.scrollIntoView = jest.fn();
+const originalFetch = global.fetch;
+const lectureId = 'cache-test-lecture-401';
+const lectureUrl = `http://127.0.0.1:8000/lectures/${lectureId}`;
+
+function renderLectureDetail(path = `/course/course-401/lecture/${lectureId}`) {
+  return render(
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/course/:id/lecture/:lectureId" element={<LectureDetail />} />
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+beforeEach(() => {
   jest.spyOn(window, 'scrollTo').mockImplementation(() => {});
+});
+
+afterEach(() => {
+  Markmap.create.mockReset();
+  global.fetch = originalFetch;
+  localStorage.clear();
+  clearLectureDetailCache();
+  jest.restoreAllMocks();
+});
+
+test('uses measured zoom bounds and cancels mindmap animations when leaving the tab', async () => {
   const responses = {
     '/lectures/2': [{}],
     '/lectures/2/mindmaps': [{ mindmap_json: { markdown: '# 課程\n## 走訪' } }],
@@ -37,32 +60,93 @@ test('uses measured zoom bounds and cancels mindmap animations when leaving the 
   };
   Markmap.create.mockReturnValue(markmap);
 
-  try {
-    render(
-      <MemoryRouter initialEntries={['/course/1/lecture/2']}>
-        <Routes>
-          <Route path="/course/:id/lecture/:lectureId" element={<LectureDetail />} />
-        </Routes>
-      </MemoryRouter>
-    );
-    fireEvent.click(screen.getByRole('button', { name: /心智圖/ }));
-    await waitFor(() => expect(markmap.setData).toHaveBeenCalledTimes(1));
+  renderLectureDetail('/course/1/lecture/2');
+  fireEvent.click(screen.getByRole('button', { name: /心智圖/ }));
+  await waitFor(() => expect(markmap.setData).toHaveBeenCalledTimes(1));
 
-    const [svg] = Markmap.create.mock.calls[0];
-    const [extent] = markmap.zoom.extent.mock.calls[0];
-    const measure = jest.spyOn(svg, 'getBoundingClientRect').mockReturnValue({ width: 640, height: 420 });
-    expect(extent()).toEqual([[0, 0], [640, 420]]);
-    expect(markmap.state.data.children[0].content).not.toContain('<button');
+  const [svg] = Markmap.create.mock.calls[0];
+  const [extent] = markmap.zoom.extent.mock.calls[0];
+  const measure = jest.spyOn(svg, 'getBoundingClientRect').mockReturnValue({ width: 640, height: 420 });
+  expect(extent()).toEqual([[0, 0], [640, 420]]);
+  expect(markmap.state.data.children[0].content).not.toContain('<button');
 
-    fireEvent.click(screen.getByRole('button', { name: /AI 摘要/ }));
-    expect(svg.isConnected).toBe(false);
-    expect(markmap.destroy).toHaveBeenCalledTimes(1);
-    measure.mockReturnValue({ width: 0, height: 0 });
-    expect(extent()).toEqual([[0, 0], [1, 1]]);
-  } finally {
-    Markmap.create.mockReset();
-    global.fetch = originalFetch;
-    Element.prototype.scrollIntoView = originalScrollIntoView;
-    jest.restoreAllMocks();
-  }
+  fireEvent.click(screen.getByRole('button', { name: /AI 摘要/ }));
+  expect(svg.isConnected).toBe(false);
+  expect(markmap.destroy).toHaveBeenCalledTimes(1);
+  measure.mockReturnValue({ width: 0, height: 0 });
+  expect(extent()).toEqual([[0, 0], [1, 1]]);
+});
+
+test('reuses cached lecture data when returning to the same lecture', async () => {
+  const fetchMock = jest.fn(url => Promise.resolve({
+    ok: true,
+    json: async () => {
+      if (url === lectureUrl) {
+        return [{ media_url: 'https://youtu.be/abcdefghijk' }];
+      }
+      if (String(url).endsWith('/chats')) return { messages: [] };
+      if (String(url).endsWith(`/video_progresses/${lectureId}`)) {
+        return { watched_seconds: 30, completed: false };
+      }
+      return [];
+    },
+  }));
+  global.fetch = fetchMock;
+  localStorage.setItem('access_token', 'lecture-cache-test-token');
+
+  const firstRender = renderLectureDetail();
+  expect(await screen.findByText('無摘要資料')).toBeInTheDocument();
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  expect(fetchMock.mock.calls.filter(([url]) => url === lectureUrl)).toHaveLength(1);
+  firstRender.unmount();
+
+  renderLectureDetail();
+
+  expect(screen.getByText('無摘要資料')).toBeInTheDocument();
+  expect(fetchMock.mock.calls.filter(([url]) => url === lectureUrl)).toHaveLength(1);
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+});
+
+test('shows the HTTP failure for a summary request instead of a null property error', async () => {
+  const fetchMock = jest.fn(url => {
+    if (String(url).endsWith('/summaries')) {
+      return Promise.resolve({
+        ok: false,
+        status: 500,
+        clone: () => ({
+          json: async () => ({ detail: '摘要服務暫時無法使用' }),
+          text: async () => '',
+        }),
+      });
+    }
+
+    return Promise.resolve({
+      ok: true,
+      json: async () => {
+        if (url === lectureUrl) {
+          return [{ media_url: 'https://youtu.be/abcdefghijk' }];
+        }
+        if (String(url).endsWith('/chats')) return { messages: [] };
+        if (String(url).endsWith(`/video_progresses/${lectureId}`)) {
+          return { watched_seconds: 0, completed: false };
+        }
+        return [];
+      },
+    });
+  });
+  global.fetch = fetchMock;
+  localStorage.setItem('access_token', 'lecture-summary-error-test-token');
+
+  renderLectureDetail();
+
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    '摘要載入失敗：摘要請求失敗（HTTP 500）：摘要服務暫時無法使用'
+  );
+  expect(screen.queryByText(/Cannot read properties of null/)).not.toBeInTheDocument();
 });

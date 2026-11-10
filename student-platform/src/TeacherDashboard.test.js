@@ -176,6 +176,151 @@ test('filters students by class, credit status, learning status, and keyword', a
   }
 });
 
+test('sorts class filter options by grade and then class section', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [{
+        id: 1,
+        title: '測試課程',
+        summary: { students: 1, active_students: 1, lectures: 0 },
+        lectures: [],
+        questions: [],
+        students: [{
+          id: 1,
+          name: '王小明',
+          email: 'ming@example.com',
+          classes: [
+            { id: 1, name: '資訊三丁' },
+            { id: 2, name: '資訊二丙' },
+            { id: 3, name: '資訊一乙' },
+            { id: 4, name: '資訊一甲' },
+            { id: 5, name: '資訊三甲' },
+            { id: 6, name: '資訊二甲' },
+          ],
+        }],
+      }],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    const classSelect = await screen.findByLabelText('班級');
+    expect(Array.from(classSelect.options).map(option => option.textContent)).toEqual([
+      '全部班級',
+      '資訊一甲',
+      '資訊一乙',
+      '資訊二甲',
+      '資訊二丙',
+      '資訊三甲',
+      '資訊三丁',
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
+test('uses matching native select controls for course and analysis range', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [
+        {
+          id: 1,
+          title: '第一門課',
+          summary: { students: 0, active_students: 0, lectures: 0, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [{ id: 11, title: '第一門課小節' }],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+        {
+          id: 2,
+          title: '第二門課',
+          summary: { students: 0, active_students: 0, lectures: 1, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [{ id: 21, title: '第二門課小節' }],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+      ],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    const courseSelect = await screen.findByRole('combobox', { name: '課程' });
+    const scopeSelect = screen.getByRole('combobox', { name: '分析範圍' });
+    expect(courseSelect.tagName).toBe('SELECT');
+    expect(scopeSelect.tagName).toBe('SELECT');
+    expect(courseSelect).toHaveValue('1');
+
+    fireEvent.change(scopeSelect, { target: { value: '11' } });
+    fireEvent.change(courseSelect, { target: { value: '2' } });
+
+    expect(courseSelect).toHaveValue('2');
+    expect(scopeSelect).toHaveValue('all');
+    expect(Array.from(scopeSelect.options).map(option => option.textContent)).toEqual([
+      '全部小節',
+      '第二門課小節',
+    ]);
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+  }
+});
+
+test('opens the requested course from the course analysis link', async () => {
+  const TeacherDashboard = require('./TeacherDashboard').default;
+  localStorage.setItem('access_token', 'test-token');
+  window.history.replaceState({}, '', '/teacher?course=2');
+  const originalFetch = global.fetch;
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      teacher: { role: 'teacher' },
+      courses: [
+        {
+          id: 1,
+          title: '第一門課',
+          summary: { students: 0, active_students: 0, lectures: 0, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+        {
+          id: 2,
+          title: '第二門課',
+          summary: { students: 0, active_students: 0, lectures: 0, completion_rate: 0, watched_hours: 0, question_accuracy: 0 },
+          lectures: [],
+          students: [],
+          questions: [],
+          recommendations: [],
+        },
+      ],
+    }),
+  });
+
+  try {
+    render(<TeacherDashboard />);
+    expect(await screen.findByRole('combobox', { name: '課程' })).toHaveValue('2');
+  } finally {
+    global.fetch = originalFetch;
+    localStorage.removeItem('access_token');
+    window.history.replaceState({}, '', '/');
+  }
+});
+
 test('sorts the student roster independently by each column', async () => {
   const TeacherDashboard = require('./TeacherDashboard').default;
   localStorage.setItem('access_token', 'test-token');

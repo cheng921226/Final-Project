@@ -29,6 +29,7 @@ from routers.questions import (
     skip_question,
     validate_question_options,
 )
+from routers.lectures import get_lecture_summary
 from routers.course_management import (
     CourseUpdate,
     _managed_courses,
@@ -87,6 +88,13 @@ class FakeSupabase:
 
 
 class TeacherAnalyticsTests(unittest.TestCase):
+    def test_missing_lecture_summary_returns_none(self):
+        with patch(
+            "routers.lectures.supabase_admin",
+            FakeSupabase({"summaries": []}),
+        ):
+            self.assertIsNone(get_lecture_summary(48))
+
     def test_ai_recommendation_is_normalized_and_follow_up_days_are_bounded(self):
         result = _clean_ai_recommendation(
             {

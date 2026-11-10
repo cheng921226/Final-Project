@@ -12,6 +12,15 @@ function safeFilename(value) {
   return String(value || 'course').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '_');
 }
 
+function loadImage(source) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = reject;
+    image.src = source;
+  });
+}
+
 export default function Certificate() {
   const { courseId } = useParams();
   const token = localStorage.getItem('access_token');
@@ -38,7 +47,7 @@ export default function Certificate() {
       .finally(() => setLoading(false));
   }, [courseId, token]);
 
-  function downloadCertificate() {
+  async function downloadCertificate() {
     if (!certificate) return;
     const canvas = document.createElement('canvas');
     canvas.width = 1600;
@@ -52,6 +61,16 @@ export default function Certificate() {
     ctx.strokeStyle = '#cbd5e1';
     ctx.lineWidth = 2;
     ctx.strokeRect(70, 70, 1460, 760);
+
+    try {
+      const universityWatermark = await loadImage('/fcu-logo.svg');
+      ctx.save();
+      ctx.globalAlpha = 0.14;
+      ctx.drawImage(universityWatermark, 350, 330, 900, 232);
+      ctx.restore();
+    } catch (_) {
+      // The certificate can still be downloaded if the decorative asset fails.
+    }
 
     ctx.textAlign = 'center';
     ctx.fillStyle = '#0f172a';
@@ -107,6 +126,7 @@ export default function Certificate() {
       </div>
       <section className="certificate-sheet">
         <div className="certificate-inner">
+          <img className="certificate-watermark" src="/fcu-logo.svg" alt="" aria-hidden="true" />
           <p className="certificate-kicker">CERTIFICATE OF COMPLETION</p>
           <h1>課程完成認證</h1>
           <p className="certificate-copy">茲證明</p>

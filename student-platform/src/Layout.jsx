@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import BrandMark from './BrandMark';
+import { clearLectureDetailCache } from './lectureDetailCache';
+import { clearManagementDataCache } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 const TOKEN_REFRESH_EARLY_MS = 60_000;
@@ -18,6 +20,8 @@ function unauthorizedError() {
 function clearStoredSession() {
     localStorage.removeItem("access_token");
     localStorage.removeItem("refresh_token");
+    clearLectureDetailCache();
+    clearManagementDataCache();
 }
 
 function getTokenRefreshTime(token) {
@@ -288,7 +292,7 @@ export default function Layout({ token, setToken }) {
             </nav>
 
             <main>
-                <Outlet />
+                <Outlet context={{ user }} />
             </main>
             {showBackToTop && (
                 <button

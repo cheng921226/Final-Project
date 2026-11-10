@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 const ROLE_LABELS = { student: '學生', teacher: '教師', campus: '平台端' };
@@ -57,6 +58,7 @@ export default function PersonnelManagement() {
   const [classFilter, setClassFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [form, setForm] = useState(null);
+  const [formError, setFormError] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importResult, setImportResult] = useState(null);
@@ -125,6 +127,7 @@ export default function PersonnelManagement() {
   }), [data]);
 
   function updateForm(field, value) {
+    setFormError('');
     setForm(current => ({
       ...current,
       [field]: value,
@@ -139,6 +142,7 @@ export default function PersonnelManagement() {
     if (!form || busy) return;
     setBusy('save');
     setMessage('');
+    setFormError('');
     try {
       const isEditing = Boolean(form.id);
       const payload = {
@@ -166,7 +170,7 @@ export default function PersonnelManagement() {
       setForm(null);
       await load();
     } catch (err) {
-      setMessage(err.message || '人員資料儲存失敗');
+      setFormError(err.message || '人員資料儲存失敗');
     } finally {
       setBusy('');
     }
@@ -276,7 +280,7 @@ export default function PersonnelManagement() {
     <div className="teacher-page personnel-page">
       <header className="teacher-hero personnel-hero">
         <div><p className="eyebrow">Personnel</p><h1>人員管理</h1><p>管理學生、教師與平台端的基本資料及登入狀態。</p></div>
-        <div className="personnel-primary-actions"><button type="button" className="question-secondary-button" onClick={exportPersonnel}>匯出目前名單</button><button type="button" className="question-secondary-button" onClick={() => { setImportOpen(true); setImportFile(null); setImportResult(null); }}>匯入名冊</button><button type="button" className="question-save-button" onClick={() => setForm({ ...EMPTY_FORM })}>新增人員</button></div>
+        <div className="personnel-primary-actions"><button type="button" className="question-secondary-button" onClick={exportPersonnel}>匯出目前名單</button><button type="button" className="question-secondary-button" onClick={() => { setImportOpen(true); setImportFile(null); setImportResult(null); }}>匯入名冊</button><button type="button" className="question-save-button" onClick={() => { setFormError(''); setForm({ ...EMPTY_FORM }); }}>新增人員</button></div>
       </header>
 
       <section className="personnel-metrics" aria-label="人員統計">
@@ -297,6 +301,7 @@ export default function PersonnelManagement() {
         >
           <form className="teacher-panel personnel-editor-modal" onSubmit={save} role="dialog" aria-modal="true" aria-labelledby="personnel-editor-title">
             <div className="panel-title"><div><h3 id="personnel-editor-title">{form.id ? '修改人員' : '新增人員'}</h3><p>{form.id ? '更新基本資料與角色。' : '建立 Supabase 登入帳號與人員資料。'}</p></div><button type="button" className="personnel-editor-close" aria-label="關閉人員編輯視窗" onClick={() => setForm(null)}>×</button></div>
+            {formError && <p className="question-review-action-error" role="alert">{formError}</p>}
             <div className="personnel-form-grid">
               <label className="review-field"><span>姓名</span><input autoFocus required value={form.name} onChange={event => updateForm('name', event.target.value)} /></label>
               <label className="review-field"><span>Email</span><input required type="email" value={form.email} onChange={event => updateForm('email', event.target.value)} /></label>
@@ -341,7 +346,7 @@ export default function PersonnelManagement() {
                   <td>{person.role === 'student' ? <><strong>{person.student_number || '未填學號'}</strong><span>{person.class_name || '未分班'}</span></> : <span>—</span>}</td>
                   <td><span className={`personnel-status status-${person.account_status}`}>{STATUS_LABELS[person.account_status]}</span>{person.email_confirmed && <small>已驗證 Email</small>}</td>
                   <td>{person.last_sign_in_at ? new Date(person.last_sign_in_at).toLocaleString('zh-TW') : '尚未登入'}</td>
-                  <td><div className="personnel-actions"><button type="button" onClick={() => setForm(formFromPerson(person))}>修改</button><button type="button" onClick={() => sendPasswordReset(person)} disabled={person.account_status === 'incomplete' || Boolean(busy)}>重設密碼</button><button type="button" className={person.account_status === 'active' ? 'danger' : 'enable'} onClick={() => toggleStatus(person)} disabled={person.account_status === 'incomplete' || person.id === data.actor_id || Boolean(busy)}>{person.account_status === 'active' ? '停用' : '啟用'}</button></div></td>
+                  <td><div className="personnel-actions"><button type="button" onClick={() => { setFormError(''); setForm(formFromPerson(person)); }}>修改</button><button type="button" onClick={() => sendPasswordReset(person)} disabled={person.account_status === 'incomplete' || Boolean(busy)}>重設密碼</button><button type="button" className={person.account_status === 'active' ? 'danger' : 'enable'} onClick={() => toggleStatus(person)} disabled={person.account_status === 'incomplete' || person.id === data.actor_id || Boolean(busy)}>{person.account_status === 'active' ? '停用' : '啟用'}</button></div></td>
                 </tr>
               ))}
             </tbody>

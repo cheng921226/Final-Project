@@ -6,6 +6,7 @@ from typing import Literal
 
 from database.supabase import SUPABASE_KEY, SUPABASE_URL, supabase_admin
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, EmailStr, Field, ValidationError
 from supabase import create_client
 
@@ -453,22 +454,32 @@ def update_personnel(
                 "user_metadata": {"name": name, "student_number": student_number},
             },
         )
-    updated = (
-        supabase_admin.table("users")
-        .update(
-            {
-                "name": name,
-                "email": email,
-                "role": body.role,
-                "student_number": student_number,
-                "class_id": class_id,
-            }
+    try:
+        updated = (
+            supabase_admin.table("users")
+            .update(
+                {
+                    "name": name,
+                    "email": email,
+                    "role": body.role,
+                    "student_number": student_number,
+                    "class_id": class_id,
+                }
+            )
+            .eq("id", personnel_id)
+            .execute()
+            .data
+            or []
         )
-        .eq("id", personnel_id)
-        .execute()
-        .data
-        or []
-    )
+    except APIError as exc:
+        if (
+            exc.code == "23505"
+            and "users_student_number_unique_idx" in (exc.message or "")
+        ):
+            raise HTTPException(
+                status_code=409, detail="此學號已被其他學生使用，請輸入不同學號"
+            ) from exc
+        raise
     if not updated:
         raise HTTPException(status_code=500, detail="人員資料更新失敗")
     return {"message": "人員資料已更新"}

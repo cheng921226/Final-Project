@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
+import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -214,7 +215,10 @@ export default function CourseManagement() {
 
     const intervalId = window.setInterval(async () => {
       try {
-        const response = await fetch(`${API_URL}/teacher/course-management/job-statuses`, { headers });
+        const response = await fetch(`${API_URL}/teacher/course-management/job-statuses`, {
+          headers,
+          managementCache: false,
+        });
         const body = await response.json().catch(() => ({}));
         if (response.ok) {
           const statuses = new Map(

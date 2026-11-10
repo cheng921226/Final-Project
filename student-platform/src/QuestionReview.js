@@ -1,6 +1,7 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
+import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
 const NEXT_KNOWLEDGE_POINT_LEAD_SECONDS = 1;
@@ -108,36 +109,7 @@ export default function QuestionReview() {
   const [questionActionError, setQuestionActionError] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
-  const questionListPanelRef = useRef(null);
-  const editorRef = useRef(null);
   const questionTextRef = useRef(null);
-
-  useLayoutEffect(() => {
-    const listPanel = questionListPanelRef.current;
-    const editor = editorRef.current;
-    if (!listPanel) return undefined;
-
-    const syncPanelHeight = () => {
-      if (window.innerWidth <= 900 || !editor) {
-        listPanel.style.height = '';
-        return;
-      }
-      listPanel.style.height = `${editor.getBoundingClientRect().height}px`;
-    };
-
-    syncPanelHeight();
-    window.addEventListener('resize', syncPanelHeight);
-    const observer = typeof ResizeObserver === 'undefined' || !editor
-      ? null
-      : new ResizeObserver(syncPanelHeight);
-    observer?.observe(editor);
-
-    return () => {
-      window.removeEventListener('resize', syncPanelHeight);
-      observer?.disconnect();
-      listPanel.style.height = '';
-    };
-  }, [editorOpen, lectureId, data]);
 
   function focusEditor() {
     setTimeout(() => {
@@ -560,7 +532,7 @@ export default function QuestionReview() {
       {message && <p className="question-review-message">{message}</p>}
 
       <section className="question-review-grid">
-        <article className="teacher-panel" ref={questionListPanelRef}>
+        <article className="teacher-panel">
           <div className="panel-title">
             <div>
               <h3>{lecture?.title || '小節題目'}</h3>
@@ -623,7 +595,7 @@ export default function QuestionReview() {
         </article>
 
         {editorOpen ? (
-        <form className="teacher-panel question-editor" ref={editorRef} onSubmit={saveQuestion}>
+        <form className="teacher-panel question-editor" onSubmit={saveQuestion}>
           <div className="panel-title">
             <div>
               <h3>{form.id ? '修改題目' : '新增題目'}</h3>
