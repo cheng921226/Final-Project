@@ -248,7 +248,7 @@ function LectureDetail() {
   const [chatInput, setChatInput] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [pauseHelpPrompt, setPauseHelpPrompt] = useState(null);
-  const chatBottomRef = useRef(null);
+  const chatFeedRef = useRef(null);
 
   const getPlayerCurrentTime = useCallback((fallback = 0) => {
     const player = playerRef.current;
@@ -1193,8 +1193,9 @@ function LectureDetail() {
   }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, schedulePauseHelp]);
 
   useEffect(() => {
-    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages]);
+    const feed = chatFeedRef.current;
+    if (feed) feed.scrollTop = feed.scrollHeight;
+  }, [chatMessages, chatLoading, pauseHelpPrompt]);
 
   function seekToTime(seconds, triggeredBy) {
     if (!playerRef.current || !playerReadyRef.current) return;
@@ -1522,7 +1523,7 @@ function LectureDetail() {
       {/* 三欄主體 */}
       <div className="learning-body flex flex-1 overflow-hidden">
 
-        {/* 左側：知識點清單 */}
+        {/* 左側：知識點清單與課堂練習 */}
         <aside className="knowledge-aside w-60 flex-shrink-0 bg-white border-r border-slate-200 flex flex-col">
           <div className="knowledge-aside-header flex-shrink-0">
             <Link to={`/course/${id}`} className="knowledge-back-link">
@@ -1576,6 +1577,45 @@ function LectureDetail() {
               ))
             )}
           </div>
+
+          <section ref={practiceSectionRef} className="classroom-practice" aria-labelledby="classroom-practice-title">
+            <div className="classroom-practice-header">
+              <div>
+                <p className="eyebrow">Classroom practice</p>
+                <h2 id="classroom-practice-title">課堂練習</h2>
+              </div>
+              <div className="classroom-practice-counts">
+                <span>待作答 <strong>{pendingQuestions.length}</strong> 題</span>
+              </div>
+            </div>
+
+            {!pendingQuestions.length ? (
+              <p className="classroom-practice-empty">目前沒有待作答的題目。</p>
+            ) : (
+              <div className="classroom-practice-list">
+                {pendingQuestions.map((question, index) => (
+                  <article key={question.id} className="classroom-practice-row">
+                    <div className="classroom-practice-number">{index + 1}</div>
+                    <div className="classroom-practice-content">
+                      <div className="classroom-practice-meta">
+                        <span>{formatVideoTime(question.source_timestamp)}</span>
+                        <span className="status-pending">稍後作答</span>
+                      </div>
+                      <p>{question.question_text}</p>
+                    </div>
+                    <div className="classroom-practice-actions">
+                      <button type="button" onClick={() => openPracticeQuestion(question)}>
+                        開始作答
+                      </button>
+                      <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
+                        跳至時間點
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
         </aside>
 
         {/* 中間：影片 + Tab 面板 */}
@@ -1628,45 +1668,6 @@ function LectureDetail() {
               </div>
             )}
           </div>
-
-          <section ref={practiceSectionRef} className="classroom-practice" aria-labelledby="classroom-practice-title">
-            <div className="classroom-practice-header">
-              <div>
-                <p className="eyebrow">Classroom practice</p>
-                <h2 id="classroom-practice-title">課堂練習</h2>
-              </div>
-              <div className="classroom-practice-counts">
-                <span>待作答 <strong>{pendingQuestions.length}</strong> 題</span>
-              </div>
-            </div>
-
-            {!pendingQuestions.length ? (
-              <p className="classroom-practice-empty">目前沒有待作答的題目。</p>
-            ) : (
-              <div className="classroom-practice-list">
-                {pendingQuestions.map((question, index) => (
-                  <article key={question.id} className="classroom-practice-row">
-                    <div className="classroom-practice-number">{index + 1}</div>
-                    <div className="classroom-practice-content">
-                      <div className="classroom-practice-meta">
-                        <span>{formatVideoTime(question.source_timestamp)}</span>
-                        <span className="status-pending">稍後作答</span>
-                      </div>
-                      <p>{question.question_text}</p>
-                    </div>
-                    <div className="classroom-practice-actions">
-                      <button type="button" onClick={() => openPracticeQuestion(question)}>
-                        開始作答
-                      </button>
-                      <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
-                        跳至時間點
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
 
           <div className="flex-shrink-0 bg-white rounded-2xl shadow-sm overflow-hidden">
             <div className="flex border-b border-slate-100">
@@ -1878,122 +1879,129 @@ function LectureDetail() {
         </main>
 
         {/* 右側：AI 助教 */}
-        <aside className="assistant-aside w-80 flex-shrink-0 bg-[#1f2740] flex flex-col">
-          <div className="lecture-progress-card flex-shrink-0">
-            <div className="lecture-progress-summary">
-              <span>小節 {lectureId} 學習進度</span>
-              <strong className={isCompleted ? 'is-complete' : ''}>
-                {isCompleted ? '✓ 已完成' : `${watchedPercent}%`}
-              </strong>
+        <aside className="assistant-aside" aria-label="AI 課程助教">
+          <header className="assistant-header">
+            <div className="assistant-mark" aria-hidden="true">
+              <svg width="29" height="29" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M10.5 3c.8 5 2.5 6.7 7.5 7.5-5 .8-6.7 2.5-7.5 7.5C9.7 13 8 11.3 3 10.5c5-.8 6.7-2.5 7.5-7.5ZM19 13.5c.4 2.4 1.1 3.1 3.5 3.5-2.4.4-3.1 1.1-3.5 3.5-.4-2.4-1.1-3.1-3.5-3.5 2.4-.4 3.1-1.1 3.5-3.5Z" />
+              </svg>
             </div>
-            <div
-              className="lecture-progress-track"
-              role="progressbar"
-              aria-label="本小節觀看進度"
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={watchedPercent}
-            >
-              <span
-                className={isCompleted ? 'is-complete' : ''}
-                style={{ width: `${watchedPercent}%` }}
-              />
-            </div>
-            {userProfile?.email === 'teststudent@example.com' && (
-              <div className="lecture-demo-tools">
-                <button
-                  type="button"
-                  onClick={resetDemoQuestions}
-                  disabled={resettingQuestions}
-                  title="清除這個 demo 帳號在本小節的作答紀錄"
-                >
-                  {resettingQuestions ? '重置中…' : '重置測驗'}
-                </button>
-                {resetMessage && <span title={resetMessage}>{resetMessage}</span>}
+            <p className="assistant-subtitle">跟著影片學，有疑問就問</p>
+          </header>
+          <div className="assistant-widgets">
+            <div className="lecture-progress-card">
+              <div className="lecture-progress-summary">
+                <span>小節 {lectureId} 學習進度</span>
+                <strong className={isCompleted ? 'is-complete' : ''}>
+                  {isCompleted ? '✓ 已完成' : `${watchedPercent}%`}
+                </strong>
               </div>
-            )}
-          </div>
-          <div className="flex-shrink-0 px-5 py-4 border-b border-slate-700">
-            <h2 className="font-bold text-white text-sm">💬 AI 課程助教</h2>
-            <p className="text-slate-400 text-xs mt-0.5">針對課程內容即時提問</p>
-          </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {pauseHelpPrompt && (
-              <div className="text-xs leading-relaxed rounded-xl p-3 bg-amber-100 text-amber-950">
-                <p className="font-bold">影片已暫停 30 秒，是不是遇到問題？</p>
-                <p className="mt-1 text-amber-800">目前位置：{formatVideoTime(pauseHelpPrompt.timestamp)}</p>
-                <div className="flex gap-2 mt-3">
+              <div
+                className="lecture-progress-track"
+                role="progressbar"
+                aria-label="本小節觀看進度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={watchedPercent}
+              >
+                <span
+                  className={isCompleted ? 'is-complete' : ''}
+                  style={{ width: `${watchedPercent}%` }}
+                />
+              </div>
+              {userProfile?.email === 'teststudent@example.com' && (
+                <div className="lecture-demo-tools">
                   <button
                     type="button"
-                    className="flex-1 rounded-lg bg-blue-600 px-3 py-2 font-bold text-white disabled:opacity-50"
+                    onClick={resetDemoQuestions}
+                    disabled={resettingQuestions}
+                    title="清除這個 demo 帳號在本小節的作答紀錄"
+                  >
+                    {resettingQuestions ? '重置中…' : '重置測驗'}
+                  </button>
+                  {resetMessage && <span title={resetMessage}>{resetMessage}</span>}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={handleQuickAskCurrentMoment}
+              disabled={chatLoading}
+              className="assistant-quick-ask"
+            >
+              <span className="assistant-shortcut-icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M12 8v4l3 2" />
+                </svg>
+              </span>
+              講解這段
+            </button>
+          </div>
+          <div className="assistant-feed" ref={chatFeedRef}>
+            <div className="assistant-thread" role="log" aria-label="助教對話">
+              {!chatInitialized ? (
+                <p className="assistant-muted">載入聊天紀錄中…</p>
+              ) : chatMessages.length === 0 ? (
+                <div className="assistant-welcome">
+                  <p className="assistant-kicker">開始對話</p>
+                  <h3>這一段哪裡卡住了？</h3>
+                  <p>可以請我解釋名詞、舉個例子，或整理影片這一段的重點。</p>
+                </div>
+              ) : chatMessages.map((msg, i) => (
+                <div key={i} className={`assistant-message is-${msg.role === 'assistant' ? 'tutor' : 'student'}`}>
+                  <span className="assistant-message-label">{msg.role === 'assistant' ? 'AI 助教' : '你'}</span>
+                  <p>{msg.text}</p>
+                </div>
+              ))}
+            </div>
+            {pauseHelpPrompt && (
+              <div className="assistant-help">
+                <strong>影片已暫停 30 秒，需要幫忙嗎？</strong>
+                <p>目前位置 {formatVideoTime(pauseHelpPrompt.timestamp)}</p>
+                <div className="assistant-help-actions">
+                  <button
+                    type="button"
+                    className="assistant-primary"
                     onClick={() => handlePauseHelpResponse(true)}
                     disabled={chatLoading}
                   >
                     是，請教我
                   </button>
-                  <button
-                    type="button"
-                    className="flex-1 rounded-lg bg-white px-3 py-2 font-bold text-slate-700"
-                    onClick={() => handlePauseHelpResponse(false)}
-                  >
-                    否
-                  </button>
+                  <button type="button" onClick={() => handlePauseHelpResponse(false)}>先不用</button>
                 </div>
               </div>
             )}
-            {!chatInitialized ? (
-              <div className="text-slate-400 text-xs">
-                載入聊天紀錄中...
-              </div>
-            ) : chatMessages.length === 0 ? (
-              <div
-                className="text-xs leading-relaxed rounded-xl p-3 bg-slate-700 text-slate-100"
-              >
-                你好！我是你的 AI 課程助教 😊 有任何課程問題都可以問我！
-              </div>
-            ) : (chatMessages.map((msg, i) => (
-              <div
-                key={i}
-                className={`text-xs leading-relaxed rounded-xl p-3 ${msg.role === 'assistant'
-                  ? 'bg-slate-700 text-slate-100'
-                  : 'bg-blue-600 text-white ml-4'
-                  }`}
-              >
-                {msg.text}
-              </div>
-            )))}
             {chatLoading && (
-              <div className="bg-slate-700 text-slate-400 text-xs rounded-xl p-3 animate-pulse">
-                助教思考中...
-              </div>
+              <p className="assistant-thinking" role="status">助教思考中…</p>
             )}
-            <div ref={chatBottomRef} />
           </div>
-          <div className="flex-shrink-0 p-4 border-t border-slate-700 space-y-2">
-            <button
-              onClick={handleQuickAskCurrentMoment}
-              disabled={chatLoading}
-              className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-bold py-2 rounded-lg transition flex items-center justify-center gap-1.5"
+          <div className="assistant-composer">
+            <form
+              className="assistant-form"
+              onSubmit={event => {
+                event.preventDefault();
+                handleAskQuestion();
+              }}
             >
-              📍 這段在教什麼？
-            </button>
-            <div className="flex gap-2">
               <input
-                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-                placeholder="輸入課程相關問題..."
+                aria-label="輸入課程相關問題"
+                placeholder="輸入課程相關問題…"
                 value={chatInput}
                 onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAskQuestion()}
                 disabled={chatLoading}
               />
               <button
-                onClick={() => handleAskQuestion()}
+                type="submit"
                 disabled={chatLoading || !chatInput.trim()}
-                className="bg-blue-500 hover:bg-blue-400 disabled:bg-slate-600 px-3 py-2 rounded-lg text-xs font-bold text-white transition"
+                className="assistant-primary"
+                aria-label="送出"
               >
-                送出
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M12 19V5m-6 6 6-6 6 6" />
+                </svg>
               </button>
-            </div>
+            </form>
           </div>
         </aside>
       </div>

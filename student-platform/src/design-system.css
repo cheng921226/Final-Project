@@ -197,7 +197,6 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline-offs
 .knowledge-aside-header { background: #fcf4f6; border-color: var(--line); }
 .knowledge-heading-icon { color: var(--primary); background: var(--primary-soft); }
 .knowledge-point-card.active { background: #f9eaf0; border-color: #dfb8c8; }
-.assistant-aside { background: #402730; }
 .lecture-progress-card { background: #fcf2f6; border-color: #ead2dc; }
 .lecture-progress-summary strong { color: var(--primary); }
 .lecture-progress-track > span { background: var(--primary); }
