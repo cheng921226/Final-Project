@@ -734,25 +734,33 @@ function LectureDetail() {
 
   // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。
   useEffect(() => {
-    if (activeTab !== 'mindmap' || !mindmapMarkdown || !mindmapSvgRef.current) return;
+    const svg = mindmapSvgRef.current;
+    if (loading || activeTab !== 'mindmap' || !mindmapMarkdown || !svg) return;
 
     const transformer = new Transformer();
     const { root } = transformer.transform(mindmapMarkdown);
-    const markmap = Markmap.create(
-      mindmapSvgRef.current,
-      {
-        autoFit: true,
-        duration: 300,
-        initialExpandLevel: 3,
-        maxWidth: 260,
-        paddingX: 16,
-      },
-      root
-    );
+    const markmap = Markmap.create(svg, {
+      autoFit: true,
+      duration: 300,
+      initialExpandLevel: 3,
+      maxWidth: 260,
+      paddingX: 16,
+    });
 
-    markmap.fit();
-    return () => markmap.destroy?.();
-  }, [activeTab, mindmapMarkdown]);
+    // D3's default extent reads SVG percentage lengths, which can throw after unmount.
+    markmap.zoom.extent(() => {
+      const { width, height } = svg.getBoundingClientRect();
+      return [[0, 0], [Math.max(1, width), Math.max(1, height)]];
+    });
+    markmap.setData(root);
+
+    return () => {
+      // A resize callback already queued by Markmap can still run after destroy.
+      markmap.state.data = undefined;
+      markmap.svg.interrupt().selectAll('*').interrupt();
+      markmap.destroy();
+    };
+  }, [activeTab, loading, mindmapMarkdown]);
 
   useEffect(() => {
     if (!token || !lectureId) return;
