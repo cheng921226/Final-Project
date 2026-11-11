@@ -88,6 +88,7 @@ export default function CourseManagement() {
   const [courseId, setCourseId] = useState('');
   const [form, setForm] = useState(courseForm());
   const [lectureForms, setLectureForms] = useState({});
+  const [expandedLectureIds, setExpandedLectureIds] = useState(() => new Set());
   const [openTranscriptId, setOpenTranscriptId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState('');
@@ -277,8 +278,18 @@ export default function CourseManagement() {
     setForm(courseForm(course));
     setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
     setMessage('');
+    setExpandedLectureIds(new Set());
     setOpenTranscriptId(null);
     return true;
+  }
+
+  function toggleLecture(lectureId) {
+    setExpandedLectureIds(current => {
+      const next = new Set(current);
+      if (next.has(lectureId)) next.delete(lectureId);
+      else next.add(lectureId);
+      return next;
+    });
   }
 
   async function saveCourse(event) {
@@ -572,42 +583,56 @@ export default function CourseManagement() {
         </form>
 
         <section className="teacher-panel course-lecture-manager">
-          <div className="panel-title"><div><h3>課程小節</h3><p>修改標題與影片、調整順序、控制顯示或重新產生 AI 內容。</p></div><span className="table-count">{selectedCourse.lectures?.length || 0} 個小節</span></div>
+          <div className="panel-title"><div><h3>課程小節</h3></div><span className="table-count">{selectedCourse.lectures?.length || 0} 個小節</span></div>
           <div className="managed-lecture-list">
             {(selectedCourse.lectures || []).map((lecture, index) => {
               const lectureForm = lectureForms[lecture.id] || {};
               const content = lecture.content_status || {};
               const generation = content.generation_status || {};
               const hasFailedGeneration = Object.values(generation).some(item => item.status === 'failed');
+              const expanded = expandedLectureIds.has(lecture.id);
+              const detailsId = `managed-lecture-details-${lecture.id}`;
               return <article className="managed-lecture-card" key={lecture.id}>
-                <div className="managed-lecture-order"><strong>{index + 1}</strong><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
-                <div className="managed-lecture-main">
-                  <div className="settings-grid">
-                    <label className="review-field"><span>小節名稱</span><input value={lectureForm.title || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], title: event.target.value } }))} /></label>
-                    <label className="review-field"><span>影片連結</span><input value={lectureForm.media_url || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], media_url: event.target.value } }))} /></label>
+                <button
+                  type="button"
+                  className="managed-lecture-toggle"
+                  aria-expanded={expanded}
+                  aria-controls={detailsId}
+                  onClick={() => toggleLecture(lecture.id)}
+                >
+                  <span className="managed-lecture-number" aria-hidden="true">{index + 1}</span>
+                  <span>{lecture.title}</span>
+                </button>
+                <div id={detailsId} className="managed-lecture-details" hidden={!expanded}>
+                  <div className="managed-lecture-order"><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
+                  <div className="managed-lecture-main">
+                    <div className="settings-grid">
+                      <label className="review-field"><span>小節名稱</span><input value={lectureForm.title || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], title: event.target.value } }))} /></label>
+                      <label className="review-field"><span>影片連結</span><input value={lectureForm.media_url || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], media_url: event.target.value } }))} /></label>
+                    </div>
+                    <div className="managed-content-status">
+                      {Object.entries(GENERATION_LABELS).map(([key, label]) => {
+                        const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
+                        const status = isPending ? 'pending' : generation[key]?.status || 'pending';
+                        return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={isPending ? '' : generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
+                      })}
+                      {content.questions_pending_review > 0 && <span className="processing">審題：{content.questions_pending_review} 題待審核</span>}
+                      {content.questions_unpublished > 0 && <span>題目：{content.questions_unpublished} 題未發布</span>}
+                      <span className={lecture.backup_status === 'completed' ? 'ready' : lecture.backup_status === 'failed' ? 'failed' : lecture.backup_status === 'processing' ? 'processing' : ''}>影片備份：{BACKUP_LABELS[lecture.backup_status || 'not_requested']}</span>
+                    </div>
+                    <div className="managed-lecture-actions">
+                      <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
+                      <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
+                      <Link className="question-secondary-button compact" to={`/teacher/questions?lecture=${lecture.id}`}>前往審題</Link>
+                      {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
+                      <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
+                      <button type="button" className="course-delete-button compact" disabled={Boolean(busyKey)} onClick={() => deleteLecture(lecture)}>{busyKey === `delete-lecture-${lecture.id}` ? '刪除中...' : '刪除小節'}</button>
+                      {isYouTubeUrl(lecture.media_url) && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey) || ['pending', 'processing'].includes(lecture.backup_status)} onClick={() => requestBackup(lecture)}>{busyKey === `backup-${lecture.id}` ? '啟動中...' : lecture.backup_status === 'completed' ? '重新備份' : '備份影片'}</button>}
+                      {hasFailedGeneration && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey)} onClick={() => retryFailed(lecture)}>{busyKey === `retry-${lecture.id}` ? '重試中...' : '重新執行失敗項目'}</button>}
+                    </div>
+                    {openTranscriptId === lecture.id && <div className="managed-transcript-editor"><label className="review-field"><span>逐字稿內容</span><textarea rows={10} value={lectureForm.transcript_content || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], transcript_content: event.target.value } }))} /><small>若內容包含（分:秒）時間標記，儲存後會保留為可供 AI 使用的時間片段。</small></label><button type="button" className="question-save-button compact" disabled={!lectureForm.transcript_content?.trim() || Boolean(busyKey)} onClick={() => saveTranscript(lecture.id)}>{busyKey === `transcript-${lecture.id}` ? '儲存中...' : '儲存逐字稿'}</button></div>}
+                    <div className="managed-ai-actions"><span>重新產生：</span>{AI_COMPONENTS.map(([component, label]) => <button type="button" key={component} disabled={!content.transcript || Boolean(busyKey)} onClick={() => regenerate(lecture, component, label)}>{busyKey === `ai-${lecture.id}-${component}` ? '處理中...' : label}</button>)}</div>
                   </div>
-                  <div className="managed-content-status">
-                    {Object.entries(GENERATION_LABELS).map(([key, label]) => {
-                      const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
-                      const status = isPending ? 'pending' : generation[key]?.status || 'pending';
-                      return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={isPending ? '' : generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
-                    })}
-                    {content.questions_pending_review > 0 && <span className="processing">審題：{content.questions_pending_review} 題待審核</span>}
-                    {content.questions_unpublished > 0 && <span>題目：{content.questions_unpublished} 題未發布</span>}
-                    <span className={lecture.backup_status === 'completed' ? 'ready' : lecture.backup_status === 'failed' ? 'failed' : lecture.backup_status === 'processing' ? 'processing' : ''}>影片備份：{BACKUP_LABELS[lecture.backup_status || 'not_requested']}</span>
-                  </div>
-                  <div className="managed-lecture-actions">
-                    <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
-                    <Link className="question-secondary-button compact" to={`/course/${selectedCourse.id}/lecture/${lecture.id}`}>預覽</Link>
-                    <Link className="question-secondary-button compact" to={`/teacher/questions?lecture=${lecture.id}`}>前往審題</Link>
-                    {content.transcript && <button type="button" className="question-secondary-button compact" onClick={() => setOpenTranscriptId(current => current === lecture.id ? null : lecture.id)}>{openTranscriptId === lecture.id ? '收合逐字稿' : '編輯逐字稿'}</button>}
-                    <button type="button" className="question-save-button compact" disabled={Boolean(busyKey)} onClick={() => saveLecture(lecture.id)}>{busyKey === `lecture-${lecture.id}` ? '儲存中...' : '儲存小節'}</button>
-                    <button type="button" className="course-delete-button compact" disabled={Boolean(busyKey)} onClick={() => deleteLecture(lecture)}>{busyKey === `delete-lecture-${lecture.id}` ? '刪除中...' : '刪除小節'}</button>
-                    {isYouTubeUrl(lecture.media_url) && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey) || ['pending', 'processing'].includes(lecture.backup_status)} onClick={() => requestBackup(lecture)}>{busyKey === `backup-${lecture.id}` ? '啟動中...' : lecture.backup_status === 'completed' ? '重新備份' : '備份影片'}</button>}
-                    {hasFailedGeneration && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey)} onClick={() => retryFailed(lecture)}>{busyKey === `retry-${lecture.id}` ? '重試中...' : '重新執行失敗項目'}</button>}
-                  </div>
-                  {openTranscriptId === lecture.id && <div className="managed-transcript-editor"><label className="review-field"><span>逐字稿內容</span><textarea rows={10} value={lectureForm.transcript_content || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], transcript_content: event.target.value } }))} /><small>若內容包含（分:秒）時間標記，儲存後會保留為可供 AI 使用的時間片段。</small></label><button type="button" className="question-save-button compact" disabled={!lectureForm.transcript_content?.trim() || Boolean(busyKey)} onClick={() => saveTranscript(lecture.id)}>{busyKey === `transcript-${lecture.id}` ? '儲存中...' : '儲存逐字稿'}</button></div>}
-                  <div className="managed-ai-actions"><span>重新產生：</span>{AI_COMPONENTS.map(([component, label]) => <button type="button" key={component} disabled={!content.transcript || Boolean(busyKey)} onClick={() => regenerate(lecture, component, label)}>{busyKey === `ai-${lecture.id}-${component}` ? '處理中...' : label}</button>)}</div>
                 </div>
               </article>;
             })}

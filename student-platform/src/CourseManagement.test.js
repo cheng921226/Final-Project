@@ -53,7 +53,8 @@ test.each([
     .mockResolvedValue({ ok: true, json: async () => managementResponse });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: button }));
+  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  fireEvent.click(screen.getByRole('button', { name: button }));
 
   expect(screen.getByText('摘要：等待處理')).toHaveAttribute('title', '');
   expect(screen.getByText('心智圖：已完成')).toBeInTheDocument();
@@ -89,7 +90,8 @@ test('polls regeneration progress and ignores old completed states while waiting
   });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: '摘要' }));
+  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  fireEvent.click(screen.getByRole('button', { name: '摘要' }));
   await act(async () => { jest.advanceTimersByTime(8000); });
   expect(screen.getByText('摘要：等待處理')).toBeInTheDocument();
   polledStatus = 'processing';
@@ -223,7 +225,8 @@ test('asks before replacing an existing video backup', async () => {
   jest.spyOn(window, 'confirm').mockReturnValue(false);
 
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: '重新備份' }));
+  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  fireEvent.click(screen.getByRole('button', { name: '重新備份' }));
 
   expect(window.confirm).toHaveBeenCalledWith(
     '這個小節已經有影片備份。確定要重新備份並覆蓋現有版本嗎？'
@@ -231,7 +234,7 @@ test('asks before replacing an existing video backup', async () => {
   expect(global.fetch).toHaveBeenCalledTimes(1);
 });
 
-test('every lecture links directly to its matching question review scope', async () => {
+test('lectures start collapsed and expose their own question review links when expanded', async () => {
   localStorage.setItem('access_token', 'campus-token');
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
@@ -262,10 +265,22 @@ test('every lecture links directly to its matching question review scope', async
 
   render(<CourseManagement />);
 
-  const links = await screen.findAllByRole('link', { name: '前往審題' });
+  const first = await screen.findByRole('button', { name: '沒有待審題目的小節' });
+  const second = screen.getByRole('button', { name: '有待審題目的小節' });
+  expect(first).toHaveAttribute('aria-expanded', 'false');
+  expect(second).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('link', { name: '前往審題' })).not.toBeInTheDocument();
+
+  fireEvent.click(first);
+  expect(screen.getByRole('link', { name: '前往審題' })).toHaveAttribute('href', '/teacher/questions?lecture=48');
+  fireEvent.click(second);
+  const links = screen.getAllByRole('link', { name: '前往審題' });
   expect(links).toHaveLength(2);
-  expect(links[0]).toHaveAttribute('href', '/teacher/questions?lecture=48');
   expect(links[1]).toHaveAttribute('href', '/teacher/questions?lecture=49');
+
+  fireEvent.click(first);
+  expect(first).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.getByRole('link', { name: '前往審題' })).toHaveAttribute('href', '/teacher/questions?lecture=49');
 });
 
 test('requires the exact course title before permanently deleting a course', async () => {
@@ -325,7 +340,8 @@ test('requires the exact lecture title before permanently deleting a lecture', a
   jest.spyOn(window, 'prompt').mockReturnValue('搜尋演算法');
 
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: '刪除小節' }));
+  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  fireEvent.click(screen.getByRole('button', { name: '刪除小節' }));
 
   expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答與觀看紀錄'));
   expect(global.fetch).toHaveBeenCalledWith(
