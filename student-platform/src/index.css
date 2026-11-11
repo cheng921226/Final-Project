@@ -3775,7 +3775,7 @@ a {
   background: #dbe6f5;
 }
 
-.lecture-side .lecture-progress-track > span:not(.is-complete) {
+.lecture-side .lecture-progress-track>span:not(.is-complete) {
   background: linear-gradient(90deg, #4a76ed, var(--assistant-accent));
 }
 
@@ -4081,6 +4081,14 @@ a {
   margin-top: 18px;
 }
 
+.achievement-card-actions .question-save-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .final-assessment-entry {
   border-color: #99d5c9;
   background: #f2fbf8;
@@ -4231,7 +4239,7 @@ a {
   z-index: 0;
 }
 
-.certificate-inner > :not(.certificate-watermark) {
+.certificate-inner> :not(.certificate-watermark) {
   position: relative;
   z-index: 1;
 }
@@ -4534,7 +4542,7 @@ a {
   min-width: 0;
 }
 
-.managed-lecture-status-panel > p {
+.managed-lecture-status-panel>p {
   margin: 0 0 6px;
   color: var(--muted);
   font-size: 12px;
@@ -4546,7 +4554,7 @@ a {
   gap: 7px;
 }
 
-.managed-content-status > :is(span, button) {
+.managed-content-status> :is(span, button) {
   padding: 4px 8px;
   border-radius: 999px;
   background: #f1f5f9;
@@ -4555,32 +4563,32 @@ a {
   font-weight: 800;
 }
 
-.managed-content-status > .ready {
+.managed-content-status>.ready {
   background: #ecfdf5;
   color: #047857;
 }
 
-.managed-content-status > .failed {
+.managed-content-status>.failed {
   background: #fef2f2;
   color: #b91c1c;
 }
 
-.managed-content-status > .processing {
+.managed-content-status>.processing {
   background: #eff6ff;
   color: #1d4ed8;
 }
 
-.managed-content-status > .waiting {
+.managed-content-status>.waiting {
   background: #fef3c7;
   color: #854d0e;
 }
 
-.managed-content-status > button {
+.managed-content-status>button {
   border: 0;
   cursor: pointer;
 }
 
-.managed-content-status > button:hover:not(:disabled) {
+.managed-content-status>button:hover:not(:disabled) {
   box-shadow: inset 0 0 0 1px currentColor;
 }
 
@@ -4589,7 +4597,7 @@ a {
   gap: 4px;
 }
 
-.managed-content-status.managed-lecture-badges > :is(span, button) {
+.managed-content-status.managed-lecture-badges> :is(span, button) {
   display: grid;
   width: 20px;
   height: 20px;
@@ -4598,7 +4606,7 @@ a {
   line-height: 1;
 }
 
-.managed-lecture-badges > :not(.ready, .failed, .processing, .waiting) {
+.managed-lecture-badges> :not(.ready, .failed, .processing, .waiting) {
   color: #475569;
 }
 
