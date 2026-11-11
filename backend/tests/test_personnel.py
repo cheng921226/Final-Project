@@ -9,10 +9,12 @@ from fastapi import UploadFile
 from postgrest.exceptions import APIError
 
 from routers.personnel import (
+    PersonnelCreate,
     PersonnelUpdate,
     PersonnelStatusUpdate,
     auth_user_active,
     class_sort_key,
+    create_personnel,
     import_personnel_csv,
     normalize_student_fields,
     require_campus,
@@ -22,6 +24,31 @@ from routers.personnel import (
 
 
 class PersonnelTests(unittest.TestCase):
+    def test_create_personnel_accepts_empty_email_and_profile_lookups(self):
+        database = Mock()
+        users = database.table.return_value
+        lookup = users.select.return_value.eq.return_value.maybe_single.return_value
+        lookup.execute.return_value = None
+        database.auth.admin.create_user.return_value = SimpleNamespace(
+            user=SimpleNamespace(id="new-auth-user")
+        )
+        users.insert.return_value.execute.return_value = SimpleNamespace(data=[{"id": 12}])
+        context = SimpleNamespace(profile={"role": "campus"})
+        body = PersonnelCreate(
+            name="測試教師",
+            email="teacher@example.com",
+            password="test-password",
+            role="teacher",
+        )
+
+        with patch("routers.personnel.supabase_admin", database):
+            result = create_personnel(body, context)
+
+        self.assertEqual(result["id"], 12)
+        database.auth.admin.create_user.assert_called_once()
+        database.auth.admin.delete_user.assert_not_called()
+        users.insert.assert_called_once()
+
     def test_only_campus_can_manage_personnel(self):
         with self.assertRaises(HTTPException) as context:
             require_campus(SimpleNamespace(profile={"id": 10, "role": "teacher"}))

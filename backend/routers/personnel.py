@@ -172,15 +172,14 @@ def get_personnel_or_404(personnel_id: int) -> dict:
 def validate_class(class_id: int | None) -> None:
     if class_id is None:
         return
-    exists = (
+    response = (
         supabase_admin.table("classes")
         .select("id")
         .eq("id", class_id)
         .maybe_single()
         .execute()
-        .data
     )
-    if not exists:
+    if not getattr(response, "data", None):
         raise HTTPException(status_code=422, detail="指定的班級不存在")
 
 
@@ -240,14 +239,14 @@ def create_personnel(
     name = body.name.strip()
     email = str(body.email).strip().lower()
 
-    if (
+    existing = (
         supabase_admin.table("users")
         .select("id")
         .eq("email", email)
         .maybe_single()
         .execute()
-        .data
-    ):
+    )
+    if getattr(existing, "data", None):
         raise HTTPException(status_code=409, detail="這個 Email 已經存在")
 
     auth_user = None
@@ -263,14 +262,14 @@ def create_personnel(
         auth_user = response.user
         if not auth_user:
             raise RuntimeError("Supabase Auth 沒有回傳新帳號")
-        profile = (
+        profile_response = (
             supabase_admin.table("users")
             .select("id")
             .eq("auth_id", str(auth_user.id))
             .maybe_single()
             .execute()
-            .data
         )
+        profile = getattr(profile_response, "data", None)
         values = {
             "name": name,
             "email": email,
