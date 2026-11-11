@@ -1,6 +1,7 @@
 import logging
 from datetime import datetime, timezone
 import re
+from tempfile import TemporaryDirectory
 from typing import Any, Literal
 
 from database.supabase import supabase_admin
@@ -21,7 +22,12 @@ from services.lecture_processing import (
     set_generation_status,
 )
 from services.pipeline_runner import PipelineStepError, run_youtube_ai_pipeline
-from services.transcription import extract_youtube_video_id
+from services.transcription import (
+    download_youtube_audio,
+    extract_youtube_video_id,
+    save_transcript_segments,
+    transcribe_media,
+)
 from services.video_backup import (
     BACKUP_BUCKET,
     backup_lecture_video,
@@ -61,7 +67,7 @@ class LectureOrderUpdate(BaseModel):
 
 
 class RegenerateRequest(BaseModel):
-    components: list[Literal["summary", "knowledge_points", "mindmap", "questions"]]
+    components: list[Literal["transcript", "summary", "knowledge_points", "mindmap", "questions"]]
 
 
 class TranscriptUpdate(BaseModel):
@@ -564,11 +570,31 @@ def regenerate_lecture_content(
     user=Depends(get_current_user),
 ):
     teacher = require_teacher(user)
-    require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
+    lecture = require_lecture_manager(lecture_id, teacher, allow_campus_all=True)
     components = list(dict.fromkeys(payload.components))
     if not components:
         raise HTTPException(status_code=422, detail="請至少選擇一種要重新產生的內容")
-    return _regenerate_components(lecture_id, components)
+    if "transcript" not in components:
+        return _regenerate_components(lecture_id, components)
+
+    url = lecture.get("media_url") or ""
+    if not extract_youtube_video_id(url):
+        raise HTTPException(status_code=400, detail="只有 YouTube 小節可自動產生逐字稿")
+
+    def transcribe():
+        with TemporaryDirectory(prefix="course_transcript_") as directory:
+            audio = download_youtube_audio(url, output_dir=directory)
+            result = transcribe_media(audio["file_path"])
+            saved = save_transcript_segments(lecture_id, result["segments"])
+            if not saved.get("saved_to_db"):
+                raise RuntimeError(f"逐字稿儲存失敗：{saved.get('db_error')}")
+            return saved
+
+    results = {"transcript": _run_regeneration_step(lecture_id, "transcript", transcribe)}
+    remaining = [component for component in components if component != "transcript"]
+    if remaining:
+        results.update(_regenerate_components(lecture_id, remaining)["results"])
+    return {"lecture_id": lecture_id, "components": components, "results": results}
 
 
 def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, Any]:

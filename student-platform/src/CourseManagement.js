@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import SearchableCourseSelect from './SearchableCourseSelect';
 import { managementFetch as fetch } from './managementDataCache';
@@ -12,6 +12,7 @@ const STATUS_LABELS = {
 };
 
 const AI_COMPONENTS = [
+  ['transcript', '逐字稿'],
   ['summary', '摘要'],
   ['knowledge_points', '知識點'],
   ['mindmap', '心智圖'],
@@ -42,6 +43,7 @@ const BACKUP_LABELS = {
 };
 
 const STATUS_CLASSES = {
+  pending: 'waiting',
   completed: 'ready',
   failed: 'failed',
   processing: 'processing',
@@ -98,6 +100,7 @@ export default function CourseManagement() {
   const [openTranscriptId, setOpenTranscriptId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [busyKey, setBusyKey] = useState('');
+  const [generationQueue, setGenerationQueue] = useState([]);
   const [pendingGeneration, setPendingGeneration] = useState(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -183,7 +186,7 @@ export default function CourseManagement() {
     };
   }, [hasUnsavedChanges]);
 
-  async function load(preferredId = courseId) {
+  const load = useCallback(async (preferredId, { statusOnly = false } = {}) => {
     if (!token) {
       setError('請先使用教師或校園平台端帳號登入。');
       setLoading(false);
@@ -193,13 +196,14 @@ export default function CourseManagement() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || '無法取得課程管理資料');
     setData(body);
+    if (statusOnly) return body;
     const nextCourse = body.courses?.find(item => String(item.id) === String(preferredId)) || body.courses?.[0];
     const nextCourseId = nextCourse ? String(nextCourse.id) : '';
     setCourseId(nextCourseId);
     rememberCourseInUrl(nextCourseId);
     setForm(courseForm(nextCourse));
     setLectureForms(Object.fromEntries((nextCourse?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
-  }
+  }, [headers, token]);
 
   useEffect(() => {
     let cancelled = false;
@@ -214,8 +218,7 @@ export default function CourseManagement() {
     }
     initialize();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [load]);
 
   useEffect(() => {
     if (!token || !hasActiveJobs) return undefined;
@@ -462,35 +465,75 @@ export default function CourseManagement() {
     }
   }
 
-  async function regenerate(lecture, component, label) {
+  function queueRegeneration(lecture, component, label) {
+    if (component !== 'transcript' && !lecture.content_status?.transcript) {
+      window.alert(`這個小節沒有逐字稿，無法產生${label}。請先產生逐字稿。`);
+      return;
+    }
+
     const warning = component === 'questions'
       ? '重新產生的題目會先進入審題中心，原本已發布題目會繼續供學生使用。要繼續嗎？'
       : component === 'knowledge_points'
         ? `重新產生${label}後，舊內容會停止顯示，但歷史資料會保留。要繼續嗎？`
-        : `確定要重新產生${label}嗎？`;
-    if (!window.confirm(warning) || busyKey) return;
-    setBusyKey(`ai-${lecture.id}-${component}`);
-    setPendingGeneration({ lectureId: lecture.id, components: [component] });
-    setMessage('');
-    try {
-      const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lecture.id}/regenerate`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ components: [component] }),
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail || `${label}重新產生失敗`);
-      setMessage(component === 'questions'
-        ? `${lecture.title}的新題目已產生，請前往審題中心核准發布。`
-        : `${lecture.title}的${label}已重新產生。`);
-      await load(selectedCourse.id);
-    } catch (err) {
-      setMessage(err.message || `${label}重新產生失敗`);
-    } finally {
-      setPendingGeneration(null);
-      setBusyKey('');
-    }
+        : component === 'transcript'
+          ? lecture.content_status?.transcript
+            ? '重新產生逐字稿會覆蓋目前的逐字稿。要繼續嗎？'
+            : '確定要從影片產生逐字稿嗎？'
+          : `確定要重新產生${label}嗎？`;
+    if (!window.confirm(warning)) return;
+    setGenerationQueue(current => {
+      if (current.some(job => job.lectureId === lecture.id && job.component === component)) return current;
+      return [...current, {
+        lectureId: lecture.id,
+        lectureTitle: lecture.title,
+        previousTranscript: lecture.content_status?.transcript_content || '',
+        component,
+        label,
+      }];
+    });
   }
+
+  useEffect(() => {
+    if (busyKey || !generationQueue.length) return;
+    const [{ lectureId, lectureTitle, previousTranscript, component, label }] = generationQueue;
+    setBusyKey(`ai-${lectureId}-${component}`);
+    setPendingGeneration({ lectureId, components: [component] });
+    setGenerationQueue(current => current.slice(1));
+
+    async function run() {
+      try {
+        const response = await fetch(`${API_URL}/teacher/course-management/lectures/${lectureId}/regenerate`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ components: [component] }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.detail || `${label}重新產生失敗`);
+        const latest = await load(undefined, { statusOnly: true });
+        if (component === 'transcript') {
+          const lecture = latest?.courses?.flatMap(course => course.lectures || []).find(item => item.id === lectureId);
+          const transcript = lecture?.content_status?.transcript_content;
+          if (typeof transcript === 'string') {
+            setLectureForms(current => {
+              const form = current[lectureId];
+              if (!form || form.transcript_content !== previousTranscript) return current;
+              return { ...current, [lectureId]: { ...form, transcript_content: transcript } };
+            });
+          }
+        }
+        setMessage(component === 'questions'
+          ? `${lectureTitle}的新題目已產生，請前往審題中心核准發布。`
+          : `${lectureTitle}的${label}已重新產生。`);
+      } catch (err) {
+        setMessage(err.message || `${label}重新產生失敗`);
+      } finally {
+        setPendingGeneration(null);
+        setBusyKey('');
+      }
+    }
+
+    run();
+  }, [busyKey, generationQueue, headers, load]);
 
   async function retryFailed(lecture) {
     if (busyKey) return;
@@ -589,7 +632,13 @@ export default function CourseManagement() {
         </form>
 
         <section className="teacher-panel course-lecture-manager">
-          <div className="panel-title"><div><h3>課程小節</h3></div><span className="table-count">{selectedCourse.lectures?.length || 0} 個小節</span></div>
+          <div className="panel-title">
+            <div>
+              <h3>課程小節</h3>
+              {selectedCourse.lectures?.length > 0 && <p>點選「逐、摘、知、心、題」狀態徽章，確認後即可產生或重新產生該項內容。</p>}
+            </div>
+            <span className="table-count">{selectedCourse.lectures?.length || 0} 個小節</span>
+          </div>
           <div className="managed-lecture-list">
             {(selectedCourse.lectures || []).map((lecture, index) => {
               const lectureForm = lectureForms[lecture.id] || {};
@@ -599,13 +648,19 @@ export default function CourseManagement() {
               const expanded = expandedLectureIds.has(lecture.id);
               const detailsId = `managed-lecture-details-${lecture.id}`;
               const statuses = Object.entries(GENERATION_LABELS).map(([key, label]) => {
-                const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
+                const queued = generationQueue.some(job => job.lectureId === lecture.id && job.component === key);
+                const isPending = queued || (pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key));
                 const status = isPending ? 'pending' : generation[key]?.status || 'pending';
                 return {
                   key,
                   initial: label[0],
                   text: `${label}：${PROCESS_LABELS[status] || status}`,
                   status,
+                  queued,
+                  unavailable: key === 'transcript' && !isYouTubeUrl(lecture.media_url)
+                    ? '只有 YouTube 小節可自動產生逐字稿'
+                    : '',
+                  busy: isPending || status === 'processing' || busyKey === `ai-${lecture.id}-${key}`,
                   error: isPending ? '' : generation[key]?.error_message,
                 };
               });
@@ -617,25 +672,52 @@ export default function CourseManagement() {
               }
               const backupStatus = lecture.backup_status || 'not_requested';
               statuses.push({ key: 'backup', initial: '影', text: `影片備份：${BACKUP_LABELS[backupStatus]}`, status: backupStatus });
+              function renderStatus(item, compact = false) {
+                const action = AI_COMPONENTS.find(([component]) => component === item.key);
+                const className = STATUS_CLASSES[item.status];
+                const text = compact ? item.initial : item.text;
+                if (!action) {
+                  return <span key={item.key} className={className} title={compact ? item.text : item.error || ''}>{text}</span>;
+                }
+
+                const [component, label] = action;
+                const hint = item.unavailable ? item.unavailable
+                  : item.queued ? '已排入佇列'
+                  : item.busy ? '請等待目前的操作完成'
+                  : component !== 'transcript' && !content.transcript ? '需要先有逐字稿'
+                  : `重新產生${label}`;
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={className}
+                    aria-label={compact ? item.text : undefined}
+                    title={compact ? `${item.text}（${hint}）` : item.error || hint}
+                    disabled={Boolean(item.unavailable) || item.busy}
+                    onClick={() => queueRegeneration(lecture, component, label)}
+                  >
+                    {text}
+                  </button>
+                );
+              }
+
               return <article className="managed-lecture-card" key={lecture.id}>
-                <button
-                  type="button"
-                  className="managed-lecture-toggle"
-                  aria-expanded={expanded}
-                  aria-controls={detailsId}
-                  aria-description={statuses.map(item => item.text).join('；')}
-                  onClick={() => toggleLecture(lecture.id)}
-                >
-                  <span className="managed-lecture-number" aria-hidden="true">{index + 1}</span>
-                  <span className="managed-lecture-title">{lecture.title}</span>
-                  <span className="managed-content-status managed-lecture-badges" aria-hidden="true">
-                    {statuses.map(item => (
-                      <span key={item.key} className={STATUS_CLASSES[item.status]} title={item.text}>
-                        {item.initial}
-                      </span>
-                    ))}
-                  </span>
-                </button>
+                <div className="managed-lecture-header">
+                  <button
+                    type="button"
+                    className="managed-lecture-toggle"
+                    aria-expanded={expanded}
+                    aria-controls={detailsId}
+                    aria-description={statuses.map(item => item.text).join('；')}
+                    onClick={() => toggleLecture(lecture.id)}
+                  >
+                    <span className="managed-lecture-number" aria-hidden="true">{index + 1}</span>
+                    <span className="managed-lecture-title">{lecture.title}</span>
+                  </button>
+                  <div className="managed-content-status managed-lecture-badges">
+                    {statuses.map(item => renderStatus(item, true))}
+                  </div>
+                </div>
                 <div id={detailsId} className="managed-lecture-details" hidden={!expanded}>
                   <div className="managed-lecture-order"><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
                   <div className="managed-lecture-main">
@@ -643,10 +725,11 @@ export default function CourseManagement() {
                       <label className="review-field"><span>小節名稱</span><input value={lectureForm.title || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], title: event.target.value } }))} /></label>
                       <label className="review-field"><span>影片連結</span><input value={lectureForm.media_url || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], media_url: event.target.value } }))} /></label>
                     </div>
-                    <div className="managed-content-status">
-                      {statuses.map(item => (
-                        <span key={item.key} className={STATUS_CLASSES[item.status]} title={item.error || ''}>{item.text}</span>
-                      ))}
+                    <div className="managed-lecture-status-panel">
+                      <p>點選下方狀態徽章，確認後可產生或重新產生對應內容。</p>
+                      <div className="managed-content-status">
+                        {statuses.map(item => renderStatus(item))}
+                      </div>
                     </div>
                     <div className="managed-lecture-actions">
                       <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>
@@ -659,7 +742,6 @@ export default function CourseManagement() {
                       {hasFailedGeneration && <button type="button" className="question-secondary-button compact" disabled={Boolean(busyKey)} onClick={() => retryFailed(lecture)}>{busyKey === `retry-${lecture.id}` ? '重試中...' : '重新執行失敗項目'}</button>}
                     </div>
                     {openTranscriptId === lecture.id && <div className="managed-transcript-editor"><label className="review-field"><span>逐字稿內容</span><textarea rows={10} value={lectureForm.transcript_content || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], transcript_content: event.target.value } }))} /><small>若內容包含（分:秒）時間標記，儲存後會保留為可供 AI 使用的時間片段。</small></label><button type="button" className="question-save-button compact" disabled={!lectureForm.transcript_content?.trim() || Boolean(busyKey)} onClick={() => saveTranscript(lecture.id)}>{busyKey === `transcript-${lecture.id}` ? '儲存中...' : '儲存逐字稿'}</button></div>}
-                    <div className="managed-ai-actions"><span>重新產生：</span>{AI_COMPONENTS.map(([component, label]) => <button type="button" key={component} disabled={!content.transcript || Boolean(busyKey)} onClick={() => regenerate(lecture, component, label)}>{busyKey === `ai-${lecture.id}-${component}` ? '處理中...' : label}</button>)}</div>
                   </div>
                 </div>
               </article>;

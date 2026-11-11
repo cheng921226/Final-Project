@@ -37,8 +37,10 @@ from routers.questions import (
 from routers.lectures import get_lecture_summary
 from routers.course_management import (
     CourseUpdate,
+    RegenerateRequest,
     _managed_courses,
     _segments_from_edited_transcript,
+    regenerate_lecture_content,
     update_course,
 )
 from routers.final_assessment import (
@@ -264,6 +266,30 @@ class TeacherAnalyticsTests(unittest.TestCase):
         self.assertEqual(segments[0]["start_time"], 10)
         self.assertEqual(segments[0]["end_time"], 45)
         self.assertEqual(segments[1]["text"], "第二段內容")
+
+    def test_regenerating_transcript_saves_it_without_running_other_ai_steps(self):
+        route = "routers.course_management"
+        url = "https://www.youtube.com/watch?v=BUTSrY9K01c"
+        segments = [{"start_time": 0, "text": "第一段"}]
+        teacher = {"id": 1, "role": "campus"}
+        with (
+            patch(f"{route}.require_teacher", return_value=teacher),
+            patch(f"{route}.require_lecture_manager", return_value={"media_url": url}) as access,
+            patch(f"{route}.claim_generation", return_value=True) as claim,
+            patch(f"{route}.download_youtube_audio", return_value={"file_path": "audio.webm"}),
+            patch(f"{route}.transcribe_media", return_value={"segments": segments}),
+            patch(f"{route}.save_transcript_segments", return_value={"saved_to_db": True}) as save,
+            patch(f"{route}.set_generation_status") as status,
+            patch(f"{route}._regenerate_components") as other_ai,
+        ):
+            result = regenerate_lecture_content(7, RegenerateRequest(components=["transcript"]), user={})
+
+        access.assert_called_once_with(7, teacher, allow_campus_all=True)
+        claim.assert_called_once_with(7, "transcript")
+        save.assert_called_once_with(7, segments)
+        status.assert_called_once_with(7, "transcript", "completed")
+        other_ai.assert_not_called()
+        self.assertEqual(result["results"], {"transcript": {"saved_to_db": True}})
 
     def test_teaching_recommendations_require_evidence_and_sample_size(self):
         lectures = [

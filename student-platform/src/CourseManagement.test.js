@@ -25,8 +25,8 @@ afterEach(() => {
 });
 
 test.each([
-  ['摘要', 'completed', true],
-  ['摘要', 'completed', false],
+  ['摘要：已完成', 'completed', true],
+  ['摘要：已完成', 'completed', false],
   ['重新執行失敗項目', 'failed', false],
 ])('%s immediately shows waiting and settles after the request (success=%s/%s)', async (button, initialStatus, success) => {
   localStorage.setItem('access_token', 'campus-token');
@@ -53,12 +53,20 @@ test.each([
     .mockResolvedValue({ ok: true, json: async () => managementResponse });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
-  fireEvent.click(screen.getByRole('button', { name: button }));
+  const toggle = await screen.findByRole('button', { name: '搜尋演算法' });
+  if (button === '重新執行失敗項目') {
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    expect(screen.getByRole('button', { name: '重試中...' })).toBeDisabled();
+  } else {
+    fireEvent.click(screen.getByRole('button', { name: button }));
+    fireEvent.click(toggle);
+  }
 
-  expect(screen.getByText('摘要：等待處理')).toHaveAttribute('title', '');
+  expect(screen.getByText('摘要：等待處理')).toHaveAttribute('title', '請等待目前的操作完成');
+  expect(screen.getByText('摘要：等待處理')).toBeDisabled();
+  expect(screen.getByText('摘要：等待處理')).toHaveClass('waiting');
   expect(screen.getByText('心智圖：已完成')).toBeInTheDocument();
-  expect(screen.getByRole('button', { name: button === '摘要' ? '處理中...' : '重試中...' })).toBeDisabled();
 
   await act(async () => {
     finishRequest({ ok: success, json: async () => success ? {} : { detail: '生成失敗' } });
@@ -66,6 +74,55 @@ test.each([
   expect(screen.queryByText('摘要：等待處理')).not.toBeInTheDocument();
   if (success) expect(screen.getByText('搜尋演算法的摘要已重新產生。')).toBeInTheDocument();
   else expect(screen.getByText('生成失敗')).toBeInTheDocument();
+});
+
+test('generates a transcript from a YouTube lesson with no transcript', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  const lecture = {
+    id: 48,
+    title: '搜尋演算法',
+    media_url: 'https://www.youtube.com/watch?v=BUTSrY9K01c',
+    content_status: { transcript: false, generation_status: {} },
+  };
+  const response = item => ({
+    ok: true,
+    json: async () => ({ actor: { role: 'campus' }, courses: [{ ...baseCourse, lectures: [item] }] }),
+  });
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce(response(lecture))
+    .mockResolvedValueOnce({ ok: true, json: async () => ({}) })
+    .mockResolvedValueOnce(response({
+      ...lecture,
+      content_status: {
+        transcript: true,
+        transcript_content: '(0:10) 新逐字稿',
+        generation_status: { transcript: { status: 'completed' } },
+      },
+    }));
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
+  render(<CourseManagement />);
+
+  for (const label of ['摘要', '知識點', '心智圖', '題目']) {
+    const badge = await screen.findByRole('button', { name: `${label}：等待處理` });
+    expect(badge).toBeEnabled();
+    fireEvent.click(badge);
+    expect(alert).toHaveBeenLastCalledWith(expect.stringContaining('這個小節沒有逐字稿，無法產生'));
+  }
+  expect(confirm).not.toHaveBeenCalled();
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+
+  fireEvent.click(await screen.findByRole('button', { name: '逐字稿：等待處理' }));
+  expect(confirm).toHaveBeenCalledWith('確定要從影片產生逐字稿嗎？');
+  expect(global.fetch).toHaveBeenCalledWith(expect.stringMatching(/\/lectures\/48\/regenerate$/),
+    expect.objectContaining({ body: JSON.stringify({ components: ['transcript'] }) }));
+
+  expect(await screen.findByRole('button', { name: '逐字稿：已完成' })).toBeEnabled();
+  fireEvent.click(screen.getByRole('button', { name: '搜尋演算法' }));
+  fireEvent.click(screen.getByRole('button', { name: '編輯逐字稿' }));
+  expect(screen.getByRole('textbox', { name: /^逐字稿內容/ })).toHaveValue('(0:10) 新逐字稿');
+  expect(screen.getByText(/狀態徽章，確認後即可產生或重新產生/)).toBeVisible();
+  expect(screen.queryByText('重新產生：')).not.toBeInTheDocument();
 });
 
 test('polls regeneration progress and ignores old completed states while waiting', async () => {
@@ -88,21 +145,75 @@ test('polls regeneration progress and ignores old completed states while waiting
       ? { lectures: [{ id: 48, generation_status: { summary: { status: polledStatus } } }] }
       : managementResponse });
   });
-  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
   render(<CourseManagement />);
   const lectureToggle = await screen.findByRole('button', { name: '搜尋演算法' });
-  expect(screen.getByTitle('摘要：已完成')).toHaveTextContent('摘');
-  fireEvent.click(lectureToggle);
-  fireEvent.click(screen.getByRole('button', { name: '摘要' }));
-  fireEvent.click(lectureToggle);
+  const summaryBadge = screen.getByRole('button', { name: '摘要：已完成' });
+  expect(summaryBadge).toHaveTextContent('摘');
+  fireEvent.click(summaryBadge);
+  expect(confirm).toHaveBeenCalledWith('確定要重新產生摘要嗎？');
+  expect(global.fetch).toHaveBeenCalledTimes(1);
+  fireEvent.click(summaryBadge);
+  expect(global.fetch).toHaveBeenLastCalledWith(
+    expect.stringMatching(/\/lectures\/48\/regenerate$/),
+    expect.objectContaining({ body: JSON.stringify({ components: ['summary'] }) })
+  );
   await act(async () => { jest.advanceTimersByTime(8000); });
-  expect(screen.getByTitle('摘要：等待處理')).toBeVisible();
+  expect(screen.getByRole('button', { name: '摘要：等待處理' })).toBeVisible();
   polledStatus = 'processing';
   await act(async () => { jest.advanceTimersByTime(8000); });
-  expect(screen.getByTitle('摘要：處理中')).toHaveClass('processing');
+  expect(screen.getByRole('button', { name: '摘要：處理中' })).toHaveClass('processing');
   await act(async () => { finishRequest({ ok: true, json: async () => ({}) }); });
-  expect(screen.getByTitle('摘要：已完成')).toHaveClass('ready');
+  expect(screen.getByRole('button', { name: '摘要：已完成' })).toHaveClass('ready');
   expect(lectureToggle).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('queues other AI items in order and continues after a failure', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  const requests = [];
+  const course = {
+    ...baseCourse,
+    lectures: [{
+      id: 48,
+      title: '搜尋演算法',
+      content_status: {
+        transcript: true,
+        generation_status: {
+          summary: { status: 'completed' },
+          mindmap: { status: 'completed' },
+          questions: { status: 'completed' },
+        },
+      },
+    }],
+  };
+  global.fetch = jest.fn((url, options) => {
+    if (url.endsWith('/regenerate')) {
+      return new Promise(resolve => requests.push({ component: JSON.parse(options.body).components[0], resolve }));
+    }
+    return Promise.resolve({
+      ok: true,
+      json: async () => ({ actor: { id: 99, role: 'campus' }, courses: [course], teachers: [] }),
+    });
+  });
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  render(<CourseManagement />);
+
+  fireEvent.click(await screen.findByRole('button', { name: '摘要：已完成' }));
+  fireEvent.click(screen.getByRole('button', { name: '心智圖：已完成' }));
+  fireEvent.click(screen.getByRole('button', { name: '題目：已完成' }));
+  expect(requests.map(request => request.component)).toEqual(['summary']);
+  expect(screen.getByRole('button', { name: '心智圖：等待處理' })).toHaveClass('waiting');
+  expect(screen.getByRole('button', { name: '心智圖：等待處理' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: '題目：等待處理' })).toBeDisabled();
+
+  await act(async () => { requests[0].resolve({ ok: false, json: async () => ({ detail: '摘要產生失敗' }) }); });
+  expect(screen.getByText('摘要產生失敗')).toBeInTheDocument();
+  expect(requests.map(request => request.component)).toEqual(['summary', 'mindmap']);
+
+  await act(async () => { requests[1].resolve({ ok: true, json: async () => ({}) }); });
+  expect(requests.map(request => request.component)).toEqual(['summary', 'mindmap', 'questions']);
+  await act(async () => { requests[2].resolve({ ok: true, json: async () => ({}) }); });
+  expect(screen.getByRole('button', { name: '題目：已完成' })).toBeEnabled();
 });
 
 test('teacher manages owned courses without teacher assignment control', async () => {
@@ -280,6 +391,9 @@ test('lectures start collapsed and expose their own question review links when e
   fireEvent.click(second);
   const links = screen.getAllByRole('link', { name: '前往審題' });
   expect(links).toHaveLength(2);
+  const hints = screen.getAllByText('點選下方狀態徽章，確認後可產生或重新產生對應內容。');
+  expect(hints).toHaveLength(2);
+  hints.forEach(hint => expect(hint).toBeVisible());
   expect(links[1]).toHaveAttribute('href', '/teacher/questions?lecture=49');
 
   fireEvent.click(first);
