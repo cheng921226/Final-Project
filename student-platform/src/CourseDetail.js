@@ -155,21 +155,19 @@ function CourseDetail() {
                       </div>
 
                       <div className="lecture-state">
-                        {progress ? (
+                        {!progress?.completed && (progress ? (
                           <div>
-                            <div className="progress-copy">
-                              {progress.completed ? `已完成 · ${progress.percent}%` : `${progress.percent}%`}
-                            </div>
+                            <div className="progress-copy">{progress.percent}%</div>
                             <div className="progress-track">
                               <div
-                                className={`progress-fill ${progress.completed ? 'done' : ''}`}
+                                className="progress-fill"
                                 style={{ width: `${progress.percent}%` }}
                               />
                             </div>
                           </div>
                         ) : (
                           <span className="progress-copy">尚未觀看</span>
-                        )}
+                        ))}
                         <span className="card-arrow">→</span>
                       </div>
                   </div>

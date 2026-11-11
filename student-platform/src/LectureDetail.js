@@ -386,19 +386,23 @@ function LectureDetail() {
     setWasPlayingBeforeNote(false);
   }
 
-  function switchPlayer(nextMode) {
-    if (nextMode === playerMode) return;
+  useEffect(() => {
+    if (playerMode !== 'youtube' || !videoError || backupInfo?.status !== 'completed' || !backupInfo.playback_url) return;
+
     cancelPauseHelp();
-    const currentTime = getPlayerCurrentTime();
+    const currentTime = playerReadyRef.current
+      ? getPlayerCurrentTime() || lastObservedTimeRef.current || null
+      : null;
     switchPositionRef.current = currentTime;
     logEvent(lectureId, 'player_switched', {
-      from: playerMode,
-      to: nextMode,
-      timestamp: Math.floor(currentTime),
+      from: 'youtube',
+      to: 'backup',
+      timestamp: currentTime === null ? null : Math.floor(currentTime),
+      triggered_by: 'youtube_error',
     });
     setVideoError('');
-    setPlayerMode(nextMode);
-  }
+    setPlayerMode('backup');
+  }, [backupInfo, cancelPauseHelp, getPlayerCurrentTime, lectureId, playerMode, videoError]);
 
   // 新增筆記
   async function createNote() {
@@ -707,12 +711,8 @@ function LectureDetail() {
             data.videoError = vid ? '' : '影片連結格式無法解析';
             data.backupInfo = { status: lecture.backup_status || 'not_requested' };
             setMediaInfo(null);
-            if (vid) {
-              setVideoId(vid);
-              setVideoError('');
-            } else {
-              setVideoError('影片連結格式無法解析');
-            }
+            setVideoId(data.videoId);
+            setVideoError(data.videoError);
             setPlayerMode('youtube');
             setBackupInfo({ status: lecture.backup_status || 'not_requested' });
           }
@@ -936,6 +936,8 @@ function LectureDetail() {
     const youtubeContainer = youtubeContainerRef.current;
     if (!youtubeContainer) return;
     const watchedSegments = watchedSegmentsRef.current;
+    let disposed = false;
+    let playbackFailed = false;
     setVideoError('');
     playerReadyRef.current = false;
 
@@ -978,7 +980,7 @@ function LectureDetail() {
     }
 
     function initPlayer() {
-      if (!window.YT || !window.YT.Player) return;
+      if (disposed || !window.YT || !window.YT.Player) return;
       if (playerRef.current) {
         playerRef.current.destroy();
         playerRef.current = null;
@@ -1003,6 +1005,7 @@ function LectureDetail() {
         },
         events: {
           onReady: async (event) => {
+            if (disposed || playbackFailed) return;
             playerReadyRef.current = true;
             setVideoError('');
             if (playerLoadTimeoutRef.current) {
@@ -1027,7 +1030,7 @@ function LectureDetail() {
                 });
                 if (res.ok) {
                   const data = await res.json();
-                  if (data?.last_position > 0) {
+                  if (!disposed && !playbackFailed && data?.last_position > 0) {
                     ignoreSeekUntilRef.current = Date.now() + 3000;
                     event.target.seekTo(data.last_position, true);
                     lastObservedTimeRef.current = data.last_position;
@@ -1037,6 +1040,7 @@ function LectureDetail() {
               } catch (e) { }
             }
 
+            if (disposed || playbackFailed) return;
             // 初始顯示進度
             updateProgressDisplay(prevWatchedSecondsRef.current, totalDurationRef.current);
 
@@ -1067,6 +1071,7 @@ function LectureDetail() {
           },
 
           onStateChange: (event) => {
+            if (disposed || playbackFailed) return;
             const state = event.data;
             const currentTime = getPlayerCurrentTime();
             observePlaybackPosition(currentTime, state);
@@ -1127,6 +1132,10 @@ function LectureDetail() {
           },
 
           onError: (event) => {
+            if (disposed) return;
+            playbackFailed = true;
+            clearTimeout(playerLoadTimeoutRef.current);
+            playerLoadTimeoutRef.current = null;
             setVideoError(`YouTube 播放器載入失敗（錯誤 ${event.data}）`);
           },
         },
@@ -1152,16 +1161,19 @@ function LectureDetail() {
     }
 
     return () => {
+      disposed = true;
       const segments = watchedSegments;
       const prevWatched = prevWatchedSecondsRef.current;
       if (playerRef.current && playerReadyRef.current) {
-        const currentTime = getPlayerCurrentTime();
-        if (segmentStartRef.current < currentTime) {
-          segments.push({ start: segmentStartRef.current, end: currentTime });
+        const currentTime = playbackFailed ? switchPositionRef.current : getPlayerCurrentTime();
+        if (currentTime !== null) {
+          if (segmentStartRef.current < currentTime) {
+            segments.push({ start: segmentStartRef.current, end: currentTime });
+          }
+          const merged = mergeSegments(segments);
+          const totalWatched = prevWatched + calcWatchedSeconds(merged);
+          saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
         }
-        const merged = mergeSegments(segments);
-        const totalWatched = prevWatched + calcWatchedSeconds(merged);
-        saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
       }
       if (trackingIntervalRef.current) clearInterval(trackingIntervalRef.current);
       if (saveIntervalRef.current) clearInterval(saveIntervalRef.current);
@@ -1762,7 +1774,7 @@ function LectureDetail() {
         <main className="learning-main flex-1 overflow-y-auto flex flex-col p-4 gap-4 min-w-0">
           {error && <div className="auth-error">{error}</div>}
           <div className="lecture-player-shell flex-shrink-0 aspect-video bg-black rounded-[22px] shadow-xl shadow-slate-300/40 overflow-hidden">
-            {(videoId || htmlPlaybackUrl) ? (
+            {(videoId || htmlPlaybackUrl || videoError) ? (
               <div className="relative w-full h-full">
                 <div
                   ref={youtubeContainerRef}
@@ -1784,21 +1796,15 @@ function LectureDetail() {
                     你的瀏覽器不支援 HTML5 影片播放器。
                   </video>
                 )}
-                {backupInfo?.status === 'completed' && backupInfo?.playback_url && !videoError && (
-                  <button type="button" className="player-source-switch" onClick={() => switchPlayer(playerMode === 'youtube' ? 'backup' : 'youtube')}>
-                    {playerMode === 'youtube' ? '切換至備份影片' : '切換至 YouTube'}
-                  </button>
-                )}
                 {videoError && playerMode === 'youtube' && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/85 px-6 text-center text-white">
                     <p className="text-sm font-semibold">{videoError}</p>
                     <p className="max-w-md text-xs text-slate-300">
-                      {backupInfo?.playback_url ? 'YouTube 目前無法播放，可以改用系統備份影片。' : '目前沒有可用的備份影片，可以先用 YouTube 開啟確認影片狀態。'}
+                      {backupInfo?.status === 'completed' && backupInfo.playback_url
+                        ? '正在切換至備份影片…'
+                        : '目前沒有可用的備份影片。'}
                     </p>
-                    <div className="player-error-actions">
-                      {backupInfo?.playback_url && <button type="button" onClick={() => switchPlayer('backup')}>切換至備份影片</button>}
-                      <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer">用 YouTube 開啟</a>
-                    </div>
+                    {videoId && <a className="player-error-link" href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noreferrer">用 YouTube 開啟</a>}
                   </div>
                 )}
               </div>
@@ -2025,24 +2031,16 @@ function LectureDetail() {
           </div>
         </main>
 
-        {/* 右側：AI 助教 */}
-        <aside className="assistant-aside" aria-label="AI 課程助教">
-          <header className="assistant-header">
-            <div className="assistant-mark" aria-hidden="true">
-              <svg width="29" height="29" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M10.5 3c.8 5 2.5 6.7 7.5 7.5-5 .8-6.7 2.5-7.5 7.5C9.7 13 8 11.3 3 10.5c5-.8 6.7-2.5 7.5-7.5ZM19 13.5c.4 2.4 1.1 3.1 3.5 3.5-2.4.4-3.1 1.1-3.5 3.5-.4-2.4-1.1-3.1-3.5-3.5 2.4-.4 3.1-1.1 3.5-3.5Z" />
-              </svg>
+        {/* 右側：學習進度與 AI 助教 */}
+        <div className="lecture-side">
+          <section className="lecture-progress-card" aria-labelledby="lecture-progress-title">
+            <div className="lecture-progress-summary">
+              <span id="lecture-progress-title">學習進度</span>
+              {isCompleted ? (
+                <strong className="is-complete" title="已完成" aria-label="已完成">✓</strong>
+              ) : <strong>{watchedPercent}%</strong>}
             </div>
-            <p className="assistant-subtitle">跟著影片學，有疑問就問</p>
-          </header>
-          <div className="assistant-widgets">
-            <div className="lecture-progress-card">
-              <div className="lecture-progress-summary">
-                <span>小節 {lectureId} 學習進度</span>
-                <strong className={isCompleted ? 'is-complete' : ''}>
-                  {isCompleted ? '✓ 已完成' : `${watchedPercent}%`}
-                </strong>
-              </div>
+            {!isCompleted && (
               <div
                 className="lecture-progress-track"
                 role="progressbar"
@@ -2051,106 +2049,113 @@ function LectureDetail() {
                 aria-valuemax="100"
                 aria-valuenow={watchedPercent}
               >
-                <span
-                  className={isCompleted ? 'is-complete' : ''}
-                  style={{ width: `${watchedPercent}%` }}
-                />
+                <span style={{ width: `${watchedPercent}%` }} />
               </div>
-              {userProfile?.email === 'teststudent@example.com' && (
-                <div className="lecture-demo-tools">
-                  <button
-                    type="button"
-                    onClick={resetDemoQuestions}
-                    disabled={resettingQuestions}
-                    title="清除這個 demo 帳號在本小節的作答紀錄"
-                  >
-                    {resettingQuestions ? '重置中…' : '重置測驗'}
-                  </button>
-                  {resetMessage && <span title={resetMessage}>{resetMessage}</span>}
+            )}
+            {userProfile?.email === 'teststudent@example.com' && (
+              <div className="lecture-demo-tools">
+                <button
+                  type="button"
+                  onClick={resetDemoQuestions}
+                  disabled={resettingQuestions}
+                  title="清除這個 demo 帳號在本小節的作答紀錄"
+                >
+                  {resettingQuestions ? '重置中…' : '重置測驗'}
+                </button>
+                {resetMessage && <span title={resetMessage}>{resetMessage}</span>}
+              </div>
+            )}
+          </section>
+          <aside className="assistant-aside" aria-label="AI 課程助教">
+            <header className="assistant-header">
+              <div className="assistant-mark" aria-hidden="true">
+                <svg width="29" height="29" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M10.5 3c.8 5 2.5 6.7 7.5 7.5-5 .8-6.7 2.5-7.5 7.5C9.7 13 8 11.3 3 10.5c5-.8 6.7-2.5 7.5-7.5ZM19 13.5c.4 2.4 1.1 3.1 3.5 3.5-2.4.4-3.1 1.1-3.5 3.5-.4-2.4-1.1-3.1-3.5-3.5 2.4-.4 3.1-1.1 3.5-3.5Z" />
+                </svg>
+              </div>
+              <p className="assistant-subtitle">跟著影片學，有疑問就問</p>
+              <button
+                type="button"
+                onClick={handleQuickAskCurrentMoment}
+                disabled={chatLoading}
+                className="assistant-quick-ask"
+              >
+                <span className="assistant-shortcut-icon" aria-hidden="true">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="8" />
+                    <path d="M12 8v4l3 2" />
+                  </svg>
+                </span>
+                講解這段
+              </button>
+            </header>
+            <div className="assistant-feed" ref={chatFeedRef}>
+              <div className="assistant-thread" role="log" aria-label="助教對話">
+                {!chatInitialized ? (
+                  <p className="assistant-muted">載入聊天紀錄中…</p>
+                ) : chatMessages.length === 0 ? (
+                  <div className="assistant-welcome">
+                    <p className="assistant-kicker">開始對話</p>
+                    <h3>這一段哪裡卡住了？</h3>
+                    <p>可以請我解釋名詞、舉個例子，或整理影片這一段的重點。</p>
+                  </div>
+                ) : chatMessages.map((msg, i) => (
+                  <div key={i} className={`assistant-message is-${msg.role === 'assistant' ? 'tutor' : 'student'}`}>
+                    <span className="assistant-message-label">{msg.role === 'assistant' ? 'AI 助教' : '你'}</span>
+                    <p>{msg.text}</p>
+                  </div>
+                ))}
+              </div>
+              {pauseHelpPrompt && (
+                <div className="assistant-help">
+                  <strong>影片已暫停 30 秒，需要幫忙嗎？</strong>
+                  <p>目前位置 {formatVideoTime(pauseHelpPrompt.timestamp)}</p>
+                  <div className="assistant-help-actions">
+                    <button
+                      type="button"
+                      className="assistant-primary"
+                      onClick={() => handlePauseHelpResponse(true)}
+                      disabled={chatLoading}
+                    >
+                      是，請教我
+                    </button>
+                    <button type="button" onClick={() => handlePauseHelpResponse(false)}>先不用</button>
+                  </div>
                 </div>
               )}
+              {chatLoading && (
+                <p className="assistant-thinking" role="status">助教思考中…</p>
+              )}
             </div>
-            <button
-              type="button"
-              onClick={handleQuickAskCurrentMoment}
-              disabled={chatLoading}
-              className="assistant-quick-ask"
-            >
-              <span className="assistant-shortcut-icon" aria-hidden="true">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="8" />
-                  <path d="M12 8v4l3 2" />
-                </svg>
-              </span>
-              講解這段
-            </button>
-          </div>
-          <div className="assistant-feed" ref={chatFeedRef}>
-            <div className="assistant-thread" role="log" aria-label="助教對話">
-              {!chatInitialized ? (
-                <p className="assistant-muted">載入聊天紀錄中…</p>
-              ) : chatMessages.length === 0 ? (
-                <div className="assistant-welcome">
-                  <p className="assistant-kicker">開始對話</p>
-                  <h3>這一段哪裡卡住了？</h3>
-                  <p>可以請我解釋名詞、舉個例子，或整理影片這一段的重點。</p>
-                </div>
-              ) : chatMessages.map((msg, i) => (
-                <div key={i} className={`assistant-message is-${msg.role === 'assistant' ? 'tutor' : 'student'}`}>
-                  <span className="assistant-message-label">{msg.role === 'assistant' ? 'AI 助教' : '你'}</span>
-                  <p>{msg.text}</p>
-                </div>
-              ))}
-            </div>
-            {pauseHelpPrompt && (
-              <div className="assistant-help">
-                <strong>影片已暫停 30 秒，需要幫忙嗎？</strong>
-                <p>目前位置 {formatVideoTime(pauseHelpPrompt.timestamp)}</p>
-                <div className="assistant-help-actions">
-                  <button
-                    type="button"
-                    className="assistant-primary"
-                    onClick={() => handlePauseHelpResponse(true)}
-                    disabled={chatLoading}
-                  >
-                    是，請教我
-                  </button>
-                  <button type="button" onClick={() => handlePauseHelpResponse(false)}>先不用</button>
-                </div>
-              </div>
-            )}
-            {chatLoading && (
-              <p className="assistant-thinking" role="status">助教思考中…</p>
-            )}
-          </div>
-          <div className="assistant-composer">
-            <form
-              className="assistant-form"
-              onSubmit={event => {
-                event.preventDefault();
-                handleAskQuestion();
-              }}
-            >
-              <input
-                aria-label="輸入課程相關問題"
-                placeholder="輸入課程相關問題…"
-                value={chatInput}
-                onChange={e => setChatInput(e.target.value)}
-                disabled={chatLoading}
-              />
-              <button
-                type="submit"
-                disabled={chatLoading || !chatInput.trim()}
-                className="assistant-primary"
-                aria-label="送出"
+            <div className="assistant-composer">
+              <form
+                className="assistant-form"
+                onSubmit={event => {
+                  event.preventDefault();
+                  handleAskQuestion();
+                }}
               >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 19V5m-6 6 6-6 6 6" />
-                </svg>
-              </button>
-            </form>
-          </div>
-        </aside>
+                <input
+                  aria-label="輸入課程相關問題"
+                  placeholder="輸入課程相關問題…"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  disabled={chatLoading}
+                />
+                <button
+                  type="submit"
+                  disabled={chatLoading || !chatInput.trim()}
+                  className="assistant-primary"
+                  aria-label="送出"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 19V5m-6 6 6-6 6 6" />
+                  </svg>
+                </button>
+              </form>
+            </div>
+          </aside>
+        </div>
       </div>
 
       {activeQuestion && (

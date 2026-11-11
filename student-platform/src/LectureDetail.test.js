@@ -150,3 +150,61 @@ test('shows the HTTP failure for a summary request instead of a null property er
   );
   expect(screen.queryByText(/Cannot read properties of null/)).not.toBeInTheDocument();
 });
+
+test.each([
+  ['invalid URL', '無效連結', true, 0],
+  ['YouTube player error', 'https://youtu.be/abcdefghijk', true, 0],
+  ['YouTube failure after playback starts', 'https://youtu.be/abcdefghijk', true, 77],
+  ['YouTube player error without a backup', 'https://youtu.be/abcdefghijk', false, 0],
+])('handles %s', async (_, mediaUrl, hasBackup, currentTime) => {
+  localStorage.setItem('access_token', 'fallback-test-token');
+  const originalYouTube = window.YT;
+  const player = {
+    destroy: jest.fn(),
+    getCurrentTime: () => currentTime,
+    getDuration: () => 120,
+    seekTo: jest.fn(),
+  };
+  const createPlayer = jest.fn(() => player);
+  window.YT = { Player: createPlayer };
+  const responses = {
+    '/lectures/2': [{
+      media_url: mediaUrl,
+      backup_status: hasBackup ? 'completed' : 'not_requested',
+    }],
+    '/lectures/2/backup': { status: 'completed', playback_url: '/backup.mp4' },
+    '/lectures/2/chats': { messages: [] },
+    '/video_progresses/2': { last_position: 42 },
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+
+  try {
+    const { container } = renderLectureDetail('/course/1/lecture/2');
+    if (mediaUrl.startsWith('https://')) {
+      await waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
+      await screen.findByText('這一段哪裡卡住了？');
+      expect(screen.queryByRole('button', { name: '切換至備份影片' })).not.toBeInTheDocument();
+      const [, options] = createPlayer.mock.calls[0];
+      if (currentTime > 0) {
+        await act(async () => options.events.onReady({ target: player }));
+      }
+      act(() => options.events.onError({ data: 100 }));
+    }
+
+    if (hasBackup) {
+      await waitFor(() => expect(container.querySelector('video')).toHaveAttribute('src', '/backup.mp4'));
+      expect(screen.queryByRole('button', { name: '切換至 YouTube' })).not.toBeInTheDocument();
+      const video = container.querySelector('video');
+      fireEvent.loadedMetadata(video);
+      await waitFor(() => expect(video.currentTime).toBe(currentTime || 42));
+    } else {
+      expect(await screen.findByText(/YouTube 播放器載入失敗/)).toBeInTheDocument();
+      expect(container.querySelector('video')).toBeNull();
+    }
+  } finally {
+    window.YT = originalYouTube;
+  }
+});
