@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 security = HTTPBearer()
+optional_security = HTTPBearer(auto_error=False)
 
 
 @dataclass(frozen=True)
@@ -66,3 +67,13 @@ def get_auth_context(
         # The user client is request-scoped; close its shared HTTP session to
         # avoid leaking connections under concurrent student traffic.
         database.postgrest.aclose()
+
+
+def get_optional_auth_context(
+    credentials: HTTPAuthorizationCredentials | None = Depends(optional_security),
+) -> Generator[AuthContext | None, None, None]:
+    """Provide an authenticated context when a public endpoint receives a JWT."""
+    if credentials is None:
+        yield None
+        return
+    yield from get_auth_context(credentials)

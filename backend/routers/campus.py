@@ -11,37 +11,17 @@ from roles import CAMPUS_ROLE
 
 from .achievements import evaluate_course
 from .security import get_current_user
+from .teacher_access import require_course_manager, require_teacher
 
 router = APIRouter(prefix="/campus", tags=["campus"])
 
 
-def require_campus(user) -> dict[str, Any]:
-    response = (
-        supabase_admin.table("users")
-        .select("id,name,email,role")
-        .eq("auth_id", user.id)
-        .maybe_single()
-        .execute()
+def _course_credit_roster(course_id: int, actor: dict[str, Any]) -> dict[str, Any]:
+    course = require_course_manager(
+        course_id,
+        actor,
+        allow_campus_all=actor.get("role") == CAMPUS_ROLE,
     )
-    profile = response.data
-    if not profile or profile.get("role") != CAMPUS_ROLE:
-        raise HTTPException(status_code=403, detail="這個功能只有校園平台端可以使用")
-    return profile
-
-
-def _course_credit_roster(course_id: int, campus_id: int) -> dict[str, Any]:
-    course_response = (
-        supabase_admin.table("courses")
-        .select("*")
-        .eq("id", course_id)
-        .maybe_single()
-        .execute()
-    )
-    course = course_response.data
-    if not course:
-        raise HTTPException(status_code=404, detail="找不到課程")
-    if course.get("created_by_user_id") != campus_id:
-        raise HTTPException(status_code=403, detail="只能查看此平台帳號上傳的課程")
 
     enrollments = (
         supabase_admin.table("student_courses")
@@ -162,14 +142,14 @@ def _course_credit_roster(course_id: int, campus_id: int) -> dict[str, Any]:
 
 @router.get("/courses/{course_id}/credit-roster")
 def get_course_credit_roster(course_id: int, user=Depends(get_current_user)):
-    campus = require_campus(user)
-    return _course_credit_roster(course_id, campus["id"])
+    actor = require_teacher(user)
+    return _course_credit_roster(course_id, actor)
 
 
 @router.get("/courses/{course_id}/credit-roster.csv")
 def export_course_credit_roster(course_id: int, user=Depends(get_current_user)):
-    campus = require_campus(user)
-    roster = _course_credit_roster(course_id, campus["id"])
+    actor = require_teacher(user)
+    roster = _course_credit_roster(course_id, actor)
     students = roster["students"]
     if not students:
         raise HTTPException(status_code=404, detail="這門課目前沒有選課學生")

@@ -260,6 +260,7 @@ test('uses matching native select controls for course and analysis range', async
     render(<TeacherDashboard />);
     const courseSelect = await screen.findByRole('combobox', { name: '課程' });
     const scopeSelect = screen.getByRole('combobox', { name: '分析範圍' });
+    expect(screen.getByRole('button', { name: '匯出學分名冊' })).toBeInTheDocument();
     expect(courseSelect.tagName).toBe('SELECT');
     expect(scopeSelect.tagName).toBe('SELECT');
     expect(courseSelect).toHaveValue('1');

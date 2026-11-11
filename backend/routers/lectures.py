@@ -45,7 +45,12 @@ from services.pipeline_runner import (
     run_media_ai_pipeline,
     run_youtube_ai_pipeline,
 )
-from .security import AuthContext, get_auth_context, get_current_user
+from .security import (
+    AuthContext,
+    get_auth_context,
+    get_current_user,
+    get_optional_auth_context,
+)
 from .teacher_access import (
     course_owner_for_creation,
     require_course_manager,
@@ -139,13 +144,39 @@ class CourseCreate(BaseModel):
     teacher_id: int | None = None
 
 
+def _student_enrolled_course_ids(context: AuthContext | None) -> set[int] | None:
+    if not isinstance(context, AuthContext) or context.profile.get("role") != "student":
+        return None
+    enrollments = (
+        context.database.table("student_courses")
+        .select("course_id")
+        .eq("student_id", context.profile["id"])
+        .execute()
+        .data
+        or []
+    )
+    return {row["course_id"] for row in enrollments}
+
+
+def _require_course_enrollment(course_id: int, context: AuthContext | None) -> None:
+    enrolled_course_ids = _student_enrolled_course_ids(context)
+    if enrolled_course_ids is not None and course_id not in enrolled_course_ids:
+        raise HTTPException(status_code=404, detail="找不到課程")
+
+
 @router.get("/courses")
-def get_courses(keyword: str = None):
+def get_courses(
+    keyword: str = None,
+    context: AuthContext | None = Depends(get_optional_auth_context),
+):
     query = supabase_admin.table("courses").select("*").eq("status", "published")
     if keyword:
         query = query.ilike("title", f"%{keyword}%")
     res = query.execute()
     courses = res.data or []
+    enrolled_course_ids = _student_enrolled_course_ids(context)
+    if enrolled_course_ids is not None:
+        courses = [row for row in courses if row.get("id") in enrolled_course_ids]
     teacher_ids = list(
         {row.get("teacher_id") for row in courses if row.get("teacher_id") is not None}
     )
@@ -208,7 +239,11 @@ def create_course(body: CourseCreate, user=Depends(get_current_user)):
 
 
 @router.get("/courses/{course_id}/lectures")
-def get_lectures_by_course(course_id: int):
+def get_lectures_by_course(
+    course_id: int,
+    context: AuthContext | None = Depends(get_optional_auth_context),
+):
+    _require_course_enrollment(course_id, context)
     res = (
         supabase_admin.table("lectures")
         .select("*")
@@ -242,8 +277,13 @@ class LectureCreate(BaseModel):
 
 
 @router.get("/lectures/{lecture_id}")
-def get_selected_lecture(lecture_id: int):
+def get_selected_lecture(
+    lecture_id: int,
+    context: AuthContext | None = Depends(get_optional_auth_context),
+):
     res = supabase_admin.table("lectures").select("*").eq("id", lecture_id).execute()
+    for row in res.data or []:
+        _require_course_enrollment(row["course_id"], context)
     return [public_lecture(row) for row in (res.data or [])]
 
 

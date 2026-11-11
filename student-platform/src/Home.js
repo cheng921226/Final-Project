@@ -30,7 +30,7 @@ function Home({ token }) {
     let managedCourses = [];
 
     if (!isCampus) {
-      const response = await fetch(publicUrl, { signal });
+      const response = await fetch(publicUrl, { headers, signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       publicCourses = await response.json();
     }

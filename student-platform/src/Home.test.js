@@ -81,18 +81,25 @@ test('campus users see all managed courses and can analyze each one', async () =
   expect(screen.getByText('已封存')).toHaveClass('status-archived');
 });
 
-test('students see published courses without status or analysis controls', async () => {
+test('students see only their enrolled published courses without status or analysis controls', async () => {
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
-    json: async () => publicCourses,
+    json: async () => [publicCourses[0]],
   });
 
   render(<HomeHarness user={{ id: 1, role: 'student', email: 'student@example.com' }} />);
 
   await screen.findByRole('heading', { name: '已發布課程' });
+  expect(screen.queryByRole('heading', { name: '其他教師已發布課程' })).not.toBeInTheDocument();
   expect(screen.queryByText('已發布')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '課程分析' })).not.toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledTimes(1);
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/courses',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer test-token' },
+    })
+  );
 });
 
 test('unauthenticated visitors do not see course statuses or analysis controls', async () => {

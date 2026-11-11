@@ -50,6 +50,12 @@ test('reuses cached lectures and user progress when returning to the learning ma
   expect(await screen.findByRole('heading', { name: '快取測試小節' })).toBeInTheDocument();
   expect(screen.getByText('50%')).toBeInTheDocument();
   expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(fetchMock).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/courses/cache-test-301/lectures',
+    expect.objectContaining({
+      headers: { Authorization: 'Bearer course-detail-cache-token' },
+    })
+  );
   firstRender.unmount();
 
   renderCourseDetail();

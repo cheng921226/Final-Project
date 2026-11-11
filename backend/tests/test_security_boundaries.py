@@ -1,10 +1,18 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from fastapi import HTTPException
 
-from routers.lectures import NoteUpdate, get_lecture_notes, update_lecture_note
+from routers.lectures import (
+    NoteUpdate,
+    get_courses,
+    get_lecture_notes,
+    get_lectures_by_course,
+    get_selected_lecture,
+    update_lecture_note,
+)
 from routers.questions import get_lecture_question_attempts
 from routers.security import AuthContext
 
@@ -27,6 +35,10 @@ class FakeQuery:
         self.filters.append((column, value))
         return self
 
+    def in_(self, column, values):
+        self.filters.append((column, set(values)))
+        return self
+
     def order(self, *_args, **_kwargs):
         return self
 
@@ -38,7 +50,14 @@ class FakeQuery:
         matches = [
             row
             for row in self.rows
-            if all(row.get(column) == value for column, value in self.filters)
+            if all(
+                (
+                    row.get(column) in value
+                    if isinstance(value, set)
+                    else row.get(column) == value
+                )
+                for column, value in self.filters
+            )
         ]
         if self.update_values is not None:
             for row in matches:
@@ -63,6 +82,64 @@ def student_context(student_id, tables):
 
 
 class StudentDataBoundaryTests(unittest.TestCase):
+    def test_course_list_contains_only_courses_enrolled_by_current_student(self):
+        context = student_context(
+            10,
+            {"student_courses": [{"student_id": 10, "course_id": 7}]},
+        )
+        database = FakeDatabase(
+            {
+                "courses": [
+                    {"id": 7, "title": "我的課程", "status": "published", "teacher_id": 3},
+                    {"id": 8, "title": "其他課程", "status": "published", "teacher_id": 4},
+                ],
+                "users": [{"id": 3, "name": "王老師"}, {"id": 4, "name": "陳老師"}],
+            }
+        )
+
+        with patch("routers.lectures.supabase_admin", database):
+            courses = get_courses(context=context)
+
+        self.assertEqual([course["id"] for course in courses], [7])
+
+    def test_public_course_list_remains_available_without_student_context(self):
+        database = FakeDatabase(
+            {
+                "courses": [
+                    {"id": 7, "title": "課程一", "status": "published", "teacher_id": 3},
+                    {"id": 8, "title": "課程二", "status": "published", "teacher_id": 4},
+                ],
+                "users": [{"id": 3, "name": "王老師"}, {"id": 4, "name": "陳老師"}],
+            }
+        )
+
+        with patch("routers.lectures.supabase_admin", database):
+            courses = get_courses(context=None)
+
+        self.assertEqual([course["id"] for course in courses], [7, 8])
+
+    def test_student_cannot_read_lectures_from_unenrolled_course(self):
+        context = student_context(10, {"student_courses": []})
+
+        with self.assertRaises(HTTPException) as raised:
+            get_lectures_by_course(8, context)
+
+        self.assertEqual(raised.exception.status_code, 404)
+
+    def test_student_cannot_read_a_lecture_from_unenrolled_course(self):
+        context = student_context(10, {"student_courses": []})
+        database = FakeDatabase(
+            {"lectures": [{"id": 15, "course_id": 8, "title": "其他課程小節"}]}
+        )
+
+        with (
+            patch("routers.lectures.supabase_admin", database),
+            self.assertRaises(HTTPException) as raised,
+        ):
+            get_selected_lecture(15, context)
+
+        self.assertEqual(raised.exception.status_code, 404)
+
     def test_notes_endpoint_returns_only_current_students_rows(self):
         context = student_context(
             10,

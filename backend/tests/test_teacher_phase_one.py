@@ -5,6 +5,11 @@ from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
+from routers.campus import (
+    _course_credit_roster,
+    export_course_credit_roster,
+    get_course_credit_roster,
+)
 from routers.teacher_access import (
     course_owner_for_creation,
     require_course_manager,
@@ -62,6 +67,9 @@ class FakeQuery:
     def maybe_single(self):
         return self
 
+    def order(self, *_args, **_kwargs):
+        return self
+
     def update(self, values):
         self.update_values = values
         return self
@@ -88,6 +96,64 @@ class FakeSupabase:
 
 
 class TeacherAnalyticsTests(unittest.TestCase):
+    def test_platform_can_request_credit_roster_for_any_course(self):
+        platform = {"id": 22, "role": "campus"}
+        course = {"id": 10, "teacher_id": 9, "created_by_user_id": 9}
+        database = FakeSupabase({"courses": [course]})
+
+        with patch("routers.teacher_access.supabase_admin", database):
+            roster = _course_credit_roster(10, platform)
+
+        self.assertEqual(roster["course"], course)
+        self.assertEqual(roster["students"], [])
+
+    def test_teacher_can_request_credit_roster_for_a_managed_course(self):
+        teacher = {"id": 9, "role": "teacher"}
+        user = SimpleNamespace(id="teacher-auth")
+        roster = {"course": {"id": 10}, "students": []}
+
+        with (
+            patch("routers.campus.require_teacher", return_value=teacher),
+            patch(
+                "routers.campus._course_credit_roster",
+                return_value=roster,
+            ) as get_roster,
+        ):
+            result = get_course_credit_roster(10, user)
+
+        self.assertEqual(result, roster)
+        get_roster.assert_called_once_with(10, teacher)
+
+    def test_teacher_can_export_credit_roster_for_a_managed_course(self):
+        teacher = {"id": 9, "role": "teacher"}
+        user = SimpleNamespace(id="teacher-auth")
+        roster = {
+            "course": {"id": 10, "title": "演算法"},
+            "students": [{
+                "student_number": "S001",
+                "name": "王同學",
+                "email": "student@example.com",
+                "enrolled_at": "2026-10-25T01:00:00Z",
+                "completed_lectures": 1,
+                "total_lectures": 1,
+                "completion_percentage": 100,
+                "final_score": 90,
+                "course_passed": True,
+                "credits_earned": 2,
+                "credits_total": 2,
+                "certification_earned": True,
+            }],
+        }
+
+        with (
+            patch("routers.campus.require_teacher", return_value=teacher),
+            patch("routers.campus._course_credit_roster", return_value=roster),
+        ):
+            response = export_course_credit_roster(10, user)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("王同學", response.body.decode("utf-8-sig"))
+
     def test_missing_lecture_summary_returns_none(self):
         with patch(
             "routers.lectures.supabase_admin",

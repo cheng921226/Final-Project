@@ -649,7 +649,7 @@ export default function TeacherDashboard() {
               ))}
             </select>
           </label>
-          {data.teacher?.role === 'campus' && (
+          {['campus', 'teacher'].includes(data.teacher?.role) && (
             <button
               type="button"
               className="teacher-mail-button campus-export-button"

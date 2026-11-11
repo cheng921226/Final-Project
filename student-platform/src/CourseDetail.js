@@ -25,7 +25,7 @@ function CourseDetail() {
           ? { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal }
           : null;
         const [res, assessmentRes, progressRes] = await Promise.all([
-          fetch(`${API_URL}/courses/${id}/lectures`, { signal: controller.signal }),
+          fetch(`${API_URL}/courses/${id}/lectures`, authOptions || { signal: controller.signal }),
           authOptions
             ? fetch(`${API_URL}/courses/${id}/final-assessment`, authOptions)
             : Promise.resolve(null),
