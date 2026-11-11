@@ -45,6 +45,8 @@ test('opens a complete account form for a new student', async () => {
   expect(screen.getByRole('heading', { name: '新增人員' })).toBeInTheDocument();
   expect(screen.getByLabelText(/^初始密碼/)).toHaveAttribute('minLength', '9');
   expect(screen.getByLabelText('學號')).toBeRequired();
+  fireEvent.change(screen.getByLabelText('Email'), { target: { value: 'student＠example.com' } });
+  expect(screen.getByLabelText('Email')).toHaveValue('student@example.com');
   expect(screen.getAllByRole('option', { name: '資訊三甲' })).toHaveLength(2);
 
   fireEvent.keyDown(document, { key: 'Escape' });
@@ -71,7 +73,8 @@ test('shows a duplicate student number warning in the editor when saving', async
   expect(screen.getByRole('dialog')).toBeInTheDocument();
 });
 
-test('imports a CSV roster and shows row errors without discarding successes', async () => {
+test('imports an Excel roster and preserves text student numbers and row errors', async () => {
+  const { default: ExcelJS } = await import('exceljs');
   localStorage.setItem('access_token', 'campus-token');
   global.fetch = jest.fn()
     .mockResolvedValueOnce({ ok: true, json: async () => personnelData })
@@ -88,12 +91,13 @@ test('imports a CSV roster and shows row errors without discarding successes', a
 
   render(<PersonnelManagement />);
   fireEvent.click(await screen.findByRole('button', { name: '匯入名冊' }));
-  const file = new File(
-    ['姓名,Email,初始密碼,角色,學號,班級\n學生一,stu1@example.com,123123123,學生,STU001,資訊三甲'],
-    'people.csv',
-    { type: 'text/csv' }
-  );
-  fireEvent.change(screen.getByLabelText('選擇 CSV 檔案'), { target: { files: [file] } });
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet('人員名冊');
+  sheet.addRow(['姓名', 'Email', '初始密碼', '角色', '學號', '班級']);
+  sheet.addRow(['學生一', 'stu1@example.com', '123123123', '學生', '00123', '資訊三甲']);
+  sheet.addRow(['學生二', 'bad@example.com', '123123123', '學生', '00124', '不存在']);
+  const file = new File([await workbook.xlsx.writeBuffer()], 'people.xlsx');
+  fireEvent.change(screen.getByLabelText('選擇 Excel 檔案'), { target: { files: [file] } });
   fireEvent.click(screen.getByRole('button', { name: '開始匯入' }));
 
   expect(await screen.findByText('成功 1 人 · 失敗 1 人')).toBeInTheDocument();
@@ -102,5 +106,45 @@ test('imports a CSV roster and shows row errors without discarding successes', a
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/campus/personnel/import.csv',
     expect.objectContaining({ method: 'POST', body: expect.any(FormData) })
+  );
+  const upload = global.fetch.mock.calls.find(([url]) => url.endsWith('/import.csv'))[1].body.get('file');
+  const csv = await new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.readAsText(upload);
+  });
+  expect(csv).toContain('"00123"');
+});
+
+test('creates and removes an empty class from personnel management', async () => {
+  localStorage.setItem('access_token', 'campus-token');
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
+  const updatedRoster = {
+    ...personnelData,
+    classes: [...personnelData.classes, { id: 2, name: '資訊一乙' }],
+  };
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => personnelData })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ message: '已新增班級' }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => updatedRoster })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ message: '已刪除班級' }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => personnelData });
+
+  render(<PersonnelManagement />);
+  fireEvent.click(await screen.findByText('班級管理'));
+  expect(screen.getByRole('button', { name: '刪除班級 資訊三甲' })).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('班級名稱'), { target: { value: '資訊一乙' } });
+  fireEvent.click(screen.getByRole('button', { name: '新增班級' }));
+
+  fireEvent.click(await screen.findByRole('button', { name: '刪除班級 資訊一乙' }));
+  expect(await screen.findByText('已刪除班級')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '刪除班級 資訊一乙' })).not.toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/campus/personnel/classes',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ name: '資訊一乙' }) })
+  );
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/campus/personnel/classes/2',
+    expect.objectContaining({ method: 'DELETE' })
   );
 });

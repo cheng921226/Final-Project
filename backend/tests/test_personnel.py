@@ -9,12 +9,15 @@ from fastapi import UploadFile
 from postgrest.exceptions import APIError
 
 from routers.personnel import (
+    ClassCreate,
     PersonnelCreate,
     PersonnelUpdate,
     PersonnelStatusUpdate,
     auth_user_active,
     class_sort_key,
     create_personnel,
+    create_personnel_class,
+    delete_personnel_class,
     import_personnel_csv,
     normalize_student_fields,
     require_campus,
@@ -24,6 +27,36 @@ from routers.personnel import (
 
 
 class PersonnelTests(unittest.TestCase):
+    def test_campus_can_create_and_delete_an_empty_class(self):
+        database = Mock()
+        classes = Mock()
+        users = Mock()
+        database.table.side_effect = {"classes": classes, "users": users}.__getitem__
+        classes.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
+        users.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = []
+        classes.delete.return_value.eq.return_value.execute.return_value.data = [{"id": 7}]
+        context = SimpleNamespace(profile={"id": 22, "role": "campus"})
+
+        with patch("routers.personnel.supabase_admin", database):
+            create_personnel_class(ClassCreate(name="  資訊一乙  "), context)
+            delete_personnel_class(7, context)
+
+        classes.insert.assert_called_once_with({"name": "資訊一乙", "created_by_user_id": 22})
+        classes.delete.return_value.eq.assert_called_once_with("id", 7)
+
+    def test_class_with_assigned_personnel_cannot_be_deleted(self):
+        database = Mock()
+        users = database.table.return_value
+        users.select.return_value.eq.return_value.limit.return_value.execute.return_value.data = [{"id": 1}]
+        context = SimpleNamespace(profile={"id": 22, "role": "campus"})
+
+        with patch("routers.personnel.supabase_admin", database):
+            with self.assertRaises(HTTPException) as error:
+                delete_personnel_class(7, context)
+
+        self.assertEqual(error.exception.status_code, 409)
+        database.table.assert_called_once_with("users")
+
     def test_create_personnel_accepts_empty_email_and_profile_lookups(self):
         database = Mock()
         users = database.table.return_value
@@ -152,7 +185,7 @@ class PersonnelTests(unittest.TestCase):
             filename="people.csv",
             file=io.BytesIO(
                 "姓名,Email,初始密碼,角色,學號,班級\n"
-                "學生一,stu1@example.com,123123123,學生,STU001,資訊三甲\n"
+                "學生一,stu1＠example.com,123123123,學生,STU001,資訊三甲\n"
                 "學生二,stu2@example.com,123123123,學生,STU002,不存在班級\n".encode(
                     "utf-8"
                 )
@@ -172,6 +205,7 @@ class PersonnelTests(unittest.TestCase):
         self.assertEqual(result["failed"], 1)
         self.assertEqual(result["errors"][0]["row"], 3)
         payload = create.call_args.args[0]
+        self.assertEqual(payload.email, "stu1@example.com")
         self.assertEqual(payload.student_number, "STU001")
         self.assertEqual(payload.class_id, 1)
 

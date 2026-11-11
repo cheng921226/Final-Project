@@ -2,12 +2,12 @@ import csv
 import io
 import os
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 
 from database.supabase import SUPABASE_KEY, SUPABASE_URL, supabase_admin
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from postgrest.exceptions import APIError
-from pydantic import BaseModel, EmailStr, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, EmailStr, Field, ValidationError
 from supabase import create_client
 
 from roles import CAMPUS_ROLE
@@ -18,9 +18,16 @@ from .security import AuthContext, get_auth_context
 router = APIRouter(prefix="/campus/personnel", tags=["campus-personnel"])
 
 
+def normalize_email_at_sign(value: object) -> object:
+    return value.replace("＠", "@") if isinstance(value, str) else value
+
+
+PersonnelEmail = Annotated[EmailStr, BeforeValidator(normalize_email_at_sign)]
+
+
 class PersonnelCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    email: EmailStr
+    email: PersonnelEmail
     password: str = Field(min_length=9, max_length=128)
     role: Literal["student", "teacher", "campus"]
     student_number: str | None = Field(default=None, max_length=50)
@@ -29,7 +36,7 @@ class PersonnelCreate(BaseModel):
 
 class PersonnelUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    email: EmailStr
+    email: PersonnelEmail
     role: Literal["student", "teacher", "campus"]
     student_number: str | None = Field(default=None, max_length=50)
     class_id: int | None = None
@@ -41,6 +48,10 @@ class PersonnelStatusUpdate(BaseModel):
 
 class PasswordUpdate(BaseModel):
     password: str = Field(min_length=9, max_length=128)
+
+
+class ClassCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
 
 
 CSV_FIELDS = {
@@ -224,6 +235,58 @@ def get_personnel(context: AuthContext = Depends(get_auth_context)):
             for row in rows
         ],
     }
+
+
+@router.post("/classes", status_code=201)
+def create_personnel_class(
+    body: ClassCreate,
+    context: AuthContext = Depends(get_auth_context),
+):
+    actor = require_campus(context)
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="請輸入班級名稱")
+
+    classes = supabase_admin.table("classes")
+    if classes.select("id").eq("name", name).limit(1).execute().data:
+        raise HTTPException(status_code=409, detail="這個班級名稱已存在")
+    try:
+        classes.insert({"name": name, "created_by_user_id": actor["id"]}).execute()
+    except APIError as exc:
+        if exc.code == "23505":
+            raise HTTPException(status_code=409, detail="這個班級名稱已存在") from exc
+        raise
+    return {"message": f"已新增班級「{name}」"}
+
+
+@router.delete("/classes/{class_id}")
+def delete_personnel_class(
+    class_id: int,
+    context: AuthContext = Depends(get_auth_context),
+):
+    require_campus(context)
+    assigned = (
+        supabase_admin.table("users")
+        .select("id")
+        .eq("class_id", class_id)
+        .limit(1)
+        .execute()
+        .data
+    )
+    occupied_message = "此班級仍有人員，請先將人員移至其他班級或改為未分班"
+    if assigned:
+        raise HTTPException(status_code=409, detail=occupied_message)
+    try:
+        deleted = (
+            supabase_admin.table("classes").delete().eq("id", class_id).execute().data
+        )
+    except APIError as exc:
+        if exc.code == "23503":
+            raise HTTPException(status_code=409, detail=occupied_message) from exc
+        raise
+    if not deleted:
+        raise HTTPException(status_code=404, detail="找不到這個班級")
+    return {"message": "已刪除班級"}
 
 
 @router.post("")

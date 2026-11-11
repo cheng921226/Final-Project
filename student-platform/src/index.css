@@ -5409,6 +5409,45 @@ a {
   color: #c2410c;
 }
 
+.personnel-class-panel {
+  margin-bottom: 16px;
+}
+
+.personnel-class-panel summary {
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.personnel-class-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.personnel-class-form .review-field {
+  flex: 0 1 280px;
+}
+
+.personnel-class-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.personnel-class-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.personnel-class-list li span {
+  overflow-wrap: anywhere;
+}
+
 .personnel-actions {
   display: flex;
   flex-wrap: wrap;

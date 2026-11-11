@@ -390,26 +390,6 @@ export default function CourseManagement() {
     }
   }
 
-  async function duplicateCourse() {
-    if (!selectedCourse || busyKey || !window.confirm('要複製這門課的基本資料與小節架構嗎？AI 內容不會一起複製。')) return;
-    setBusyKey('duplicate');
-    setMessage('');
-    try {
-      const response = await fetch(`${API_URL}/teacher/course-management/courses/${selectedCourse.id}/duplicate`, {
-        method: 'POST',
-        headers,
-      });
-      const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.detail || '複製課程失敗');
-      setMessage(`已建立「${body.course?.title || '課程副本'}」。`);
-      await load(body.course?.id);
-    } catch (err) {
-      setMessage(err.message || '複製課程失敗');
-    } finally {
-      setBusyKey('');
-    }
-  }
-
   async function deleteCourse() {
     if (!selectedCourse || busyKey) return;
     const expectedTitle = selectedCourse.title || '未命名課程';
@@ -588,7 +568,7 @@ export default function CourseManagement() {
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}
           </div>
           <label className="review-field"><span>課程介紹</span><textarea rows={4} value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="說明課程內容、學習目標與適合對象" /></label>
-          <div className="course-management-actions"><button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button><button type="button" className="question-secondary-button" onClick={duplicateCourse} disabled={Boolean(busyKey)}>{busyKey === 'duplicate' ? '複製中...' : '複製課程架構'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
+          <div className="course-management-actions"><button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
         </form>
 
         <section className="teacher-panel course-lecture-manager">
