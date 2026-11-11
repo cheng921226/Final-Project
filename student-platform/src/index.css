@@ -4464,7 +4464,6 @@ a {
   flex: none;
   width: 7px;
   height: 7px;
-  margin-inline-start: auto;
   margin-inline-end: 3px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
@@ -4480,6 +4479,11 @@ a {
   min-width: 2ch;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.managed-lecture-title {
+  flex: 1;
+  min-width: 0;
 }
 
 .managed-lecture-details:not([hidden]) {
@@ -4556,6 +4560,43 @@ a {
 .managed-content-status span.processing {
   background: #eff6ff;
   color: #1d4ed8;
+}
+
+.managed-content-status.managed-lecture-badges {
+  flex: none;
+  margin-inline-start: auto;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.managed-lecture-badges span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  place-items: center;
+  line-height: 1;
+}
+
+.managed-lecture-badges span:not(.ready, .failed, .processing) {
+  color: #475569;
+}
+
+@media (max-width: 540px) {
+  .managed-lecture-toggle {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    row-gap: 4px;
+  }
+
+  .managed-lecture-toggle::after {
+    grid-area: 1 / 3;
+  }
+
+  .managed-content-status.managed-lecture-badges {
+    grid-column: 2 / -1;
+    margin-inline-start: 0;
+  }
 }
 
 .upload-backup-toggle {

@@ -41,6 +41,12 @@ const BACKUP_LABELS = {
   failed: '備份失敗',
 };
 
+const STATUS_CLASSES = {
+  completed: 'ready',
+  failed: 'failed',
+  processing: 'processing',
+};
+
 const UNSAVED_CHANGES_MESSAGE = '你有尚未儲存的變更，確定要離開嗎？';
 const REPLACE_BACKUP_MESSAGE = '這個小節已經有影片備份。確定要重新備份並覆蓋現有版本嗎？';
 
@@ -592,16 +598,43 @@ export default function CourseManagement() {
               const hasFailedGeneration = Object.values(generation).some(item => item.status === 'failed');
               const expanded = expandedLectureIds.has(lecture.id);
               const detailsId = `managed-lecture-details-${lecture.id}`;
+              const statuses = Object.entries(GENERATION_LABELS).map(([key, label]) => {
+                const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
+                const status = isPending ? 'pending' : generation[key]?.status || 'pending';
+                return {
+                  key,
+                  initial: label[0],
+                  text: `${label}：${PROCESS_LABELS[status] || status}`,
+                  status,
+                  error: isPending ? '' : generation[key]?.error_message,
+                };
+              });
+              if (content.questions_pending_review > 0) {
+                statuses.push({ key: 'review', initial: '審', text: `審題：${content.questions_pending_review} 題待審核`, status: 'processing' });
+              }
+              if (content.questions_unpublished > 0) {
+                statuses.push({ key: 'unpublished', initial: '未', text: `題目：${content.questions_unpublished} 題未發布` });
+              }
+              const backupStatus = lecture.backup_status || 'not_requested';
+              statuses.push({ key: 'backup', initial: '影', text: `影片備份：${BACKUP_LABELS[backupStatus]}`, status: backupStatus });
               return <article className="managed-lecture-card" key={lecture.id}>
                 <button
                   type="button"
                   className="managed-lecture-toggle"
                   aria-expanded={expanded}
                   aria-controls={detailsId}
+                  aria-description={statuses.map(item => item.text).join('；')}
                   onClick={() => toggleLecture(lecture.id)}
                 >
                   <span className="managed-lecture-number" aria-hidden="true">{index + 1}</span>
-                  <span>{lecture.title}</span>
+                  <span className="managed-lecture-title">{lecture.title}</span>
+                  <span className="managed-content-status managed-lecture-badges" aria-hidden="true">
+                    {statuses.map(item => (
+                      <span key={item.key} className={STATUS_CLASSES[item.status]} title={item.text}>
+                        {item.initial}
+                      </span>
+                    ))}
+                  </span>
                 </button>
                 <div id={detailsId} className="managed-lecture-details" hidden={!expanded}>
                   <div className="managed-lecture-order"><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
@@ -611,14 +644,9 @@ export default function CourseManagement() {
                       <label className="review-field"><span>影片連結</span><input value={lectureForm.media_url || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], media_url: event.target.value } }))} /></label>
                     </div>
                     <div className="managed-content-status">
-                      {Object.entries(GENERATION_LABELS).map(([key, label]) => {
-                        const isPending = pendingGeneration?.lectureId === lecture.id && pendingGeneration.components.includes(key);
-                        const status = isPending ? 'pending' : generation[key]?.status || 'pending';
-                        return <span key={key} className={status === 'completed' ? 'ready' : status === 'failed' ? 'failed' : status === 'processing' ? 'processing' : ''} title={isPending ? '' : generation[key]?.error_message || ''}>{label}：{PROCESS_LABELS[status] || status}</span>;
-                      })}
-                      {content.questions_pending_review > 0 && <span className="processing">審題：{content.questions_pending_review} 題待審核</span>}
-                      {content.questions_unpublished > 0 && <span>題目：{content.questions_unpublished} 題未發布</span>}
-                      <span className={lecture.backup_status === 'completed' ? 'ready' : lecture.backup_status === 'failed' ? 'failed' : lecture.backup_status === 'processing' ? 'processing' : ''}>影片備份：{BACKUP_LABELS[lecture.backup_status || 'not_requested']}</span>
+                      {statuses.map(item => (
+                        <span key={item.key} className={STATUS_CLASSES[item.status]} title={item.error || ''}>{item.text}</span>
+                      ))}
                     </div>
                     <div className="managed-lecture-actions">
                       <label className="visibility-toggle"><input type="checkbox" checked={lectureForm.is_visible !== false} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], is_visible: event.target.checked } }))} /> 對學生顯示</label>

@@ -90,15 +90,19 @@ test('polls regeneration progress and ignores old completed states while waiting
   });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
   render(<CourseManagement />);
-  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  const lectureToggle = await screen.findByRole('button', { name: '搜尋演算法' });
+  expect(screen.getByTitle('摘要：已完成')).toHaveTextContent('摘');
+  fireEvent.click(lectureToggle);
   fireEvent.click(screen.getByRole('button', { name: '摘要' }));
+  fireEvent.click(lectureToggle);
   await act(async () => { jest.advanceTimersByTime(8000); });
-  expect(screen.getByText('摘要：等待處理')).toBeInTheDocument();
+  expect(screen.getByTitle('摘要：等待處理')).toBeVisible();
   polledStatus = 'processing';
   await act(async () => { jest.advanceTimersByTime(8000); });
-  expect(screen.getByText('摘要：處理中')).toBeInTheDocument();
+  expect(screen.getByTitle('摘要：處理中')).toHaveClass('processing');
   await act(async () => { finishRequest({ ok: true, json: async () => ({}) }); });
-  expect(screen.getByText('摘要：已完成')).toBeInTheDocument();
+  expect(screen.getByTitle('摘要：已完成')).toHaveClass('ready');
+  expect(lectureToggle).toHaveAttribute('aria-expanded', 'false');
 });
 
 test('teacher manages owned courses without teacher assignment control', async () => {
