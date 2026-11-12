@@ -185,7 +185,7 @@ test.each([
     const { container } = renderLectureDetail('/course/1/lecture/2');
     if (mediaUrl.startsWith('https://')) {
       await waitFor(() => expect(createPlayer).toHaveBeenCalledTimes(1));
-      await screen.findByText('這一段哪裡卡住了？');
+      await screen.findByText(/儘管發問吧/);
       expect(screen.queryByRole('button', { name: '切換至備份影片' })).not.toBeInTheDocument();
       const [, options] = createPlayer.mock.calls[0];
       if (currentTime > 0) {
@@ -206,5 +206,43 @@ test.each([
     }
   } finally {
     window.YT = originalYouTube;
+  }
+});
+
+test('sends a selected image to the assistant without requiring a typed question', async () => {
+  localStorage.setItem('access_token', 'image-test-token');
+  const originalCreateUrl = URL.createObjectURL;
+  const originalRevokeUrl = URL.revokeObjectURL;
+  URL.createObjectURL = jest.fn(() => 'blob:chat-preview');
+  URL.revokeObjectURL = jest.fn();
+  const responses = {
+    '/lectures/2': [{}],
+    '/lectures/2/chats': { messages: [] },
+    '/ai/chat': { answer: '圖片解說' },
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+
+  try {
+    renderLectureDetail('/course/1/lecture/2');
+    await screen.findByText(/儘管發問吧/);
+
+    const image = new File(['image data'], 'lecture.png', { type: 'image/png' });
+    fireEvent.change(screen.getByLabelText('選擇圖片'), { target: { files: [image] } });
+    expect(await screen.findByAltText('待送出的圖片')).toHaveAttribute('src', 'blob:chat-preview');
+    fireEvent.click(screen.getByRole('button', { name: '送出' }));
+
+    expect(await screen.findByText('圖片解說')).toBeInTheDocument();
+    expect(screen.getByAltText('提問附圖')).toBeInTheDocument();
+    const [, request] = global.fetch.mock.calls.find(([url]) => url.endsWith('/ai/chat'));
+    expect(JSON.parse(request.body)).toMatchObject({
+      lecture_id: 2,
+      image: { mime_type: 'image/png', data: 'aW1hZ2UgZGF0YQ==' },
+    });
+  } finally {
+    URL.createObjectURL = originalCreateUrl;
+    URL.revokeObjectURL = originalRevokeUrl;
   }
 });

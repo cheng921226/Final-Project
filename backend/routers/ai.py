@@ -1,9 +1,12 @@
+import base64
 import json
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from google import genai
-from pydantic import BaseModel
+from google.genai import types
+from pydantic import BaseModel, Field
 
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
@@ -21,7 +24,7 @@ gemini_client = genai.Client()
 GEMINI_MODEL = "gemini-3.8-flash"
 
 def generate_json_content(
-    prompt: str,
+    prompt: str | list[str | types.Part],
     system_instruction: str | None = CONTENT_SYSTEM_INSTRUCTION,
     model: str = GEMINI_MODEL,
 ):
@@ -106,14 +109,40 @@ def infer_knowledge_point_id(source_timestamp, knowledge_points):
 # =====================================================================
 
 
+MAX_CHAT_IMAGE_BYTES = 4 * 1024 * 1024
+
+
+class ChatImage(BaseModel):
+    mime_type: Literal["image/jpeg", "image/png", "image/webp"]
+    data: str = Field(min_length=1, max_length=((MAX_CHAT_IMAGE_BYTES + 2) // 3) * 4)
+
+    def to_part(self) -> types.Part:
+        try:
+            content = base64.b64decode(self.data, validate=True)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="無法讀取圖片") from exc
+        if len(content) > MAX_CHAT_IMAGE_BYTES:
+            raise HTTPException(status_code=413, detail="圖片大小不可超過 4 MB")
+        matches_format = {
+            "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+            "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+            "image/webp": content.startswith(b"RIFF") and content[8:12] == b"WEBP",
+        }
+        if not matches_format[self.mime_type]:
+            raise HTTPException(status_code=422, detail="圖片內容與檔案格式不符")
+        return types.Part.from_bytes(data=content, mime_type=self.mime_type)
+
+
 class ChatRequest(BaseModel):
     lecture_id: int
     question: str
     video_timestamp: int = 0  # 學生提問時的影片秒數
+    image: ChatImage | None = None
 
 
 @router.post("/ai/chat")
 def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context)):
+    image_part = body.image.to_part() if body.image else None
     try:
         student_id = context.profile["id"]
         user_role = context.profile["role"]
@@ -190,14 +219,15 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
 學生問題：
 {body.question}"""
 
+        sources = "課程逐字稿、知識點與學生附上的圖片" if image_part else "課程逐字稿和知識點"
         chat_prompt = f'''你是一位親切、有耐心的專業課程 AI 助教，使用繁體中文，回答約 100 到 200 字，語氣自然。
-只能根據課程逐字稿和知識點回答，不可編造；非課程問題請禮貌拒絕並引導回課程。學生表示不懂時，換個方式或用簡單比喻說明。
+只能根據{sources}回答，不可編造；非課程問題請禮貌拒絕並引導回課程。學生表示不懂時，換個方式或用簡單比喻說明。
 直接回答，不要寒暄、稱讚、自我介紹、重述問題或加「助教：」前綴。
 請輸出 JSON：{{"answer":"助教回答內容"}}
 
 {prompt}'''
         ai_response = generate_json_content(
-            chat_prompt,
+            [chat_prompt, image_part] if image_part else chat_prompt,
             system_instruction=None,
             model="gemini-3.5-flash-lite",
         )

@@ -8,12 +8,24 @@ import {
   partitionPracticeQuestions,
 } from './classroomPractice';
 import { lectureDetailCache } from './lectureDetailCache';
+import assistantUniversityMark from './assistant-university-mark.png';
 
 const API_URL = 'http://127.0.0.1:8000';
 const LECTURE_DETAIL_CACHE_TTL_MS = 60_000;
 const COMPLETION_THRESHOLD = 0.8;
 const PAUSE_HELP_DELAY_MS = 30000;
 const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 };
+const CHAT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_CHAT_IMAGE_BYTES = 4 * 1024 * 1024;
+
+function readChatImage(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => reject(new Error('無法讀取圖片，請重新選取'));
+    reader.readAsDataURL(file);
+  });
+}
 
 // =====================================================================
 // 工具函式
@@ -276,9 +288,28 @@ function LectureDetail() {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInitialized, setChatInitialized] = useState(false);
   const [chatInput, setChatInput] = useState('');
+  const [chatImage, setChatImage] = useState(null);
+  const [chatImagePreview, setChatImagePreview] = useState('');
+  const [chatImageError, setChatImageError] = useState('');
   const [chatLoading, setChatLoading] = useState(false);
   const [pauseHelpPrompt, setPauseHelpPrompt] = useState(null);
   const chatFeedRef = useRef(null);
+  const chatImageInputRef = useRef(null);
+
+  useEffect(() => {
+    setChatImage(null);
+    setChatImageError('');
+  }, [lectureId]);
+
+  useEffect(() => {
+    if (!chatImage) {
+      setChatImagePreview('');
+      return;
+    }
+    const url = URL.createObjectURL(chatImage);
+    setChatImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [chatImage]);
 
   const getPlayerCurrentTime = useCallback((fallback = 0) => {
     const player = playerRef.current;
@@ -1385,20 +1416,42 @@ function LectureDetail() {
     seekToTime(videoTimestamp, 'note');
   }
 
-  // questionOverride：若有傳入，代表是「快速提問」按鈕觸發，不從輸入框拿文字
+  function selectChatImage(event) {
+    const [file] = event.target.files;
+    event.target.value = '';
+    if (!file) return;
+    if (!CHAT_IMAGE_TYPES.includes(file.type)) {
+      setChatImageError('請選擇 JPG、PNG 或 WebP 圖片');
+      return;
+    }
+    if (file.size > MAX_CHAT_IMAGE_BYTES) {
+      setChatImageError('圖片大小不可超過 4 MB');
+      return;
+    }
+    setChatImageError('');
+    setChatImage(file);
+  }
+
+  // 快速提問不使用輸入區的草稿或圖片。
   async function handleAskQuestion(questionOverride) {
-    const question = (questionOverride ?? chatInput).trim();
+    const attachment = questionOverride == null ? chatImage : null;
+    const question = (questionOverride ?? chatInput).trim()
+      || (attachment ? '請說明這張圖片和本節課程的關聯。' : '');
     if (!question || chatLoading) return;
 
     invalidateLectureDetailCache();
     const currentTime = Math.floor(getPlayerCurrentTime());
-
-    logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
-    setChatMessages(prev => [...prev, { role: 'user', text: question }]);
-    if (!questionOverride) setChatInput('');
     setChatLoading(true);
 
     try {
+      const imageUrl = attachment ? await readChatImage(attachment) : '';
+      logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
+      setChatMessages(prev => [...prev, { role: 'user', text: question, imageUrl }]);
+      if (questionOverride == null) {
+        setChatInput('');
+        setChatImage(null);
+        setChatImageError('');
+      }
       const res = await fetch(`${API_URL}/ai/chat`, {
         method: 'POST',
         headers: {
@@ -1409,6 +1462,7 @@ function LectureDetail() {
           lecture_id: parseInt(lectureId),
           question,
           video_timestamp: currentTime,
+          ...(attachment ? { image: { mime_type: attachment.type, data: imageUrl.split(',')[1] } } : {}),
         }),
       });
       if (!res.ok) throw new Error();
@@ -2067,41 +2121,22 @@ function LectureDetail() {
             )}
           </section>
           <aside className="assistant-aside" aria-label="AI 課程助教">
-            <header className="assistant-header">
-              <div className="assistant-mark" aria-hidden="true">
-                <svg width="29" height="29" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M10.5 3c.8 5 2.5 6.7 7.5 7.5-5 .8-6.7 2.5-7.5 7.5C9.7 13 8 11.3 3 10.5c5-.8 6.7-2.5 7.5-7.5ZM19 13.5c.4 2.4 1.1 3.1 3.5 3.5-2.4.4-3.1 1.1-3.5 3.5-.4-2.4-1.1-3.1-3.5-3.5 2.4-.4 3.1-1.1 3.5-3.5Z" />
-                </svg>
-              </div>
-              <p className="assistant-subtitle">跟著影片學，有疑問就問</p>
-              <button
-                type="button"
-                onClick={handleQuickAskCurrentMoment}
-                disabled={chatLoading}
-                className="assistant-quick-ask"
-              >
-                <span className="assistant-shortcut-icon" aria-hidden="true">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="8" />
-                    <path d="M12 8v4l3 2" />
-                  </svg>
-                </span>
-                講解這段
-              </button>
-            </header>
-            <div className="assistant-feed" ref={chatFeedRef}>
+            <div
+              className={`assistant-feed${chatInitialized && !chatMessages.length ? ' is-empty' : ''}`}
+              ref={chatFeedRef}
+            >
               <div className="assistant-thread" role="log" aria-label="助教對話">
                 {!chatInitialized ? (
                   <p className="assistant-muted">載入聊天紀錄中…</p>
                 ) : chatMessages.length === 0 ? (
                   <div className="assistant-welcome">
-                    <p className="assistant-kicker">開始對話</p>
-                    <h3>這一段哪裡卡住了？</h3>
-                    <p>可以請我解釋名詞、舉個例子，或整理影片這一段的重點。</p>
+                    <img className="assistant-mark" src={assistantUniversityMark} alt="逢甲大學校徽" width="56" height="56" />
+                    <h3>{userProfile?.name ? `${userProfile.name}，` : ''}儘管發問吧！</h3>
                   </div>
                 ) : chatMessages.map((msg, i) => (
                   <div key={i} className={`assistant-message is-${msg.role === 'assistant' ? 'tutor' : 'student'}`}>
-                    <span className="assistant-message-label">{msg.role === 'assistant' ? 'AI 助教' : '你'}</span>
+                    {msg.role === 'assistant' && <span className="assistant-message-label">AI 助教</span>}
+                    {msg.imageUrl && <img className="assistant-message-image" src={msg.imageUrl} alt="提問附圖" />}
                     <p>{msg.text}</p>
                   </div>
                 ))}
@@ -2127,7 +2162,33 @@ function LectureDetail() {
                 <p className="assistant-thinking" role="status">助教思考中…</p>
               )}
             </div>
+            <div className="assistant-suggestions" aria-label="提問捷徑">
+              <button type="button" onClick={handleQuickAskCurrentMoment} disabled={chatLoading}>
+                這段在教什麼？
+              </button>
+              {chatInitialized && !chatMessages.length && (
+                <>
+                  <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請整理目前這段影片的重點。')}>
+                    整理這段的重點
+                  </button>
+                  <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請用一個例子說明這段影片的主要概念。')}>
+                    用例子解釋這段
+                  </button>
+                </>
+              )}
+            </div>
             <div className="assistant-composer">
+              {chatImage && (
+                <div className="assistant-attachment">
+                  {chatImagePreview && <img src={chatImagePreview} alt="待送出的圖片" />}
+                  <span title={chatImage.name}>{chatImage.name}</span>
+                  <button type="button" aria-label="移除圖片" onClick={() => {
+                    setChatImage(null);
+                    setChatImageError('');
+                  }} disabled={chatLoading}>×</button>
+                </div>
+              )}
+              {chatImageError && <p className="assistant-attachment-error" role="alert">{chatImageError}</p>}
               <form
                 className="assistant-form"
                 onSubmit={event => {
@@ -2135,6 +2196,22 @@ function LectureDetail() {
                   handleAskQuestion();
                 }}
               >
+                <input
+                  ref={chatImageInputRef}
+                  type="file"
+                  accept={CHAT_IMAGE_TYPES.join(',')}
+                  aria-label="選擇圖片"
+                  onChange={selectChatImage}
+                  hidden
+                />
+                <button
+                  type="button"
+                  className="assistant-attach-button"
+                  aria-label="附加圖片"
+                  title="附加圖片（JPG、PNG、WebP，最多 4 MB）"
+                  disabled={chatLoading}
+                  onClick={() => chatImageInputRef.current?.click()}
+                >＋</button>
                 <input
                   aria-label="輸入課程相關問題"
                   placeholder="輸入課程相關問題…"
@@ -2144,7 +2221,7 @@ function LectureDetail() {
                 />
                 <button
                   type="submit"
-                  disabled={chatLoading || !chatInput.trim()}
+                  disabled={chatLoading || (!chatInput.trim() && !chatImage)}
                   className="assistant-primary"
                   aria-label="送出"
                 >
