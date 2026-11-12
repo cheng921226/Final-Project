@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
+from google.genai import errors
 
 from routers.ai import ChatImage, ChatRequest, ai_chat
 
@@ -28,11 +29,21 @@ class ChatImageTests(unittest.TestCase):
             patch("routers.ai.get_lecture_transcript", return_value=[{"content": "逐字稿"}]),
             patch("routers.ai.get_lecture_knowledge_points", return_value=[]),
             patch("routers.ai.supabase_admin") as database,
-            patch("routers.ai.generate_json_content", return_value=SimpleNamespace(text='{"answer":"圖片解說"}')) as generate,
+            patch(
+                "routers.ai.generate_json_content",
+                side_effect=[
+                    errors.ServerError(503, {"error": {"message": "Unavailable"}}),
+                    SimpleNamespace(text='{"answer":"圖片解說"}'),
+                ],
+            ) as generate,
         ):
             result = ai_chat(body, context)
 
         prompt, image = generate.call_args.args[0]
+        self.assertEqual(
+            [call.kwargs["model"] for call in generate.call_args_list],
+            ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"],
+        )
         self.assertIn("請解釋這張圖。", prompt)
         self.assertEqual(image.inline_data.mime_type, "image/png")
         self.assertEqual(image.inline_data.data, base64.b64decode(PNG_DATA))

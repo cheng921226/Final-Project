@@ -1,12 +1,13 @@
 import base64
 import json
+import logging
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException, Query, Depends
 from google import genai
-from google.genai import types
-from pydantic import BaseModel, Field
+from google.genai import errors, types
+from pydantic import BaseModel, Field, ValidationError
 
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
@@ -18,6 +19,7 @@ from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 gemini_client = genai.Client()
 
@@ -27,10 +29,13 @@ def generate_json_content(
     prompt: str | list[str | types.Part],
     system_instruction: str | None = CONTENT_SYSTEM_INSTRUCTION,
     model: str = GEMINI_MODEL,
+    response_schema: type[BaseModel] | None = None,
 ):
     config = {"response_mime_type": "application/json"}
     if system_instruction:
         config["system_instruction"] = system_instruction
+    if response_schema is not None:
+        config["response_schema"] = response_schema
     return gemini_client.models.generate_content(
         model=model,
         contents=prompt,
@@ -140,6 +145,10 @@ class ChatRequest(BaseModel):
     image: ChatImage | None = None
 
 
+class ChatAnswer(BaseModel):
+    answer: str
+
+
 @router.post("/ai/chat")
 def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context)):
     image_part = body.image.to_part() if body.image else None
@@ -172,8 +181,9 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
                 start_sec = float(start)
             except (ValueError, TypeError):
                 start_sec = 0
-            if abs(start_sec - timestamp) <= 60:
-                context_segments.append(seg.get("text", ""))
+            text = seg.get("text")
+            if isinstance(text, str) and abs(start_sec - timestamp) <= 60:
+                context_segments.append(text)
         transcript_context = (
             "\n".join(context_segments) if context_segments else transcript_text[:500]
         )
@@ -226,16 +236,41 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
 請輸出 JSON：{{"answer":"助教回答內容"}}
 
 {prompt}'''
-        ai_response = generate_json_content(
-            [chat_prompt, image_part] if image_part else chat_prompt,
-            system_instruction=None,
-            model="gemini-3.5-flash-lite",
-        )
+        contents = [chat_prompt, image_part] if image_part else chat_prompt
+        primary_model = "gemini-3.5-flash-lite"
+        fallback_model = "gemini-3.1-flash-lite"
+        try:
+            for model in (primary_model, fallback_model):
+                try:
+                    ai_response = generate_json_content(
+                        contents,
+                        system_instruction=None,
+                        model=model,
+                        response_schema=ChatAnswer,
+                    )
+                    break
+                except errors.APIError as exc:
+                    if exc.code != 503 or model == fallback_model:
+                        raise
+                    logger.warning("Gemini chat model unavailable: model=%s code=%s", model, exc.code)
+        except errors.APIError as exc:
+            logger.warning(
+                "Gemini chat request failed: lecture_id=%s image=%s code=%s",
+                body.lecture_id, bool(image_part), exc.code,
+            )
+            if exc.code == 429:
+                raise HTTPException(status_code=429, detail="AI 助教目前已達用量限制，請稍後再試") from exc
+            if exc.code == 400 and image_part:
+                raise HTTPException(status_code=422, detail="Gemini 無法處理這次圖片請求，請換一張 JPG 或 PNG 再試") from exc
+            raise HTTPException(status_code=502, detail="AI 服務暫時無法回應，請稍後再試") from exc
 
         try:
-            result_json = json.loads(ai_response.text)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="AI 回應格式錯誤")
+            answer = ChatAnswer.model_validate_json(ai_response.text or "").answer.strip()
+        except ValidationError as exc:
+            logger.warning("Invalid Gemini chat answer: lecture_id=%s", body.lecture_id)
+            raise HTTPException(status_code=502, detail="AI 助教回應格式有誤，請再試一次") from exc
+        if not answer:
+            raise HTTPException(status_code=502, detail="AI 助教沒有回傳回答，請再試一次")
 
         # AI 回答是系統產物，必須由可信任後端寫入，避免學生直接偽造回答紀錄。
         supabase_admin.table("chat_messages").insert(
@@ -244,7 +279,7 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
                 "lecture_id": body.lecture_id,
                 "role": user_role,
                 "question": body.question,
-                "answer": result_json.get("answer", ""),
+                "answer": answer,
                 "video_timestamp": body.video_timestamp,
             }
         ).execute()
@@ -252,13 +287,14 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
         return {
             "status": "success",
             "lecture_id": body.lecture_id,
-            "answer": result_json.get("answer", ""),
+            "answer": answer,
         }
 
     except HTTPException:
         raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"AI 助教發生錯誤：{str(e)}")
+    except Exception as exc:
+        logger.error("Chat failed: lecture_id=%s error=%s", body.lecture_id, type(exc).__name__)
+        raise HTTPException(status_code=500, detail="AI 助教暫時無法完成請求，請稍後再試") from exc
 
 
 # =====================================================================

@@ -220,10 +220,14 @@ test('sends a selected image to the assistant without requiring a typed question
     '/lectures/2/chats': { messages: [] },
     '/ai/chat': { answer: '圖片解說' },
   };
-  global.fetch = jest.fn(async url => ({
-    ok: true,
-    json: async () => responses[new URL(url).pathname] ?? [],
-  }));
+  let attempts = 0;
+  global.fetch = jest.fn(async url => {
+    const path = new URL(url).pathname;
+    if (path === '/ai/chat' && ++attempts === 1) {
+      return { ok: false, json: async () => ({ detail: 'AI 助教目前已達用量限制，請稍後再試' }) };
+    }
+    return { ok: true, json: async () => responses[path] ?? [] };
+  });
 
   try {
     renderLectureDetail('/course/1/lecture/2');
@@ -234,8 +238,11 @@ test('sends a selected image to the assistant without requiring a typed question
     expect(await screen.findByAltText('待送出的圖片')).toHaveAttribute('src', 'blob:chat-preview');
     fireEvent.click(screen.getByRole('button', { name: '送出' }));
 
+    expect(await screen.findByText('AI 助教目前已達用量限制，請稍後再試')).toBeInTheDocument();
+    expect(screen.getByAltText('待送出的圖片')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '送出' }));
     expect(await screen.findByText('圖片解說')).toBeInTheDocument();
-    expect(screen.getByAltText('提問附圖')).toBeInTheDocument();
+    expect(screen.getAllByAltText('提問附圖')).toHaveLength(2);
     const [, request] = global.fetch.mock.calls.find(([url]) => url.endsWith('/ai/chat'));
     expect(JSON.parse(request.body)).toMatchObject({
       lecture_id: 2,

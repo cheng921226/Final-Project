@@ -1448,8 +1448,7 @@ function LectureDetail() {
       logEvent(lectureId, 'question_asked', { timestamp: currentTime, question });
       setChatMessages(prev => [...prev, { role: 'user', text: question, imageUrl }]);
       if (questionOverride == null) {
-        setChatInput('');
-        setChatImage(null);
+        if (!attachment) setChatInput('');
         setChatImageError('');
       }
       const res = await fetch(`${API_URL}/ai/chat`, {
@@ -1465,11 +1464,17 @@ function LectureDetail() {
           ...(attachment ? { image: { mime_type: attachment.type, data: imageUrl.split(',')[1] } } : {}),
         }),
       });
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data) {
+        throw new Error(typeof data?.detail === 'string' ? data.detail : '助教暫時無法回應，請稍後再試。');
+      }
+      if (attachment) {
+        setChatInput('');
+        setChatImage(null);
+      }
       setChatMessages(prev => [...prev, { role: 'assistant', text: data.answer || '（助教無法回應）' }]);
-    } catch {
-      setChatMessages(prev => [...prev, { role: 'assistant', text: '抱歉，助教暫時無法回應，請稍後再試 🙏' }]);
+    } catch (err) {
+      setChatMessages(prev => [...prev, { role: 'assistant', text: err.message || '助教暫時無法回應，請稍後再試。' }]);
     } finally {
       setChatLoading(false);
     }
