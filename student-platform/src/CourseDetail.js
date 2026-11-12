@@ -119,7 +119,10 @@ function CourseDetail() {
           </div>
         )}
         {loading && !lectures.length ? (
-          <div className="empty-card">正在整理課程內容...</div>
+          <div className="empty-card course-detail-loading" role="status">
+            <div className="ld-flip" aria-hidden="true" />
+            正在整理課程內容...
+          </div>
         ) : error && !lectures.length ? (
           <div className="empty-card">暫時無法取得課程內容：{error}</div>
         ) : lectures.length === 0 ? (

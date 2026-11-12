@@ -1844,20 +1844,37 @@ a {
   font-weight: 800;
 }
 
-.teacher-loader {
+.teacher-loader,
+.ld-flip {
+  --ink: currentColor;
   width: 32px;
   height: 32px;
-  margin-bottom: 14px;
-  border: 3px solid #dddff1;
-  border-top-color: var(--primary);
-  border-radius: 50%;
-  animation: teacher-spin .8s linear infinite;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: var(--ink);
+  animation: page-loader-flip 1.4s ease-in-out infinite;
 }
 
-@keyframes teacher-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.teacher-loader {
+  margin-bottom: 14px;
+  color: var(--primary);
+}
+
+@keyframes page-loader-flip {
+  0% { transform: perspective(120px) rotateX(0) rotateY(0); }
+  50% { transform: perspective(120px) rotateX(-180deg) rotateY(0); }
+  100% { transform: perspective(120px) rotateX(-180deg) rotateY(-180deg); }
+}
+
+.course-detail-loading {
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .teacher-loader,
+  .ld-flip { animation: none; }
 }
 
 .question-review-grid {

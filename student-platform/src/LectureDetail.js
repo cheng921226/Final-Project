@@ -1878,7 +1878,8 @@ function LectureDetail() {
                 )}
               </div>
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-slate-400 text-sm">
+              <div className="w-full h-full flex flex-col items-center justify-center gap-3 text-slate-400 text-sm" role={loading ? 'status' : undefined}>
+                {loading && <div className="ld-flip" aria-hidden="true" />}
                 {loading ? '載入影片中...' : '無影片資料'}
               </div>
             )}

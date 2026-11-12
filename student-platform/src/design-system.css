@@ -248,7 +248,6 @@ select option,
 .lecture-subtitle { line-height: 1.7; }
 .empty-card { border: 1px dashed #e3cdd3; border-radius: 12px; background: #fefbf9; }
 .teacher-state-icon { color: var(--primary); background: var(--primary-soft); }
-.teacher-loader { border-color: #efdae0; border-top-color: var(--primary); }
 .review-field input, .review-field select, .review-field textarea, .field input,
 .email-preview-row input, .email-preview-field textarea { background: #fefbf9; border-color: #e8d7dd; border-radius: 7px; }
 .review-field input:focus, .review-field select:focus, .review-field textarea:focus, .field input:focus,
