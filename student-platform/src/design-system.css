@@ -144,22 +144,13 @@ select option,
   inherits: false;
   initial-value: 120%;
 }
-@property --hero-follow {
-  syntax: "<number>";
-  inherits: false;
-  initial-value: 0;
-}
 @media (prefers-reduced-motion: no-preference) {
   .home-hero {
-    --hero-follow: 0;
     background: radial-gradient(
-      ellipse at
-        calc(var(--hero-drift-x) * (1 - var(--hero-follow)) + var(--spotlight-x, 0px) * var(--hero-follow))
-        calc(var(--hero-drift-y) * (1 - var(--hero-follow)) + var(--spotlight-y, 0px) * var(--hero-follow)),
+      ellipse at var(--hero-drift-x, 50%) var(--hero-drift-y, 120%),
       #922b45 0%, #38141e 52%, #1b1215 86%
     );
     animation: home-hero-drift 18s ease-in-out infinite;
-    transition: --hero-follow .55s ease-in-out;
   }
 }
 @keyframes home-hero-drift {
@@ -192,21 +183,6 @@ select option,
 @media (prefers-reduced-motion: no-preference) {
   .home-hero-copy { animation: home-hero-enter .32s ease-out both; }
   .hero-explore { transition: background-color .18s ease; }
-  @supports (background-clip: text) {
-    .home-hero .shimmer-text {
-      display: inline-block;
-      background-image: linear-gradient(110deg, #fffaf9 38%, #ff9a32 50%, #fffaf9 62%);
-      background-size: 265% 100%;
-      background-position: right center;
-      background-clip: text;
-      color: transparent;
-      animation: home-title-shimmer 7s .25s linear infinite;
-    }
-  }
-}
-@keyframes home-title-shimmer {
-  from { background-position: right center; }
-  to { background-position: left center; }
 }
 @keyframes home-hero-enter {
   from { opacity: 0; transform: translateY(8px); }
