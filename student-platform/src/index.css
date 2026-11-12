@@ -3890,9 +3890,9 @@ a {
 .assistant-composer {
   flex-shrink: 0;
   margin: 0 12px 12px;
-  padding: 7px;
+  padding: 4px;
   border: 1px solid var(--assistant-line);
-  border-radius: 28px;
+  border-radius: 12px;
   background: var(--assistant-glass);
   box-shadow: var(--assistant-shadow);
   -webkit-backdrop-filter: blur(18px) saturate(145%);
@@ -3944,13 +3944,19 @@ a {
 .assistant-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 6px;
+}
+
+.assistant-form input,
+.assistant-form .assistant-primary {
+  min-height: 38px;
+  border-radius: 8px;
 }
 
 .assistant-form input {
   min-width: 0;
-  padding: 0 12px;
-  font-size: 16px;
+  padding: 0 10px;
+  font-size: 14px;
 }
 
 .assistant-form input::placeholder {
@@ -3965,7 +3971,7 @@ a {
 
 .assistant-form .assistant-primary {
   display: grid;
-  width: 44px;
+  width: 38px;
   padding: 0;
   place-items: center;
 }

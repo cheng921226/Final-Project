@@ -708,12 +708,15 @@ export default function CourseManagement() {
                     className="managed-lecture-toggle"
                     aria-expanded={expanded}
                     aria-controls={detailsId}
-                    aria-description={statuses.map(item => item.text).join('；')}
+                    aria-describedby={`${detailsId}-status`}
                     onClick={() => toggleLecture(lecture.id)}
                   >
                     <span className="managed-lecture-number" aria-hidden="true">{index + 1}</span>
                     <span className="managed-lecture-title">{lecture.title}</span>
                   </button>
+                  <span id={`${detailsId}-status`} hidden>
+                    {statuses.map(item => item.text).join('；')}
+                  </span>
                   <div className="managed-content-status managed-lecture-badges">
                     {statuses.map(item => renderStatus(item, true))}
                   </div>
