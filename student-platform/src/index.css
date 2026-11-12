@@ -2497,6 +2497,54 @@ a {
   gap: 12px;
 }
 
+.course-status-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 4px;
+  border: 1px solid var(--line, #e0e3ed);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.course-status-tabs .course-status-indicator {
+  position: absolute;
+  inset: 4px auto 4px 4px;
+  width: calc((100% - 8px) / 3);
+  margin: 0;
+  border-radius: 7px;
+  background: var(--primary-soft);
+  transform: translateX(calc(var(--selected-status) * 100%));
+  transition: transform .4s cubic-bezier(.65, 0, .35, 1);
+  pointer-events: none;
+}
+
+.course-status-tabs button {
+  position: relative;
+  min-height: 32px;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.course-status-tabs button[aria-pressed="true"] {
+  color: var(--primary);
+}
+
+.course-status-tabs button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-status-tabs .course-status-indicator { transition: none; }
+}
+
 .settings-switches {
   display: flex;
   flex-wrap: wrap;
@@ -3866,13 +3914,26 @@ a {
   color: var(--assistant-muted);
 }
 
-.assistant-thinking::before {
-  width: 7px;
-  height: 7px;
+.assistant-typing {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.assistant-typing > span {
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: var(--assistant-accent);
-  box-shadow: 0 0 0 3px #0062d81c;
-  content: '';
+  animation: assistant-dot-bounce 1s ease-in-out infinite;
+}
+
+@keyframes assistant-dot-bounce {
+  0%, 60%, 100% { opacity: .55; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .assistant-typing > span { animation: none; }
 }
 
 .assistant-composer {

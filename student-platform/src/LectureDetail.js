@@ -18,6 +18,16 @@ const PLAYER_STATE = { ENDED: 0, PLAYING: 1, PAUSED: 2 };
 const CHAT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_CHAT_IMAGE_BYTES = 4 * 1024 * 1024;
 
+function TypingDots() {
+  return (
+    <span className="assistant-typing" aria-hidden="true">
+      {[0, 1, 2].map(index => (
+        <span key={index} style={{ animationDelay: `${index * 0.16}s` }} />
+      ))}
+    </span>
+  );
+}
+
 function readChatImage(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2164,7 +2174,10 @@ function LectureDetail() {
                 </div>
               )}
               {chatLoading && (
-                <p className="assistant-thinking" role="status">助教思考中…</p>
+                <p className="assistant-thinking" role="status">
+                  <TypingDots />
+                  助教思考中…
+                </p>
               )}
             </div>
             <div className="assistant-suggestions" aria-label="提問捷徑">

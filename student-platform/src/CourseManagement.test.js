@@ -468,3 +468,28 @@ test('requires the exact lecture title before permanently deleting a lecture', a
   );
   expect(await screen.findByText('「搜尋演算法」及相關資料已永久刪除。')).toBeInTheDocument();
 });
+
+test('selects a publication status and saves it only when the course form is submitted', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  const response = {
+    actor: { id: 10, role: 'teacher' },
+    courses: [baseCourse],
+    teachers: [],
+  };
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => response });
+
+  render(<CourseManagement />);
+  const draft = await screen.findByRole('button', { name: '草稿' });
+  const published = screen.getByRole('button', { name: '已發布' });
+  expect(draft).toHaveAttribute('aria-pressed', 'true');
+
+  fireEvent.click(published);
+  expect(draft).toHaveAttribute('aria-pressed', 'false');
+  expect(published).toHaveAttribute('aria-pressed', 'true');
+  expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
+
+  fireEvent.click(screen.getByRole('button', { name: '儲存課程' }));
+  expect(await screen.findByText('課程資料已更新。')).toBeInTheDocument();
+  const [, request] = global.fetch.mock.calls.find(([, options]) => options?.method === 'PATCH');
+  expect(JSON.parse(request.body).status).toBe('published');
+});

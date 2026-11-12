@@ -10,6 +10,7 @@ const STATUS_LABELS = {
   published: '已發布',
   archived: '已封存',
 };
+const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
 
 const AI_COMPONENTS = [
   ['transcript', '逐字稿'],
@@ -623,7 +624,27 @@ export default function CourseManagement() {
           </div>
           <div className="settings-grid">
             <label className="review-field"><span>課程名稱</span><input required value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} /></label>
-            <label className="review-field"><span>發布狀態</span><select value={form.status} onChange={event => setForm(current => ({ ...current, status: event.target.value }))}><option value="draft">草稿</option><option value="published">已發布</option><option value="archived">已封存</option></select></label>
+            <div className="review-field">
+              <span id="course-publication-status">發布狀態</span>
+              <div
+                className="course-status-tabs"
+                role="group"
+                aria-labelledby="course-publication-status"
+                style={{ '--selected-status': STATUS_OPTIONS.findIndex(([status]) => status === form.status) }}
+              >
+                <span className="course-status-indicator" aria-hidden="true" />
+                {STATUS_OPTIONS.map(([status, label]) => (
+                  <button
+                    key={status}
+                    type="button"
+                    aria-pressed={form.status === status}
+                    onClick={() => setForm(current => ({ ...current, status }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <label className="review-field"><span>上傳者</span><input readOnly value={selectedCourse.creator?.name || selectedCourse.creator?.email || '無法辨識'} /></label>
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}
           </div>
