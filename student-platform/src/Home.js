@@ -7,6 +7,24 @@ const API_URL = 'http://127.0.0.1:8000';
 const COURSE_CACHE_TTL_MS = 60_000;
 const courseListCache = new Map();
 
+function ShimmerText({ children }) {
+  return <span className="shimmer-text">{children}</span>;
+}
+
+function moveHeroSpotlight(event) {
+  if (event.pointerType !== 'mouse') return;
+
+  const hero = event.currentTarget;
+  const { left, top } = hero.getBoundingClientRect();
+  hero.style.setProperty('--spotlight-x', `${event.clientX - left}px`);
+  hero.style.setProperty('--spotlight-y', `${event.clientY - top}px`);
+  hero.style.setProperty('--hero-follow', '1');
+}
+
+function releaseHeroSpotlight(event) {
+  event.currentTarget.style.removeProperty('--hero-follow');
+}
+
 function Home({ token }) {
   const outletContext = useOutletContext();
   const user = outletContext?.user;
@@ -121,9 +139,18 @@ function Home({ token }) {
 
   return (
     <div className="page-wrap home-page">
-      <section className="home-hero" aria-labelledby="home-title">
+      <section
+        className="home-hero"
+        aria-labelledby="home-title"
+        onPointerEnter={moveHeroSpotlight}
+        onPointerMove={moveHeroSpotlight}
+        onPointerLeave={releaseHeroSpotlight}
+        onPointerCancel={releaseHeroSpotlight}
+      >
         <div className="home-hero-copy">
-          <h1 id="home-title">照自己的步調，<br />把課程學懂。</h1>
+          <h1 id="home-title">
+            <ShimmerText>照自己的步調，<br />把課程學懂。</ShimmerText>
+          </h1>
           <p className="home-description">看影片、整理重點，有問題就問 AI 助教。</p>
           <a className="hero-explore" href="#course-library">瀏覽課程 <span aria-hidden="true">↓</span></a>
         </div>
