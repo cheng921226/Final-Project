@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
-import LearningArtwork from './LearningArtwork';
 
 const STATUS_LABELS = { published: '已發布', draft: '草稿', archived: '已封存' };
 
@@ -124,25 +123,16 @@ function Home({ token }) {
     <div className="page-wrap home-page">
       <section className="home-hero" aria-labelledby="home-title">
         <div className="home-hero-copy">
-          <p className="eyebrow"><span className="eyebrow-dot" /> YOUR NEXT CHAPTER</p>
-          <h1 id="home-title">讓每一份好奇，<br />成為<em>前進的力量。</em></h1>
-          <p className="home-description">探索知識，連結想法。讓 AI 陪你釐清每個觀念，<br className="desktop-break" />以自己的步調，走出更清晰的學習路徑。</p>
-          <a className="hero-explore" href="#course-library">探索課程 <span aria-hidden="true">↗</span></a>
+          <h1 id="home-title">照自己的步調，<br />把課程學懂。</h1>
+          <p className="home-description">看影片、整理重點，有問題就問 AI 助教。</p>
+          <a className="hero-explore" href="#course-library">瀏覽課程 <span aria-hidden="true">↓</span></a>
         </div>
-        <LearningArtwork />
       </section>
-      <div className="learning-features" aria-label="平台學習特色">
-        <div><span className="feature-symbol" aria-hidden="true">01</span><span>課程影片<small>循序漸進，掌握核心觀念</small></span></div>
-        <div><span className="feature-symbol" aria-hidden="true">02</span><span>知識脈絡<small>摘要與心智圖，連結所學</small></span></div>
-        <div><span className="feature-symbol" aria-hidden="true">03</span><span>AI 學習陪伴<small>即時提問，讓理解更深入</small></span></div>
-      </div>
 
       <section id="course-library" className="course-library" aria-labelledby="library-title">
         <div className="library-toolbar">
           <div className="section-heading">
-            <p className="eyebrow">THE COURSE COLLECTION</p>
             <h2 id="library-title">{token ? "我的學習空間" : "探索所有課程"}<span className="course-count">{courses.length}</span></h2>
-            <p>下一個新發現，從這裡開始。</p>
           </div>
         <div className="search-panel">
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
@@ -175,10 +165,7 @@ function Home({ token }) {
                 <div className="course-card">
                   <Link className="course-card-main" to={`/course/${course.id}`}>
                     <div className="course-cover">
-                      <span className="cover-category">AI 輔助課程</span>
                       <div className="cover-art" aria-hidden="true"><i /><i /><i /><i /></div>
-                      <span className="cover-index" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
-                      <span className="cover-caption" aria-hidden="true">EXPAND YOUR HORIZONS</span>
                     </div>
                     <div className="course-card-body">
                       <h3>{course.title}</h3>
@@ -196,7 +183,7 @@ function Home({ token }) {
           </div>
         )}
       </section>
-      <footer className="home-footer"><span>AI 輔助線上學習平台</span><span>保持好奇，持續前行。<span aria-hidden="true"> ↗</span></span></footer>
+      <footer className="home-footer"><span>AI 輔助線上學習平台</span></footer>
     </div>
   );
 }
