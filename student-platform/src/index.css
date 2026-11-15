@@ -4492,21 +4492,53 @@ a {
   width: min(1180px, calc(100% - 40px));
 }
 
-.course-management-page .teacher-filters.is-fixed {
-  position: fixed;
-  top: 82px;
-  z-index: 35;
-  right: max(20px, calc((100vw - 1180px) / 2));
-  width: max-content;
-  max-width: calc(100vw - 40px);
+.course-management-back {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: var(--primary);
+  font-weight: 600;
 }
 
-@media (max-width: 900px) {
-  .course-management-page .teacher-filters.is-fixed {
-    right: 14px;
-    width: calc(100vw - 28px);
-    max-width: calc(100vw - 28px);
-  }
+.course-management-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin-bottom: 22px;
+}
+
+.course-management-filters > label:first-child {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+
+.course-publication-filter {
+  flex: 0 1 220px;
+}
+
+.course-management-tile {
+  display: flex;
+  flex-direction: column;
+}
+
+.course-management-tile .course-card-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.course-management-tile h2 {
+  margin: 0;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.course-management-tile .course-meta {
+  flex-wrap: wrap;
+}
+
+.course-management-tile .course-card-footer {
+  margin-top: auto;
+  padding-inline: 0;
 }
 
 .course-management-page .course-upload-link {

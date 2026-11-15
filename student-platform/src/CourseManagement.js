@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import SearchableCourseSelect from './SearchableCourseSelect';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -11,6 +10,11 @@ const STATUS_LABELS = {
   archived: '已封存',
 };
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
+const PUBLICATION_FILTER_OPTIONS = [
+  ['', '全部'],
+  ['published', '已發布'],
+  ['unpublished', '未發布'],
+];
 
 const AI_COMPONENTS = [
   ['transcript', '逐字稿'],
@@ -79,22 +83,36 @@ function formsMatch(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function courseIdFromUrl() {
-  return new URLSearchParams(window.location.search).get('course') || '';
-}
+const MANAGEMENT_PATH = '/teacher/courses';
 
-function rememberCourseInUrl(courseId) {
-  const url = new URL(window.location.href);
-  if (courseId) url.searchParams.set('course', courseId);
-  else url.searchParams.delete('course');
-  window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`);
+function PublicationTabs({ labelId, options, value, onChange }) {
+  return (
+    <div
+      className="course-status-tabs"
+      role="group"
+      aria-labelledby={labelId}
+      style={{ '--selected-status': options.findIndex(([status]) => status === value) }}
+    >
+      <span className="course-status-indicator" aria-hidden="true" />
+      {options.map(([status, label]) => (
+        <button key={status} type="button" aria-pressed={status === value} onClick={() => onChange(status)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 export default function CourseManagement() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const requestedId = new URLSearchParams(location.search).get('course') || '';
   const token = localStorage.getItem('access_token');
   const headers = useMemo(() => ({ Authorization: `Bearer ${token}` }), [token]);
+  const [courseId, setCourseId] = useState(requestedId);
   const [data, setData] = useState(null);
-  const [courseId, setCourseId] = useState('');
+  const [courseSearch, setCourseSearch] = useState('');
+  const [publicationFilter, setPublicationFilter] = useState('');
   const [form, setForm] = useState(courseForm());
   const [lectureForms, setLectureForms] = useState({});
   const [expandedLectureIds, setExpandedLectureIds] = useState(() => new Set());
@@ -103,14 +121,15 @@ export default function CourseManagement() {
   const [busyKey, setBusyKey] = useState('');
   const [generationQueue, setGenerationQueue] = useState([]);
   const [pendingGeneration, setPendingGeneration] = useState(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(location.state?.deletionMessage || '');
   const [error, setError] = useState('');
-  const [coursePickerFixed, setCoursePickerFixed] = useState(false);
-  const coursePickerRef = useRef(null);
   const skipNextHistoryWarning = useRef(false);
+  const activeCourseId = useRef(courseId);
+  const headingRef = useRef(null);
+  const focusHeadingAfterNavigation = useRef(false);
 
   const selectedCourse = useMemo(
-    () => data?.courses?.find(course => String(course.id) === String(courseId)),
+    () => data?.courses?.find(course => String(course.id) === courseId),
     [courseId, data]
   );
   const hasActiveJobs = useMemo(
@@ -132,21 +151,6 @@ export default function CourseManagement() {
       !formsMatch(lectureForms[lecture.id] || lectureForm(), lectureForm(lecture))
     );
   }, [form, lectureForms, selectedCourse]);
-
-  useEffect(() => {
-    const picker = coursePickerRef.current;
-    if (!picker) return undefined;
-
-    const stickyStart = picker.getBoundingClientRect().top + window.scrollY - 82;
-    const updatePosition = () => setCoursePickerFixed(window.scrollY >= stickyStart);
-    updatePosition();
-    window.addEventListener('scroll', updatePosition, { passive: true });
-    window.addEventListener('resize', updatePosition);
-    return () => {
-      window.removeEventListener('scroll', updatePosition);
-      window.removeEventListener('resize', updatePosition);
-    };
-  }, [data?.courses?.length, loading]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return undefined;
@@ -197,20 +201,30 @@ export default function CourseManagement() {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(body.detail || '無法取得課程管理資料');
     setData(body);
-    if (statusOnly) return body;
-    const nextCourse = body.courses?.find(item => String(item.id) === String(preferredId)) || body.courses?.[0];
-    const nextCourseId = nextCourse ? String(nextCourse.id) : '';
-    setCourseId(nextCourseId);
-    rememberCourseInUrl(nextCourseId);
+    if (statusOnly || String(preferredId) !== activeCourseId.current) return body;
+    const nextCourse = body.courses?.find(item => String(item.id) === String(preferredId));
     setForm(courseForm(nextCourse));
     setLectureForms(Object.fromEntries((nextCourse?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
   }, [headers, token]);
 
   useEffect(() => {
+    if (requestedId === courseId || skipNextHistoryWarning.current) return;
+
+    activeCourseId.current = requestedId;
+    focusHeadingAfterNavigation.current = true;
+    setLoading(true);
+    setError('');
+    setCourseId(requestedId);
+    setExpandedLectureIds(new Set());
+    setOpenTranscriptId(null);
+    setMessage(location.state?.deletionMessage || '');
+  }, [courseId, location.state, requestedId]);
+
+  useEffect(() => {
     let cancelled = false;
     async function initialize() {
       try {
-        await load(courseIdFromUrl());
+        await load(courseId);
       } catch (err) {
         if (!cancelled) setError(err.message || '課程管理載入失敗');
       } finally {
@@ -219,7 +233,13 @@ export default function CourseManagement() {
     }
     initialize();
     return () => { cancelled = true; };
-  }, [load]);
+  }, [load, courseId]);
+
+  useEffect(() => {
+    if (loading || !headingRef.current || !focusHeadingAfterNavigation.current) return;
+    focusHeadingAfterNavigation.current = false;
+    headingRef.current.focus();
+  }, [loading]);
 
   useEffect(() => {
     if (!token || !hasActiveJobs) return undefined;
@@ -278,20 +298,6 @@ export default function CourseManagement() {
 
     return () => window.clearInterval(intervalId);
   }, [hasActiveJobs, headers, token]);
-
-  function chooseCourse(nextId) {
-    if (String(nextId) === String(courseId)) return true;
-    if (hasUnsavedChanges && !window.confirm(UNSAVED_CHANGES_MESSAGE)) return false;
-    const course = data?.courses?.find(item => String(item.id) === String(nextId));
-    setCourseId(nextId);
-    rememberCourseInUrl(nextId);
-    setForm(courseForm(course));
-    setLectureForms(Object.fromEntries((course?.lectures || []).map(lecture => [lecture.id, lectureForm(lecture)])));
-    setMessage('');
-    setExpandedLectureIds(new Set());
-    setOpenTranscriptId(null);
-    return true;
-  }
 
   function toggleLecture(lectureId) {
     setExpandedLectureIds(current => {
@@ -432,11 +438,10 @@ export default function CourseManagement() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail || '課程刪除失敗');
-      setOpenTranscriptId(null);
-      await load('');
-      setMessage(body.backup_cleanup_failed
+      const deletionMessage = body.backup_cleanup_failed
         ? `「${expectedTitle}」已刪除，但影片備份檔清理失敗，請檢查 Storage。`
-        : `「${expectedTitle}」及相關資料已永久刪除。`);
+        : `「${expectedTitle}」及相關資料已永久刪除。`;
+      navigate(MANAGEMENT_PATH, { replace: true, state: { deletionMessage } });
     } catch (err) {
       setMessage(err.message || '課程刪除失敗');
     } finally {
@@ -587,36 +592,96 @@ export default function CourseManagement() {
   if (loading) return <div className="teacher-state"><div className="teacher-loader" /><p>正在載入課程管理...</p></div>;
   if (error) return <div className="teacher-state"><h1>無法開啟課程管理</h1><p>{error}</p><Link to="/login" className="primary-link">前往登入</Link></div>;
 
+  const courses = data?.courses || [];
+  const search = courseSearch.trim().toLowerCase();
+  const visibleCourses = courses
+    .map((course, index) => ({ course, coverTheme: index % 4 }))
+    .filter(({ course }) => {
+      const teacher = course.assigned_teacher;
+      const matchesSearch = !search || [course.title, teacher?.name, teacher?.email]
+        .some(value => value?.toLowerCase().includes(search));
+      const matchesPublication = !publicationFilter
+        || (course.status === 'published') === (publicationFilter === 'published');
+      return matchesSearch && matchesPublication;
+    });
+
   return (
     <div className="teacher-page course-management-page">
       <header className="teacher-hero">
         <div>
-          <p className="eyebrow">Course management</p>
-          <h1>{isCampus ? '平台課程管理' : '我的課程管理'}</h1>
-          <p>{isCampus ? '管理平台上的所有課程，包括老師建立的課程、授課教師指派與發布狀態。' : '管理自己上傳或被指派授課的課程、安排小節並管理 AI 教材。'}</p>
+          {courseId && <Link className="course-management-back" to={MANAGEMENT_PATH}>← 返回課程管理</Link>}
+          <h1 ref={headingRef} tabIndex={-1}>{courseId
+            ? selectedCourse?.title || '找不到這門課程'
+            : isCampus ? '平台課程管理' : '我的課程管理'}</h1>
         </div>
-        <div
-          ref={coursePickerRef}
-          className={`teacher-filters${coursePickerFixed ? ' is-fixed' : ''}`}
-        >
-          <SearchableCourseSelect
-            courses={data?.courses || []}
-            value={courseId}
-            onChange={chooseCourse}
-            optionLabel={course => `${course.title}${course.assigned_teacher ? `｜${course.assigned_teacher.name || course.assigned_teacher.email}` : '｜尚未指派'}`}
-          />
+        {(!courseId || selectedCourse) && (
           <Link
             className="question-secondary-button course-upload-link"
             to="/teacher/upload"
-            state={{ courseId }}
+            state={selectedCourse ? { courseId: String(selectedCourse.id) } : undefined}
           >
-            新增課程或小節
+            {selectedCourse ? '新增小節' : '新增課程或小節'}
           </Link>
-        </div>
+        )}
       </header>
 
-      {message && <p className="question-review-message">{message}</p>}
-      {!selectedCourse ? <div className="teacher-empty">目前沒有可管理的課程。</div> : <>
+      {message && <p className="question-review-message" role="status">{message}</p>}
+      {!courseId && (
+        <>
+          <div className="course-management-filters">
+            <label className="review-field">
+              <span>搜尋課程</span>
+              <input
+                type="search"
+                placeholder="輸入課程名稱或授課教師"
+                value={courseSearch}
+                onChange={event => setCourseSearch(event.target.value)}
+              />
+            </label>
+            <div className="review-field course-publication-filter">
+              <span id="course-publication-filter">發布狀態</span>
+              <PublicationTabs
+                labelId="course-publication-filter"
+                options={PUBLICATION_FILTER_OPTIONS}
+                value={publicationFilter}
+                onChange={setPublicationFilter}
+              />
+            </div>
+          </div>
+          {visibleCourses.length ? (
+            <div className="course-grid">
+              {visibleCourses.map(({ course, coverTheme }) => (
+                <Link
+                  key={course.id}
+                  className={`course-link course-card course-management-tile cover-theme-${coverTheme}`}
+                  to={`${MANAGEMENT_PATH}?course=${encodeURIComponent(course.id)}`}
+                  aria-labelledby={`managed-course-title-${course.id}`}
+                >
+                  <div className="course-cover" aria-hidden="true">
+                    <div className="cover-art"><i /><i /><i /><i /></div>
+                  </div>
+                  <div className="course-card-body">
+                    <h2 id={`managed-course-title-${course.id}`}>{course.title || '未命名課程'}</h2>
+                    <p className="course-meta">
+                      {course.assigned_teacher?.name || course.assigned_teacher?.email || '尚未指派教師'}
+                      <span aria-hidden="true">·</span>
+                      {course.lectures?.length || 0} 個小節
+                    </p>
+                    <div className="course-card-footer">
+                      <span className={`course-status-badge status-${course.status}`}>{STATUS_LABELS[course.status] || '未設定'}</span>
+                      <span className="course-enter">管理課程 <span aria-hidden="true">→</span></span>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          ) : <div className="teacher-empty" role="status">
+            {courses.length ? '找不到符合搜尋或篩選條件的課程。' : '目前沒有可管理的課程。'}
+          </div>}
+        </>
+      )}
+      {courseId && !selectedCourse && <p className="teacher-empty">這門課程可能已刪除，或你的帳號沒有管理權限。</p>}
+      {selectedCourse && <>
         <form className="teacher-panel course-settings-card" onSubmit={saveCourse}>
           <div className="panel-title">
             <div><h3>課程基本資料</h3><p>草稿不會出現在學生課程列表；封存後可保留歷史資料。</p></div>
@@ -626,24 +691,12 @@ export default function CourseManagement() {
             <label className="review-field"><span>課程名稱</span><input required value={form.title} onChange={event => setForm(current => ({ ...current, title: event.target.value }))} /></label>
             <div className="review-field">
               <span id="course-publication-status">發布狀態</span>
-              <div
-                className="course-status-tabs"
-                role="group"
-                aria-labelledby="course-publication-status"
-                style={{ '--selected-status': STATUS_OPTIONS.findIndex(([status]) => status === form.status) }}
-              >
-                <span className="course-status-indicator" aria-hidden="true" />
-                {STATUS_OPTIONS.map(([status, label]) => (
-                  <button
-                    key={status}
-                    type="button"
-                    aria-pressed={form.status === status}
-                    onClick={() => setForm(current => ({ ...current, status }))}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <PublicationTabs
+                labelId="course-publication-status"
+                options={STATUS_OPTIONS}
+                value={form.status}
+                onChange={status => setForm(current => ({ ...current, status }))}
+              />
             </div>
             <label className="review-field"><span>上傳者</span><input readOnly value={selectedCourse.creator?.name || selectedCourse.creator?.email || '無法辨識'} /></label>
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}

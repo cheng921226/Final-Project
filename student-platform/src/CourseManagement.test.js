@@ -1,7 +1,10 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import CourseManagement from './CourseManagement';
 
-jest.mock('react-router-dom', () => ({ Link: ({ children, to, ...props }) => <a href={to} {...props}>{children}</a> }), { virtual: true });
+function renderManagement(path = '/teacher/courses?course=1') {
+  return render(<MemoryRouter initialEntries={[path]}><CourseManagement /></MemoryRouter>);
+}
 
 const baseCourse = {
   id: 1,
@@ -52,7 +55,7 @@ test.each([
     .mockImplementationOnce(() => new Promise(resolve => { finishRequest = resolve; }))
     .mockResolvedValue({ ok: true, json: async () => managementResponse });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
-  render(<CourseManagement />);
+  renderManagement();
   const toggle = await screen.findByRole('button', { name: '搜尋演算法' });
   if (button === '重新執行失敗項目') {
     fireEvent.click(toggle);
@@ -101,7 +104,7 @@ test('generates a transcript from a YouTube lesson with no transcript', async ()
     }));
   const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
   const alert = jest.spyOn(window, 'alert').mockImplementation(() => {});
-  render(<CourseManagement />);
+  renderManagement();
 
   for (const label of ['摘要', '知識點', '心智圖', '題目']) {
     const badge = await screen.findByRole('button', { name: `${label}：等待處理` });
@@ -146,7 +149,7 @@ test('polls regeneration progress and ignores old completed states while waiting
       : managementResponse });
   });
   const confirm = jest.spyOn(window, 'confirm').mockReturnValueOnce(false).mockReturnValue(true);
-  render(<CourseManagement />);
+  renderManagement();
   const lectureToggle = await screen.findByRole('button', { name: '搜尋演算法' });
   const summaryBadge = screen.getByRole('button', { name: '摘要：已完成' });
   expect(summaryBadge).toHaveTextContent('摘');
@@ -196,7 +199,7 @@ test('queues other AI items in order and continues after a failure', async () =>
     });
   });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
-  render(<CourseManagement />);
+  renderManagement();
 
   fireEvent.click(await screen.findByRole('button', { name: '摘要：已完成' }));
   fireEvent.click(screen.getByRole('button', { name: '心智圖：已完成' }));
@@ -227,8 +230,8 @@ test('teacher manages owned courses without teacher assignment control', async (
     }),
   });
 
-  render(<CourseManagement />);
-  expect(await screen.findByRole('heading', { name: '我的課程管理' })).toBeInTheDocument();
+  renderManagement();
+  expect(await screen.findByRole('heading', { name: '資料結構' })).toBeInTheDocument();
   expect(screen.getByRole('textbox', { name: '課程名稱' })).toHaveValue('資料結構');
   expect(screen.queryByText('授課教師')).not.toBeInTheDocument();
 });
@@ -257,17 +260,15 @@ test('campus sees and manages teacher courses alongside its own courses', async 
     }),
   });
 
-  render(<CourseManagement />);
-  expect(await screen.findByRole('heading', { name: '平台課程管理' })).toBeInTheDocument();
+  renderManagement();
+  expect(await screen.findByRole('heading', { name: '資料結構' })).toBeInTheDocument();
   expect(screen.getByDisplayValue('校園平台甲')).toBeInTheDocument();
   expect(screen.getByText('授課教師')).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
-  fireEvent.focus(screen.getByRole('combobox', { name: '課程' }));
-  expect(screen.getByRole('option', { name: '離散數學｜王老師' })).toBeInTheDocument();
 });
 
-test('warns before leaving or switching courses with unsaved changes', async () => {
+test('warns before leaving the course with unsaved changes', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
@@ -282,7 +283,7 @@ test('warns before leaving or switching courses with unsaved changes', async () 
   });
   jest.spyOn(window, 'confirm').mockReturnValue(false);
 
-  render(<CourseManagement />);
+  renderManagement();
   const titleInput = await screen.findByRole('textbox', { name: '課程名稱' });
   fireEvent.change(titleInput, { target: { value: '尚未儲存的新名稱' } });
 
@@ -290,18 +291,13 @@ test('warns before leaving or switching courses with unsaved changes', async () 
   window.dispatchEvent(unloadEvent);
   expect(unloadEvent.defaultPrevented).toBe(true);
 
-  const courseSelect = screen.getByRole('combobox', { name: '課程' });
-  fireEvent.focus(courseSelect);
-  fireEvent.change(courseSelect, { target: { value: '演算法' } });
-  fireEvent.click(screen.getByRole('option', { name: /演算法/ }));
+  fireEvent.click(screen.getByRole('link', { name: '← 返回課程管理' }));
   expect(window.confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
-  expect(courseSelect).toHaveValue('資料結構');
   expect(titleInput).toHaveValue('尚未儲存的新名稱');
 });
 
 test('keeps the selected course after refreshing the page', async () => {
   localStorage.setItem('access_token', 'teacher-token');
-  window.history.replaceState({}, '', '/teacher/courses?course=2');
   global.fetch = jest.fn().mockResolvedValue({
     ok: true,
     json: async () => ({
@@ -311,11 +307,73 @@ test('keeps the selected course after refreshing the page', async () => {
     }),
   });
 
-  render(<CourseManagement />);
+  renderManagement('/teacher/courses?course=2');
 
   expect(await screen.findByRole('textbox', { name: '課程名稱' })).toHaveValue('演算法');
-  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('演算法');
-  expect(window.location.search).toBe('?course=2');
+});
+
+test('opens the selected course from the card list and returns to the list', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 10, role: 'teacher' },
+      courses: [baseCourse, { ...baseCourse, id: 2, title: '演算法', status: 'published' }],
+    }),
+  });
+
+  renderManagement('/teacher/courses');
+  const card = await screen.findByRole('link', { name: '演算法' });
+  expect(screen.getByRole('link', { name: '資料結構' })).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: '課程名稱' })).not.toBeInTheDocument();
+
+  fireEvent.click(card);
+  expect(await screen.findByRole('textbox', { name: '課程名稱' })).toHaveValue('演算法');
+  expect(screen.queryByRole('link', { name: '資料結構' })).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('link', { name: '← 返回課程管理' }));
+  expect(await screen.findByRole('link', { name: '資料結構' })).toBeInTheDocument();
+});
+
+test('combines course search with publication filtering', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValue({
+    ok: true,
+    json: async () => ({
+      actor: { id: 10, role: 'teacher' },
+      courses: [
+        baseCourse,
+        { ...baseCourse, id: 2, title: 'React 基礎', status: 'published' },
+        { ...baseCourse, id: 3, title: 'React 進階', status: 'archived' },
+      ],
+    }),
+  });
+
+  renderManagement('/teacher/courses');
+  await screen.findByRole('link', { name: '資料結構' });
+  const unpublished = screen.getByRole('button', { name: '未發布' });
+  const published = screen.getByRole('button', { name: '已發布' });
+  const search = screen.getByRole('searchbox', { name: '搜尋課程' });
+
+  fireEvent.click(unpublished);
+  expect(unpublished).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('link', { name: '資料結構' })).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'React 進階' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'React 基礎' })).not.toBeInTheDocument();
+
+  fireEvent.change(search, { target: { value: ' react ' } });
+  expect(screen.queryByRole('link', { name: '資料結構' })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'React 進階' })).toBeInTheDocument();
+
+  fireEvent.click(published);
+  expect(published).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByRole('link', { name: 'React 基礎' })).toBeInTheDocument();
+  expect(screen.queryByRole('link', { name: 'React 進階' })).not.toBeInTheDocument();
+
+  fireEvent.change(search, { target: { value: '王老師' } });
+  expect(screen.getByRole('link', { name: 'React 基礎' })).toBeInTheDocument();
+  fireEvent.change(search, { target: { value: '無符合課程' } });
+  expect(screen.getByRole('status')).toHaveTextContent('找不到符合搜尋或篩選條件的課程');
 });
 
 test('asks before replacing an existing video backup', async () => {
@@ -339,7 +397,7 @@ test('asks before replacing an existing video backup', async () => {
   });
   jest.spyOn(window, 'confirm').mockReturnValue(false);
 
-  render(<CourseManagement />);
+  renderManagement();
   fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
   fireEvent.click(screen.getByRole('button', { name: '重新備份' }));
 
@@ -378,7 +436,7 @@ test('lectures start collapsed and expose their own question review links when e
     }),
   });
 
-  render(<CourseManagement />);
+  renderManagement();
 
   const first = await screen.findByRole('button', { name: '沒有待審題目的小節' });
   const second = screen.getByRole('button', { name: '有待審題目的小節' });
@@ -422,7 +480,7 @@ test('requires the exact course title before permanently deleting a course', asy
     });
   jest.spyOn(window, 'prompt').mockReturnValue('資料結構');
 
-  render(<CourseManagement />);
+  renderManagement();
   fireEvent.click(await screen.findByRole('button', { name: '刪除課程' }));
 
   expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答、學習進度與學分紀錄'));
@@ -457,7 +515,7 @@ test('requires the exact lecture title before permanently deleting a lecture', a
     });
   jest.spyOn(window, 'prompt').mockReturnValue('搜尋演算法');
 
-  render(<CourseManagement />);
+  renderManagement();
   fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
   fireEvent.click(screen.getByRole('button', { name: '刪除小節' }));
 
@@ -478,7 +536,7 @@ test('selects a publication status and saves it only when the course form is sub
   };
   global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => response });
 
-  render(<CourseManagement />);
+  renderManagement();
   const draft = await screen.findByRole('button', { name: '草稿' });
   const published = screen.getByRole('button', { name: '已發布' });
   expect(draft).toHaveAttribute('aria-pressed', 'true');
