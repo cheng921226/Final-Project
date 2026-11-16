@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -61,29 +61,33 @@ function ReviewMode() {
   const [retestAnswers, setRetestAnswers] = useState({});
   const [retestSubmitting, setRetestSubmitting] = useState(false);
   const [retestMessage, setRetestMessage] = useState('');
+  const headingRef = useRef(null);
 
   useEffect(() => {
+    const controller = new AbortController();
     async function fetchCourses() {
       setCourseLoading(true);
       setError('');
       try {
-        const res = await fetch(`${API_URL}/courses`);
+        const res = await fetch(`${API_URL}/courses`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          signal: controller.signal,
+        });
         if (!res.ok) throw new Error('無法取得課程清單');
         const data = await res.json();
-        const courseList = Array.isArray(data) ? data : [];
-        setCourses(courseList);
-        if (courseList.length > 0) {
-          setCourseId(String(courseList[0].id));
+        if (!controller.signal.aborted) {
+          setCourses(Array.isArray(data) ? data : []);
         }
       } catch (err) {
-        setError(err.message || '課程清單載入失敗');
+        if (!controller.signal.aborted) setError(err.message || '課程清單載入失敗');
       } finally {
-        setCourseLoading(false);
+        if (!controller.signal.aborted) setCourseLoading(false);
       }
     }
 
     fetchCourses();
-  }, []);
+    return () => controller.abort();
+  }, [token]);
 
   useEffect(() => {
     async function fetchUserProfile() {
@@ -111,11 +115,9 @@ function ReviewMode() {
   }, [token]);
 
   useEffect(() => {
+    if (!courseId) return;
+    const controller = new AbortController();
     async function fetchReview() {
-      if (!courseId) {
-        setReviewData(null);
-        return;
-      }
       if (!token) {
         setReviewData(null);
         setError('請先登入，系統才能根據你的作答紀錄產生複習模式。');
@@ -127,6 +129,7 @@ function ReviewMode() {
       try {
         const res = await fetch(`${API_URL}/courses/${courseId}/review`, {
           headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
         });
         if (!res.ok) {
           if (res.status === 401 || res.status === 403) {
@@ -135,20 +138,23 @@ function ReviewMode() {
           throw new Error('無法取得複習資料');
         }
         const data = await res.json();
+        if (controller.signal.aborted) return;
         setReviewData(data);
         setRetestSession(null);
         setRetestQuestions([]);
         setRetestAnswers({});
         setRetestMessage('');
       } catch (err) {
+        if (controller.signal.aborted) return;
         setReviewData(null);
         setError(err.message || '複習資料載入失敗');
       } finally {
-        setReviewLoading(false);
+        if (!controller.signal.aborted) setReviewLoading(false);
       }
     }
 
     fetchReview();
+    return () => controller.abort();
   }, [courseId, token, refreshKey]);
 
   const selectedCourse = useMemo(
@@ -157,6 +163,19 @@ function ReviewMode() {
   );
 
   const courseTitle = selectedCourse?.title || selectedCourse?.course_name || reviewData?.title || '課程複習';
+
+  function selectCourse(id) {
+    setCourseId(id);
+    setReviewData(null);
+    setReviewLoading(Boolean(id && token));
+    setError('');
+    setResetMessage('');
+    setRetestSession(null);
+    setRetestQuestions([]);
+    setRetestAnswers({});
+    setRetestMessage('');
+    headingRef.current?.focus();
+  }
 
   async function resetDemoCourseAttempts() {
     if (!token || !courseId || resetting) return;
@@ -254,43 +273,70 @@ function ReviewMode() {
         <div>
           <Link to="/" className="back-link">← 返回首頁</Link>
           <p className="eyebrow">Review mode</p>
-          <h1>個人化課程複習</h1>
+          <h1 ref={headingRef} tabIndex={-1}>個人化課程複習</h1>
           <p>依照你在整門課的錯題、作答紀錄與課程內容，整理推薦知識點、錯題回顧與重新測驗。</p>
         </div>
 
-        <label className="review-course-picker">
-          <span>選擇課程</span>
-          <select
-            value={courseId}
-            onChange={(event) => setCourseId(event.target.value)}
-            disabled={courseLoading || courses.length === 0}
-          >
-            {courses.map(course => (
-              <option key={course.id} value={course.id}>
-                {course.title || course.course_name || `課程 ${course.id}`}
-              </option>
-            ))}
-          </select>
-          {userProfile?.email === 'teststudent@example.com' && (
+        {courseId && (
+          <div className="review-course-actions">
             <button
               type="button"
-              onClick={resetDemoCourseAttempts}
-              disabled={resetting || !courseId}
-              className="review-reset-button"
+              className="question-secondary-button"
+              disabled={resetting || retestLoading || retestSubmitting}
+              onClick={() => selectCourse('')}
             >
-              {resetting ? '重置中...' : '重置本課測驗'}
+              更換課程
             </button>
-          )}
-          {resetMessage && (
-            <small className="review-reset-message">{resetMessage}</small>
-          )}
-        </label>
+            {userProfile?.email === 'teststudent@example.com' && (
+              <button
+                type="button"
+                onClick={resetDemoCourseAttempts}
+                disabled={resetting}
+                className="review-reset-button"
+              >
+                {resetting ? '重置中...' : '重置本課測驗'}
+              </button>
+            )}
+            {resetMessage && <small className="review-reset-message">{resetMessage}</small>}
+          </div>
+        )}
       </header>
 
       {courseLoading ? (
         <div className="empty-card">正在載入課程清單...</div>
       ) : error ? (
-        <div className="empty-card">{error}</div>
+        <div className="empty-card" role="alert">{error}</div>
+      ) : !courseId ? (
+        <section aria-labelledby="review-course-title">
+          <div className="section-heading">
+            <h2 id="review-course-title">選擇課程</h2>
+          </div>
+          {courses.length ? (
+            <div className="course-grid">
+              {courses.map((course, index) => (
+                <button
+                  key={course.id}
+                  type="button"
+                  className={`course-link course-card review-course-card cover-theme-${index % 4}`}
+                  aria-labelledby={`review-course-${course.id}`}
+                  onClick={() => selectCourse(String(course.id))}
+                >
+                  <span className="course-cover" aria-hidden="true">
+                    <i className="cover-art"><i /><i /><i /><i /></i>
+                  </span>
+                  <span className="course-card-body">
+                    <strong id={`review-course-${course.id}`}>
+                      {course.title || course.course_name || `課程 ${course.id}`}
+                    </strong>
+                    {course.teacher_name && <span className="course-meta">{course.teacher_name}</span>}
+                  </span>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-card">目前沒有可複習的課程。</div>
+          )}
+        </section>
       ) : reviewLoading ? (
         <div className="empty-card">正在整理 {courseTitle} 的複習內容...</div>
       ) : !reviewData ? (

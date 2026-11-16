@@ -971,41 +971,6 @@ def upsert_video_progress(
     return res.data[0]
 
 
-@router.get("/video_progresses/resume")
-def get_resume_video_progress(context: AuthContext = Depends(get_auth_context)):
-    course_ids = _student_enrolled_course_ids(context)
-    if not course_ids:
-        return None
-
-    rows = (
-        context.database.table("video_progresses")
-        .select("lecture_id,last_position,lectures!inner(title,course_id,courses!inner(title))")
-        .eq("student_id", context.profile["id"])
-        .eq("completed", False)
-        .gt("last_position", 0)
-        .eq("lectures.is_visible", True)
-        .eq("lectures.courses.status", "published")
-        .in_("lectures.course_id", sorted(course_ids))
-        .order("updated_at", desc=True)
-        .order("id", desc=True)
-        .limit(1)
-        .execute()
-        .data
-        or []
-    )
-    if not rows:
-        return None
-    progress = rows[0]
-    lecture = progress["lectures"]
-    return {
-        "course_id": lecture["course_id"],
-        "course_title": lecture["courses"]["title"],
-        "lecture_id": progress["lecture_id"],
-        "lecture_title": lecture["title"],
-        "last_position": progress["last_position"],
-    }
-
-
 @router.get("/video_progresses/{lecture_id}")
 def get_video_progress(
     lecture_id: int,

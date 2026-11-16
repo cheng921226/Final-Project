@@ -118,7 +118,7 @@ test('students see only their enrolled published courses without status or analy
   expect(screen.queryByRole('heading', { name: '其他教師已發布課程' })).not.toBeInTheDocument();
   expect(screen.queryByText('已發布')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '課程分析' })).not.toBeInTheDocument();
-  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(global.fetch).toHaveBeenCalledTimes(1);
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/courses',
     expect.objectContaining({
@@ -156,24 +156,5 @@ test('reuses the recent course list when returning to the home page', async () =
   render(<HomeHarness user={user} />);
 
   expect(screen.getByRole('heading', { name: '已發布課程' })).toBeInTheDocument();
-  expect(fetchMock.mock.calls.filter(([url]) => url.endsWith('/courses'))).toHaveLength(1);
-});
-
-test('links students to their most recent unfinished lecture and shows its position', async () => {
-  global.fetch = jest.fn(async url => ({
-    ok: true,
-    json: async () => url.endsWith('/video_progresses/resume') ? {
-      course_id: 12,
-      course_title: '資料結構',
-      lecture_id: 25,
-      lecture_title: '二元搜尋樹',
-      last_position: 83,
-    } : publicCourses,
-  }));
-
-  render(<HomeHarness user={{ id: 3, role: 'student' }} />);
-
-  expect(await screen.findByRole('link', { name: '繼續上次學習' }))
-    .toHaveAttribute('href', '/course/12/lecture/25');
-  expect(screen.getByText('上次看到 1:23')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
 });

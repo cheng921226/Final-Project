@@ -7,45 +7,6 @@ const API_URL = 'http://127.0.0.1:8000';
 const COURSE_CACHE_TTL_MS = 60_000;
 const courseListCache = new Map();
 
-function ContinueLearning({ token }) {
-  const [progress, setProgress] = useState(null);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch(`${API_URL}/video_progresses/resume`, {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: controller.signal,
-    })
-      .then(response => response.ok ? response.json() : null)
-      .then(result => {
-        if (!controller.signal.aborted && result?.lecture_id && result.course_id) {
-          setProgress(result);
-        }
-      })
-      .catch(() => {
-        // The shortcut is optional. A failed request leaves the course list usable.
-      });
-    return () => controller.abort();
-  }, [token]);
-
-  if (!progress) return null;
-  const minutes = Math.floor(progress.last_position / 60);
-  const seconds = String(progress.last_position % 60).padStart(2, '0');
-
-  return (
-    <section className="home-continue-learning" aria-labelledby="home-continue-title">
-      <div>
-        <p>{progress.course_title}</p>
-        <h2 id="home-continue-title">{progress.lecture_title}</h2>
-        <p>上次看到 {minutes}:{seconds}</p>
-      </div>
-      <Link className="primary-link" to={`/course/${progress.course_id}/lecture/${progress.lecture_id}`}>
-        繼續上次學習
-      </Link>
-    </section>
-  );
-}
-
 function Home({ token }) {
   const outletContext = useOutletContext();
   const user = token ? outletContext?.user : null;
@@ -166,8 +127,6 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
           <a className="hero-explore" href="#course-library">瀏覽課程 <span aria-hidden="true">↓</span></a>
         </div>
       </section>
-
-      {token && user?.role === 'student' && <ContinueLearning key={token} token={token} />}
 
       <section id="course-library" className="course-library" aria-labelledby="library-title">
         <div className="library-toolbar">

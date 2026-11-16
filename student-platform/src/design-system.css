@@ -123,20 +123,6 @@ select option,
 .eyebrow { font-size: 10px; font-weight: 700; letter-spacing: .17em; }
 .page-wrap { width: min(1180px, calc(100% - 64px)); }
 .home-page { padding-top: 0; padding-bottom: 0; }
-.home-continue-learning {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 16px 24px;
-  margin-top: 24px;
-  padding: 20px 24px;
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  background: var(--surface);
-}
-.home-continue-learning h2 { margin: 4px 0; font-size: 18px; overflow-wrap: anywhere; }
-.home-continue-learning p { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .home-hero {
   display: grid;
   place-items: center;
