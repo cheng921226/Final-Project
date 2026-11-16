@@ -44,6 +44,10 @@ test('prefills the course from navigation state and lets the teacher search for 
   expect(screen.getByRole('radio', { name: 'YouTube 連結' })).toBeChecked();
   expect(screen.getByRole('radio', { name: '本機影片' })).toBeInTheDocument();
   expect(searchInput).toHaveValue('離散數學');
+  for (const name of ['逐字稿', '摘要', '知識點', '心智圖', '課堂題目']) {
+    expect(screen.getByRole('checkbox', { name })).not.toBeChecked();
+  }
+  expect(screen.getByRole('button', { name: '建立小節' })).toBeInTheDocument();
 
   fireEvent.change(searchInput, { target: { value: '資料' } });
   const result = screen.getByRole('option', { name: '資料結構｜尚未指派' });
@@ -82,12 +86,18 @@ test('asks before overwriting a duplicate video and reuses the existing lecture'
   fireEvent.click(screen.getByRole('option', { name: '資料結構｜尚未指派' }));
   fireEvent.change(screen.getByRole('textbox', { name: '小節名稱' }), { target: { value: '新小節名稱' } });
   fireEvent.change(screen.getByRole('textbox', { name: 'YouTube 連結' }), { target: { value: 'https://youtu.be/BUTSrY9K01c' } });
-  fireEvent.click(screen.getByRole('button', { name: '建立並自動生成' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '心智圖' }));
+  expect(screen.getByRole('checkbox', { name: '逐字稿' })).toBeChecked();
+  fireEvent.click(screen.getByRole('button', { name: '建立並生成所選教材' }));
 
   await waitFor(() => expect(lectureRequests).toBe(2));
   expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('要覆蓋原有小節嗎？'));
   const lectureCalls = global.fetch.mock.calls.filter(([url]) => url.endsWith('/lectures'));
-  expect(JSON.parse(lectureCalls[1][1].body).overwrite_existing).toBe(true);
+  expect(JSON.parse(lectureCalls[1][1].body)).toMatchObject({
+    overwrite_existing: true,
+    auto_process: true,
+    generation_components: ['transcript', 'mindmap'],
+  });
   expect(await screen.findByRole('heading', { name: '原有小節已覆蓋' })).toBeInTheDocument();
   expect(screen.getByRole('link', { name: '前往課程管理查看進度' })).toHaveAttribute(
     'href',

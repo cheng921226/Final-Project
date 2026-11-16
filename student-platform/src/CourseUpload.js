@@ -415,7 +415,7 @@ export default function CourseUpload() {
           <p>可只建立小節。摘要、知識點、心智圖與課堂題目需要逐字稿，選取時會一併勾選逐字稿。</p>
           <div className="upload-generation-options">
             {GENERATION_OPTIONS.map(([component, label]) => (
-              <label className="switch sw-15" key={component}>
+              <label className="switch sw-6" key={component}>
                 <input
                   type="checkbox"
                   checked={generationComponents.includes(component)}
