@@ -567,8 +567,14 @@ test('selects a publication status and saves it only when the course form is sub
   const draft = await screen.findByRole('button', { name: '草稿' });
   const published = screen.getByRole('button', { name: '已發布' });
   expect(draft).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByText('草稿不會出現在學生課程列表。')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: '已封存' }));
+  expect(screen.getByText('封存後會從學生課程列表隱藏，並保留歷史資料。')).toBeInTheDocument();
+  expect(screen.queryByText('草稿不會出現在學生課程列表。')).not.toBeInTheDocument();
 
   fireEvent.click(published);
+  expect(screen.getByText('已選修的學生可在課程列表看到已發布的課程。')).toBeInTheDocument();
   expect(draft).toHaveAttribute('aria-pressed', 'false');
   expect(published).toHaveAttribute('aria-pressed', 'true');
   expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);

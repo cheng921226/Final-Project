@@ -11,6 +11,11 @@ const STATUS_LABELS = {
   archived: '已封存',
 };
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
+const STATUS_HINTS = {
+  draft: '草稿不會出現在學生課程列表。',
+  published: '已選修的學生可在課程列表看到已發布的課程。',
+  archived: '封存後會從學生課程列表隱藏，並保留歷史資料。',
+};
 const PUBLICATION_FILTER_OPTIONS = [
   ['', '全部'],
   ['published', '已發布'],
@@ -688,7 +693,7 @@ export default function CourseManagement() {
       {selectedCourse && <>
         <form className="teacher-panel course-settings-card" onSubmit={saveCourse}>
           <div className="panel-title">
-            <div><h3>課程基本資料</h3><p>草稿不會出現在學生課程列表；封存後可保留歷史資料。</p></div>
+            <div><h3>課程基本資料</h3></div>
             <span className={`course-status-badge status-${form.status}`}>{STATUS_LABELS[form.status]}</span>
           </div>
           <div className="settings-grid">
@@ -701,6 +706,7 @@ export default function CourseManagement() {
                 value={form.status}
                 onChange={status => setForm(current => ({ ...current, status }))}
               />
+              <p className="course-publication-hint" aria-live="polite">{STATUS_HINTS[form.status]}</p>
             </div>
             <label className="review-field"><span>上傳者</span><input readOnly value={selectedCourse.creator?.name || selectedCourse.creator?.email || '無法辨識'} /></label>
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}
