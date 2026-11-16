@@ -48,14 +48,20 @@ function ContinueLearning({ token }) {
 
 function Home({ token }) {
   const outletContext = useOutletContext();
-  const user = outletContext?.user;
+  const user = token ? outletContext?.user : null;
+  const waitingForUser = Boolean(token && !user);
+  const cacheIdentity = user?.email || user?.id || token || 'anonymous';
+  const cacheKey = `${user?.role || 'unknown'}:${cacheIdentity}`;
+
+  return <HomeCourseCatalog key={cacheKey} token={token} user={user} waitingForUser={waitingForUser} cacheKey={cacheKey} />;
+}
+
+function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
   const isTeacher = user?.role === 'teacher';
   const isCampus = user?.role === 'campus';
   const canViewStatus = Boolean(user && user.role !== 'student');
-  const cacheIdentity = user?.email || user?.id || token || 'anonymous';
-  const cacheKey = `${user?.role || 'unknown'}:${cacheIdentity}`;
   const cachedCourseList = courseListCache.get(cacheKey);
-  const [courses, setCourses] = useState([]);
+  const [courses, setCourses] = useState(() => cachedCourseList?.courses || []);
   const [keyword, setKeyword] = useState("");
   const [loading, setLoading] = useState(!cachedCourseList);
   const [error, setError] = useState(null);
@@ -64,29 +70,18 @@ function Home({ token }) {
     const query = searchKeyword.trim();
     const publicUrl = `${API_URL}/courses${query ? `?keyword=${encodeURIComponent(query)}` : ''}`;
     const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    let publicCourses = [];
-    let managedCourses = [];
-
-    if (!isCampus) {
-      const response = await fetch(publicUrl, { headers, signal });
+    async function fetchCourses(url) {
+      const response = await fetch(url, { headers, signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      publicCourses = await response.json();
+      return response.json();
     }
 
-    if (isTeacher || isCampus) {
-      const response = await fetch(`${API_URL}/teacher/course-management`, {
-        headers,
-        signal,
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const managementData = await response.json();
-      managedCourses = managementData.courses || [];
-      const actorId = managementData.actor?.id;
-      managedCourses = managedCourses.map(item => ({
-        ...item,
-        canAnalyze: isCampus || (isTeacher && String(item.teacher_id) === String(actorId)),
-      }));
-    }
+    const [publicCourses, managementData] = await Promise.all([
+      isCampus ? [] : fetchCourses(publicUrl),
+      isTeacher || isCampus ? fetchCourses(`${API_URL}/teacher/course-management`) : null,
+    ]);
+    const actorId = managementData?.actor?.id;
+    const managedCourses = managementData?.courses || [];
 
     const coursesById = new Map();
     publicCourses.forEach(item => {
@@ -95,6 +90,7 @@ function Home({ token }) {
     managedCourses.forEach(item => {
       coursesById.set(String(item.id), {
         ...item,
+        canAnalyze: isCampus || (isTeacher && actorId != null && String(item.teacher_id) === String(actorId)),
         teacher_name: item.assigned_teacher?.name || item.creator?.name || item.teacher_name,
       });
     });
@@ -117,6 +113,7 @@ function Home({ token }) {
   }, [isCampus, isTeacher, token]);
 
   useEffect(() => {
+    if (waitingForUser) return undefined;
     const controller = new AbortController();
     const cached = courseListCache.get(cacheKey);
     if (cached) {
@@ -132,8 +129,9 @@ function Home({ token }) {
 
     loadCourses('', controller.signal)
       .then(result => {
+        if (controller.signal.aborted) return;
         courseListCache.set(cacheKey, { courses: result, fetchedAt: Date.now() });
-        if (!controller.signal.aborted) setCourses(result);
+        setCourses(result);
       })
       .catch(err => {
         if (err.name !== 'AbortError' && !controller.signal.aborted) {
@@ -144,9 +142,10 @@ function Home({ token }) {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [cacheKey, loadCourses]);
+  }, [cacheKey, loadCourses, waitingForUser]);
 
   const searchCourses = async () => {
+    if (waitingForUser) return;
     try {
       setLoading(true);
       setError(null);
@@ -173,7 +172,10 @@ function Home({ token }) {
       <section id="course-library" className="course-library" aria-labelledby="library-title">
         <div className="library-toolbar">
           <div className="section-heading">
-            <h2 id="library-title">{token ? "我的學習空間" : "探索所有課程"}<span className="course-count">{courses.length}</span></h2>
+            <h2 id="library-title">
+              {token ? "我的學習空間" : "探索所有課程"}
+              {(!loading || courses.length > 0) && <span className="course-count">{courses.length}</span>}
+            </h2>
           </div>
         <div className="search-panel">
           <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
@@ -186,8 +188,9 @@ function Home({ token }) {
             }}
             placeholder="搜尋課程名稱、講師或知識點"
             aria-label="搜尋課程"
+            disabled={waitingForUser}
           />
-          <button
+          <button disabled={waitingForUser}
             onClick={searchCourses}>搜尋
           </button>
         </div>

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import { MemoryRouter, Outlet, Route, Routes } from 'react-router-dom';
 import Home from './Home';
 
@@ -60,6 +60,31 @@ test('teachers see published and owned courses, with analysis only for owned cou
   expect(screen.getAllByText('已發布')).toHaveLength(2);
   expect(screen.getByText('草稿')).toHaveClass('status-draft');
   expect(screen.getByText('已封存')).toHaveClass('status-archived');
+});
+
+test('waits for the teacher role and displays public and managed courses together', async () => {
+  let resolveManagement;
+  const managementResponse = new Promise(resolve => { resolveManagement = resolve; });
+  global.fetch = jest.fn(url => url.endsWith('/teacher/course-management')
+    ? managementResponse
+    : Promise.resolve({ ok: true, json: async () => publicCourses }));
+
+  const { rerender } = render(<HomeHarness />);
+  expect(global.fetch).not.toHaveBeenCalled();
+  expect(screen.getByRole('button', { name: '搜尋' })).toBeDisabled();
+
+  await act(async () => {
+    rerender(<HomeHarness user={{ role: 'teacher', email: 'delayed-role@example.com' }} />);
+  });
+  expect(global.fetch).toHaveBeenCalledTimes(2);
+  expect(screen.queryByRole('heading', { name: '已發布課程' })).not.toBeInTheDocument();
+
+  resolveManagement({
+    ok: true,
+    json: async () => ({ actor: { id: 5 }, courses: managedCourses }),
+  });
+  expect(await screen.findByRole('heading', { name: '教師草稿' })).toBeInTheDocument();
+  expect(screen.getAllByRole('heading', { name: '已發布課程' })).toHaveLength(1);
 });
 
 test('campus users see all managed courses and can analyze each one', async () => {
