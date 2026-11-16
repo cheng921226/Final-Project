@@ -376,6 +376,33 @@ test('combines course search with publication filtering', async () => {
   expect(screen.getByRole('status')).toHaveTextContent('找不到符合搜尋或篩選條件的課程');
 });
 
+test('edits the selected course credit settings directly and warns before discarding them', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  const course = { ...baseCourse, credit_value: 3, completion_threshold: 90 };
+  global.fetch = jest.fn(async (_url, options) => ({
+    ok: true,
+    json: async () => options?.method === 'PUT'
+      ? { course: { ...course, ...JSON.parse(options.body) } }
+      : { actor: { id: 10, role: 'teacher' }, courses: [course] },
+  }));
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
+
+  renderManagement();
+  const threshold = await screen.findByRole('spinbutton', { name: '完成度門檻 (%)' });
+  expect(threshold).toHaveValue(90);
+  fireEvent.change(threshold, { target: { value: '85' } });
+  fireEvent.click(screen.getByRole('link', { name: '← 返回課程管理' }));
+  expect(confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
+
+  fireEvent.click(screen.getByRole('button', { name: '儲存學分設定' }));
+  expect(await screen.findByText('學分設定已更新。')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://127.0.0.1:8000/teacher/courses/1/credit-settings',
+    expect.objectContaining({ method: 'PUT', body: expect.stringContaining('"completion_threshold":85') })
+  );
+  expect(threshold).toHaveValue(85);
+});
+
 test('asks before replacing an existing video backup', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn().mockResolvedValue({

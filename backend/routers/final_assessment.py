@@ -180,12 +180,17 @@ def course_completion(
             or []
         )
     progress_by_lecture = {row.get("lecture_id"): row for row in progresses}
+    visible_lecture_ids = [
+        row["id"]
+        for row in lectures
+        if row.get("id") is not None and row.get("is_visible", True)
+    ]
     completed = sum(
         1
-        for lecture_id in lecture_ids
+        for lecture_id in visible_lecture_ids
         if progress_by_lecture.get(lecture_id, {}).get("completed")
     )
-    total = len(lecture_ids)
+    total = len(visible_lecture_ids)
     percentage = round(completed / total * 100) if total else 0
     required = number(course.get("completion_threshold"), 100)
     watched_seconds = sum(number(row.get("watched_seconds")) for row in progresses)

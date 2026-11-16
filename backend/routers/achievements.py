@@ -79,11 +79,14 @@ def evaluate_course(
     certificate: dict[str, Any] | None,
     final_question_count: int,
 ) -> dict[str, Any]:
-    lecture_count = len(lectures)
+    visible_lectures = [
+        lecture for lecture in lectures if lecture.get("is_visible", True)
+    ]
+    lecture_count = len(visible_lectures)
     progress_by_lecture = {row.get("lecture_id"): row for row in progresses}
     completed_lectures = sum(
         1
-        for lecture in lectures
+        for lecture in visible_lectures
         if progress_by_lecture.get(lecture.get("id"), {}).get("completed")
     )
     completion_percentage = percent(completed_lectures, lecture_count)
@@ -103,7 +106,9 @@ def evaluate_course(
     has_credit_settings = total_credits > 0
     required_completion = number(course.get("completion_threshold"), 100)
     required_score = number(course.get("passing_score"), 70)
-    completion_requirement_met = completion_percentage >= required_completion
+    completion_requirement_met = bool(
+        lecture_count and completion_percentage >= required_completion
+    )
     final_requirement_met = bool(passed_attempt)
     course_passed = bool(
         certificate

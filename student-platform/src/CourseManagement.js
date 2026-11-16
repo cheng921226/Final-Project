@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { CreditSettingsForm } from './CreditSettings';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -122,6 +123,7 @@ export default function CourseManagement() {
   const [generationQueue, setGenerationQueue] = useState([]);
   const [pendingGeneration, setPendingGeneration] = useState(null);
   const [message, setMessage] = useState(location.state?.deletionMessage || '');
+  const [creditSettingsDirty, setCreditSettingsDirty] = useState(false);
   const [error, setError] = useState('');
   const skipNextHistoryWarning = useRef(false);
   const activeCourseId = useRef(courseId);
@@ -146,11 +148,12 @@ export default function CourseManagement() {
   const isCampus = data?.actor?.role === 'campus';
   const hasUnsavedChanges = useMemo(() => {
     if (!selectedCourse) return false;
+    if (creditSettingsDirty) return true;
     if (!formsMatch(form, courseForm(selectedCourse))) return true;
     return (selectedCourse.lectures || []).some(lecture =>
       !formsMatch(lectureForms[lecture.id] || lectureForm(), lectureForm(lecture))
     );
-  }, [form, lectureForms, selectedCourse]);
+  }, [creditSettingsDirty, form, lectureForms, selectedCourse]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) return undefined;
@@ -217,6 +220,7 @@ export default function CourseManagement() {
     setCourseId(requestedId);
     setExpandedLectureIds(new Set());
     setOpenTranscriptId(null);
+    setCreditSettingsDirty(false);
     setMessage(location.state?.deletionMessage || '');
   }, [courseId, location.state, requestedId]);
 
@@ -704,6 +708,20 @@ export default function CourseManagement() {
           <label className="review-field"><span>課程介紹</span><textarea rows={4} value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="說明課程內容、學習目標與適合對象" /></label>
           <div className="course-management-actions"><button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
         </form>
+
+        <CreditSettingsForm
+          key={selectedCourse.id}
+          course={selectedCourse}
+          token={token}
+          embedded
+          onDirtyChange={setCreditSettingsDirty}
+          onSaved={(savedCourseId, settings) => setData(current => ({
+            ...current,
+            courses: current.courses.map(course =>
+              course.id === savedCourseId ? { ...course, ...settings } : course
+            ),
+          }))}
+        />
 
         <section className="teacher-panel course-lecture-manager">
           <div className="panel-title">

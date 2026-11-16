@@ -5,6 +5,7 @@ from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
+from routers.achievements import evaluate_course
 from routers.campus import (
     _course_credit_roster,
     export_course_credit_roster,
@@ -48,6 +49,7 @@ from routers.course_management import (
     update_course,
 )
 from routers.final_assessment import (
+    course_completion,
     require_course_manager as require_final_course_manager,
 )
 
@@ -119,6 +121,38 @@ class FakeSupabase:
 
     def table(self, name):
         return FakeQuery(self.tables.get(name, []))
+
+
+class CourseCompletionTests(unittest.TestCase):
+    def test_hidden_lectures_do_not_affect_credit_or_final_assessment_completion(self):
+        course = {"credit_value": 2, "completion_threshold": 100}
+        lectures = [
+            {"id": 7, "is_visible": True},
+            {"id": 8, "is_visible": False},
+        ]
+        progresses = [{"lecture_id": 7, "completed": True}]
+        attempts = [{"score": 90, "passed": True}]
+
+        for course_lectures, expected_total, expected_met in (
+            (lectures, 1, True),
+            ([lectures[1]], 0, False),
+        ):
+            with self.subTest(expected_total=expected_total), patch(
+                "routers.final_assessment.supabase_admin",
+            ) as database:
+                query = database.table.return_value.select.return_value.eq.return_value
+                query.in_.return_value.execute.return_value = FakeResponse(progresses)
+                result = evaluate_course(
+                    course, course_lectures, progresses, attempts, None, 5
+                )
+                completion = course_completion(3, course, course_lectures)
+
+                self.assertEqual(result["lecture_count"], expected_total)
+                self.assertEqual(completion["lecture_count"], expected_total)
+                self.assertEqual(result["completed_lectures"], expected_total)
+                self.assertEqual(completion["completed_lectures"], expected_total)
+                self.assertEqual(result["course_passed"], expected_met)
+                self.assertEqual(completion["completion_met"], expected_met)
 
 
 class TeacherAnalyticsTests(unittest.TestCase):

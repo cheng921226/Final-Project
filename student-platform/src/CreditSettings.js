@@ -26,11 +26,8 @@ export default function CreditSettings() {
   const token = localStorage.getItem('access_token');
   const [data, setData] = useState(null);
   const [courseId, setCourseId] = useState('');
-  const [form, setForm] = useState(emptyForm());
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [message, setMessage] = useState('');
 
   async function loadSettings(preferredCourseId = courseId) {
     if (!token) {
@@ -55,7 +52,6 @@ export default function CreditSettings() {
         || result.courses?.[0];
       if (nextCourse) {
         setCourseId(String(nextCourse.id));
-        setForm(emptyForm(nextCourse));
       }
     } catch (err) {
       setError(err.message || '學分設定載入失敗');
@@ -75,52 +71,14 @@ export default function CreditSettings() {
   );
 
   function selectCourse(nextCourseId) {
-    const course = data?.courses?.find(item => String(item.id) === String(nextCourseId));
     setCourseId(nextCourseId);
-    setForm(emptyForm(course));
-    setMessage('');
   }
 
-  function updateField(field, value) {
-    setForm(prev => ({ ...prev, [field]: value }));
-  }
-
-  async function saveSettings(event) {
-    event.preventDefault();
-    if (!courseId || saving) return;
-
-    setSaving(true);
-    setMessage('');
-    try {
-      const payload = {
-        credit_value: toNumber(form.credit_value),
-        completion_threshold: toNumber(form.completion_threshold, 100),
-        passing_score: toNumber(form.passing_score, 70),
-        retest_cooldown_minutes: toNumber(form.retest_cooldown_minutes, 60),
-        final_question_count: toNumber(form.final_question_count, 10),
-        certification_enabled: Boolean(form.certification_enabled),
-        certificate_show_score: Boolean(form.certificate_show_score),
-      };
-
-      const res = await fetch(`${API_URL}/teacher/courses/${courseId}/credit-settings`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail || '儲存學分設定失敗');
-      }
-      setMessage('學分設定已更新。');
-      await loadSettings(courseId);
-    } catch (err) {
-      setMessage(err.message || '儲存學分設定失敗');
-    } finally {
-      setSaving(false);
-    }
+  function updateSavedCourse(savedCourseId, settings) {
+    setData(current => ({
+      ...current,
+      courses: current.courses.map(course => course.id === savedCourseId ? { ...course, ...settings } : course),
+    }));
   }
 
   if (loading) {
@@ -161,55 +119,120 @@ export default function CreditSettings() {
         </div>
       </header>
 
-      <form className="teacher-panel settings-form" onSubmit={saveSettings}>
-        <div className="panel-title">
-          <div>
-            <h3>{selectedCourse?.title || '課程設定'}</h3>
-            <p>學生完成課程內容並通過 Course 層級最終測驗後，才會取得學分與認證。</p>
-          </div>
-        </div>
-
-        <div className="settings-grid">
-          <label className="review-field">
-            <span>課程總學分</span>
-            <input type="number" min="0" step="0.5" value={form.credit_value} onChange={event => updateField('credit_value', event.target.value)} />
-          </label>
-          <label className="review-field">
-            <span>完成度門檻 (%)</span>
-            <input type="number" min="0" max="100" value={form.completion_threshold} onChange={event => updateField('completion_threshold', event.target.value)} />
-          </label>
-          <label className="review-field">
-            <span>及格分數</span>
-            <input type="number" min="0" max="100" value={form.passing_score} onChange={event => updateField('passing_score', event.target.value)} />
-          </label>
-          <label className="review-field">
-            <span>重測冷卻時間（分鐘）</span>
-            <input type="number" min="0" max="43200" value={form.retest_cooldown_minutes} onChange={event => updateField('retest_cooldown_minutes', event.target.value)} />
-          </label>
-          <label className="review-field">
-            <span>每次正式測驗題數</span>
-            <input type="number" min="1" max="50" value={form.final_question_count} onChange={event => updateField('final_question_count', event.target.value)} />
-          </label>
-        </div>
-
-        <div className="settings-switches">
-          <label><input type="checkbox" checked={form.certification_enabled} onChange={event => updateField('certification_enabled', event.target.checked)} /> 完成後顯示認證</label>
-          <label><input type="checkbox" checked={form.certificate_show_score} onChange={event => updateField('certificate_show_score', event.target.checked)} /> 認證顯示最終測驗成績</label>
-        </div>
-
-        <div className="final-bank-status">
-          <div>
-            <strong>正式測驗題庫</strong>
-            <p>{(selectedCourse?.final_assessment_question_count ?? 0) > 0 ? '已建立' : '尚未建立'}，目前啟用 {selectedCourse?.final_assessment_question_count ?? 0} 題。</p>
-          </div>
-          <Link className="secondary-button" to="/teacher/final-assessment">前往最終測驗</Link>
-        </div>
-
-        {message && <p className="question-review-message">{message}</p>}
-        <div className="question-editor-actions">
-          <button className="question-save-button" type="submit" disabled={saving}>{saving ? '儲存中...' : '儲存設定'}</button>
-        </div>
-      </form>
+      {selectedCourse && (
+        <CreditSettingsForm key={selectedCourse.id} course={selectedCourse} token={token} onSaved={updateSavedCourse} />
+      )}
     </div>
+  );
+}
+
+export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, embedded = false }) {
+  const courseId = course.id;
+  const [savedForm, setSavedForm] = useState(() => emptyForm(course));
+  const [form, setForm] = useState(savedForm);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const dirty = Object.keys(savedForm).some(field => String(savedForm[field]) !== String(form[field]));
+
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+
+  function updateField(field, value) {
+    setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function saveSettings(event) {
+    event.preventDefault();
+    if (!courseId || saving) return;
+
+    setSaving(true);
+    setMessage('');
+    try {
+      const payload = {
+        credit_value: toNumber(form.credit_value),
+        completion_threshold: toNumber(form.completion_threshold, 100),
+        passing_score: toNumber(form.passing_score, 70),
+        retest_cooldown_minutes: toNumber(form.retest_cooldown_minutes, 60),
+        final_question_count: toNumber(form.final_question_count, 10),
+        certification_enabled: Boolean(form.certification_enabled),
+        certificate_show_score: Boolean(form.certificate_show_score),
+      };
+
+      const res = await fetch(`${API_URL}/teacher/courses/${courseId}/credit-settings`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || '儲存學分設定失敗');
+      }
+      setMessage('學分設定已更新。');
+      const body = await res.json().catch(() => ({}));
+      const settings = emptyForm({ ...payload, ...body.course });
+      setForm(settings);
+      setSavedForm(settings);
+      onSaved?.(courseId, settings);
+    } catch (err) {
+      setMessage(err.message || '儲存學分設定失敗');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <form className={`teacher-panel settings-form${embedded ? ' course-settings-card' : ''}`} onSubmit={saveSettings}>
+      <div className="panel-title">
+        <div>
+          <h3>{embedded ? '學分與認證設定' : course.title || '課程設定'}</h3>
+          <p>設定課程完成度、最終測驗及格分數與認證規則。</p>
+        </div>
+      </div>
+
+      <fieldset className="settings-grid credit-settings-fields" disabled={saving}>
+        <label className="review-field">
+          <span>課程總學分</span>
+          <input type="number" min="0" step="0.5" value={form.credit_value} onChange={event => updateField('credit_value', event.target.value)} />
+        </label>
+        <label className="review-field">
+          <span>完成度門檻 (%)</span>
+          <input type="number" min="0" max="100" value={form.completion_threshold} onChange={event => updateField('completion_threshold', event.target.value)} />
+        </label>
+        <label className="review-field">
+          <span>及格分數</span>
+          <input type="number" min="0" max="100" value={form.passing_score} onChange={event => updateField('passing_score', event.target.value)} />
+        </label>
+        <label className="review-field">
+          <span>重測冷卻時間（分鐘）</span>
+          <input type="number" min="0" max="43200" value={form.retest_cooldown_minutes} onChange={event => updateField('retest_cooldown_minutes', event.target.value)} />
+        </label>
+        <label className="review-field">
+          <span>每次正式測驗題數</span>
+          <input type="number" min="1" max="50" value={form.final_question_count} onChange={event => updateField('final_question_count', event.target.value)} />
+        </label>
+      </fieldset>
+
+      <fieldset className="settings-switches credit-settings-fields" disabled={saving}>
+        <label><input type="checkbox" checked={form.certification_enabled} onChange={event => updateField('certification_enabled', event.target.checked)} /> 完成後顯示認證</label>
+        <label><input type="checkbox" checked={form.certificate_show_score} onChange={event => updateField('certificate_show_score', event.target.checked)} /> 認證顯示最終測驗成績</label>
+      </fieldset>
+
+      {!embedded && <div className="final-bank-status">
+        <div>
+          <strong>正式測驗題庫</strong>
+          <p>{(course.final_assessment_question_count ?? 0) > 0 ? '已建立' : '尚未建立'}，目前啟用 {course.final_assessment_question_count ?? 0} 題。</p>
+        </div>
+        <Link className="secondary-button" to="/teacher/final-assessment">前往最終測驗</Link>
+      </div>}
+
+      {message && <p className="question-review-message" role="status">{message}</p>}
+      <div className="question-editor-actions">
+        <button className="question-save-button" type="submit" disabled={saving}>{saving ? '儲存中...' : embedded ? '儲存學分設定' : '儲存設定'}</button>
+      </div>
+    </form>
   );
 }
