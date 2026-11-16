@@ -324,7 +324,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
                 "source_timestamp": source_timestamp,
                 "question_type": "original",
                 "source_question_id": None,
-                "review_status": "pending",
+                "status": "pending",
                 "source_type": "ai",
                 "generation_batch_id": generation_batch_id,
             }
@@ -361,7 +361,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
                         "source_timestamp": None,
                         "question_type": "extension",
                         "source_question_id": source_question_id,
-                        "review_status": "pending",
+                        "status": "pending",
                         "source_type": "ai",
                         "generation_batch_id": generation_batch_id,
                     }

@@ -496,6 +496,10 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
         supabase_admin.table("questions")
         .select("*")
         .eq("lecture_id", body.lecture_id)
+        .eq("question_type", "original")
+        .neq("status", "deleted")
+        .order("id")
+        .limit(1)
         .maybe_single()
         .execute()
     )
@@ -547,7 +551,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
                     "source_timestamp": source_timestamp,
                     "question_type": "original",
                     "source_question_id": None,
-                    "review_status": "pending",
+                    "status": "pending",
                     "source_type": "ai",
                     "generation_batch_id": generation_batch_id,
                 }

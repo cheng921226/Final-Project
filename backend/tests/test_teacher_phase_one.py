@@ -30,6 +30,7 @@ from routers.questions import (
     QuestionSkipCreate,
     delete_teacher_question,
     get_lecture_questions,
+    publish_teacher_question,
     require_lecture_viewer,
     skip_question,
     validate_question_options,
@@ -57,6 +58,7 @@ class FakeQuery:
     def __init__(self, rows):
         self.rows = rows
         self.filters = []
+        self.any_filters = []
         self.update_values = None
 
     def select(self, *_args):
@@ -64,6 +66,16 @@ class FakeQuery:
 
     def eq(self, column, value):
         self.filters.append((column, value))
+        return self
+
+    def neq(self, column, value):
+        self.filters.append((column, value, "neq"))
+        return self
+
+    def or_(self, expression):
+        for condition in expression.split(","):
+            column, _, value = condition.split(".")
+            self.any_filters.append((column, int(value)))
         return self
 
     def maybe_single(self):
@@ -80,7 +92,16 @@ class FakeQuery:
         matches = [
             row
             for row in self.rows
-            if all(row.get(column) == value for column, value in self.filters)
+            if all(
+                row.get(filter_item[0]) != filter_item[1]
+                if len(filter_item) == 3 and filter_item[2] == "neq"
+                else row.get(filter_item[0]) == filter_item[1]
+                for filter_item in self.filters
+            )
+            and (
+                not self.any_filters
+                or any(row.get(column) == value for column, value in self.any_filters)
+            )
         ]
         if self.update_values is not None:
             for row in matches:
@@ -103,7 +124,10 @@ class TeacherAnalyticsTests(unittest.TestCase):
         course = {"id": 10, "teacher_id": 9, "created_by_user_id": 9}
         database = FakeSupabase({"courses": [course]})
 
-        with patch("routers.teacher_access.supabase_admin", database):
+        with (
+            patch("routers.teacher_access.supabase_admin", database),
+            patch("routers.campus.supabase_admin", database),
+        ):
             roster = _course_credit_roster(10, platform)
 
         self.assertEqual(roster["course"], course)
@@ -635,11 +659,17 @@ class TeacherAuthorizationTests(unittest.TestCase):
 
         self.assertEqual(context.exception.status_code, 403)
 
-    def test_disabling_question_preserves_attempt_history(self):
-        question = {"id": 5, "lecture_id": 7, "is_active": True}
+    def test_deleting_question_preserves_attempt_history(self):
+        question = {"id": 5, "lecture_id": 7, "status": "published"}
+        extension = {
+            "id": 6,
+            "lecture_id": 7,
+            "source_question_id": 5,
+            "status": "published",
+        }
         attempts = [{"id": 1, "question_id": 5, "is_correct": False}]
         database = FakeSupabase(
-            {"questions": [question], "question_attempts": attempts}
+            {"questions": [question, extension], "question_attempts": attempts}
         )
         with (
             patch("routers.questions.supabase_admin", database),
@@ -652,8 +682,31 @@ class TeacherAuthorizationTests(unittest.TestCase):
             result = delete_teacher_question(5, SimpleNamespace(id="teacher-auth"))
 
         self.assertEqual(result["message"], "deleted")
-        self.assertFalse(question["is_active"])
+        self.assertEqual(question["status"], "deleted")
+        self.assertEqual(extension["status"], "deleted")
         self.assertEqual(len(attempts), 1)
+
+    def test_deleted_question_cannot_be_published_again(self):
+        question = {
+            "id": 5,
+            "lecture_id": 7,
+            "question_type": "original",
+            "status": "deleted",
+        }
+        with (
+            patch(
+                "routers.questions.require_teacher",
+                return_value={"id": 1, "role": "teacher"},
+            ),
+            patch(
+                "routers.questions.get_question_for_teacher",
+                return_value=question,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as context:
+                publish_teacher_question(5, SimpleNamespace(id="teacher-auth"))
+
+        self.assertEqual(context.exception.status_code, 409)
 
     def test_students_receive_only_published_questions(self):
         query = Mock()
@@ -686,8 +739,7 @@ class TeacherAuthorizationTests(unittest.TestCase):
                 ),
             )
 
-        query.eq.assert_any_call("review_status", "published")
-        query.eq.assert_any_call("is_active", True)
+        query.eq.assert_any_call("status", "published")
         self.assertEqual([row["id"] for row in result], [5])
 
     def test_campus_can_read_questions_from_any_course(self):
@@ -740,8 +792,7 @@ class TeacherAuthorizationTests(unittest.TestCase):
             {
                 "id": 5,
                 "lecture_id": 7,
-                "is_active": True,
-                "review_status": "published",
+                "status": "published",
             }
         )
 

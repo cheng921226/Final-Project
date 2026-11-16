@@ -99,11 +99,10 @@ def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
         .select(
             "id, lecture_id, knowledge_point_id, question_text, options_json, "
             "answer, explanation, source_timestamp, question_type, source_question_id, "
-            "is_active, review_status"
+            "status"
         )
         .in_("lecture_id", lecture_ids)
-        .eq("is_active", True)
-        .eq("review_status", "published")
+        .eq("status", "published")
         .execute()
         .data
         or []

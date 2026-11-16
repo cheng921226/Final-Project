@@ -20,7 +20,7 @@ const reviewData = {
         answer: 'B',
         explanation: '後進先出',
         source_timestamp: 30,
-        review_status: 'pending',
+        status: 'pending',
         generation_batch_id: 'batch-1',
       }],
     }],
@@ -81,7 +81,7 @@ test('shows pending AI questions and publishes the latest batch', async () => {
           ...reviewData.courses[0],
           lectures: [{
             ...reviewData.courses[0].lectures[0],
-            questions: [{ ...reviewData.courses[0].lectures[0].questions[0], review_status: 'published' }],
+            questions: [{ ...reviewData.courses[0].lectures[0].questions[0], status: 'published' }],
           }],
         }],
       }),
@@ -99,6 +99,8 @@ test('shows pending AI questions and publishes the latest batch', async () => {
     expect.objectContaining({ method: 'POST' })
   );
   expect(await screen.findByText('已發布 1 題，學生現在可以看到新版題目。')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '取消發布' })).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '全部核准發布' })).not.toBeInTheDocument();
 });
 
 test('builds correct-answer choices from non-empty option lines', async () => {
@@ -242,9 +244,9 @@ test('continues option letters on Enter and removes an empty prefix on Backspace
 test('keeps pending, unpublished, and published questions visible', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   const questions = [
-    { ...reviewData.courses[0].lectures[0].questions[0], id: 1, question_text: '待審題目', review_status: 'pending' },
-    { ...reviewData.courses[0].lectures[0].questions[0], id: 2, question_text: '未發布題目', review_status: 'unpublished' },
-    { ...reviewData.courses[0].lectures[0].questions[0], id: 3, question_text: '已發布題目', review_status: 'published' },
+    { ...reviewData.courses[0].lectures[0].questions[0], id: 1, question_text: '待審題目', status: 'pending' },
+    { ...reviewData.courses[0].lectures[0].questions[0], id: 2, question_text: '未發布題目', status: 'unpublished' },
+    { ...reviewData.courses[0].lectures[0].questions[0], id: 3, question_text: '已發布題目', status: 'published' },
   ];
   global.fetch = jest.fn().mockResolvedValueOnce({
     ok: true,
@@ -271,7 +273,7 @@ test('unpublishes a published question and updates the review list', async () =>
   localStorage.setItem('access_token', 'teacher-token');
   const publishedQuestion = {
     ...reviewData.courses[0].lectures[0].questions[0],
-    review_status: 'published',
+    status: 'published',
   };
   global.fetch = jest.fn()
     .mockResolvedValueOnce({
@@ -311,7 +313,7 @@ test('shows a clear inline message when unpublishing is forbidden', async () => 
   localStorage.setItem('access_token', 'campus-token');
   const publishedQuestion = {
     ...reviewData.courses[0].lectures[0].questions[0],
-    review_status: 'published',
+    status: 'published',
   };
   global.fetch = jest.fn()
     .mockResolvedValueOnce({

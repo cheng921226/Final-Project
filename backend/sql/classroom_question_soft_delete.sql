@@ -1,5 +1,5 @@
 alter table public.questions
-add column if not exists is_active boolean not null default true;
+add column if not exists status text not null default 'published';
 
-create index if not exists questions_lecture_active_idx
-on public.questions (lecture_id, is_active);
+create index if not exists questions_lecture_status_idx
+on public.questions (lecture_id, status);

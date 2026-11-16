@@ -681,8 +681,7 @@ def get_in_lecture_question_candidates(
         .select("*")
         .in_("lecture_id", lecture_ids)
         .eq("question_type", "original")
-        .eq("is_active", True)
-        .eq("review_status", "published")
+        .eq("status", "published")
         .execute()
         .data
         or []
@@ -777,8 +776,7 @@ def import_in_lecture_questions(
         .in_("id", list(dict.fromkeys(payload.question_ids)))
         .in_("lecture_id", lecture_ids)
         .eq("question_type", "original")
-        .eq("is_active", True)
-        .eq("review_status", "published")
+        .eq("status", "published")
         .execute()
         .data
         or []

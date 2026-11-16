@@ -132,7 +132,7 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
 
     question_rows = (
         supabase_admin.table("questions")
-        .select("lecture_id,is_active,question_type,review_status")
+        .select("lecture_id,status,question_type")
         .in_("lecture_id", lecture_ids)
         .execute()
         .data
@@ -141,14 +141,13 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
     for row in question_rows:
         if (
             row.get("lecture_id") in result
-            and row.get("is_active", True)
             and (row.get("question_type") or "original") == "original"
         ):
-            if (row.get("review_status") or "published") == "published":
+            if (row.get("status") or "published") == "published":
                 result[row["lecture_id"]]["questions"] += 1
-            elif row.get("review_status") == "pending":
+            elif row.get("status") == "pending":
                 result[row["lecture_id"]]["questions_pending_review"] += 1
-            elif row.get("review_status") == "unpublished":
+            elif row.get("status") == "unpublished":
                 result[row["lecture_id"]]["questions_unpublished"] += 1
     try:
         generation_rows = (

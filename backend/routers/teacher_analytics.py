@@ -829,9 +829,8 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             row
             for row in questions
             if row.get("lecture_id") in course_lecture_ids
-            and row.get("is_active", True)
             and (row.get("question_type") or "original") == "original"
-            and (row.get("review_status") or "published") == "published"
+            and (row.get("status") or "published") == "published"
         ]
         for question in course_questions:
             question_id = question.get("id")

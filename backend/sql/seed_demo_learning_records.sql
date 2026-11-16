@@ -242,7 +242,8 @@ with eligible as (
            else 95
          end as correct_threshold
   from public.questions q
-  where coalesce(q.is_active, true) and coalesce(q.question_type, 'original') = 'original'
+  where coalesce(q.status, 'published') = 'published'
+    and coalesce(q.question_type, 'original') = 'original'
 )
 insert into public.question_attempts
   (student_id, lecture_id, question_id, selected_answer, is_correct, video_time,

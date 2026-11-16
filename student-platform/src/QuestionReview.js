@@ -181,12 +181,12 @@ export default function QuestionReview() {
   );
 
   const questions = lecture?.questions || [];
-  const pendingQuestions = questions.filter(question => question.review_status === 'pending');
-  const unpublishedQuestions = questions.filter(question => question.review_status === 'unpublished');
-  const publishedQuestions = questions.filter(question => question.review_status === 'published');
+  const pendingQuestions = questions.filter(question => question.status === 'pending');
+  const unpublishedQuestions = questions.filter(question => question.status === 'unpublished');
+  const publishedQuestions = questions.filter(question => question.status === 'published');
   const filteredQuestions = statusFilter === 'all'
     ? questions
-    : questions.filter(question => (question.review_status || 'published') === statusFilter);
+    : questions.filter(question => question.status === statusFilter);
   const knowledgePoints = lecture?.knowledge_points || [];
   const availableAnswers = useMemo(() => answerChoices(form.options_text), [form.options_text]);
 
@@ -425,7 +425,7 @@ export default function QuestionReview() {
       setMessage(isPublishing ? '題目已發布，學生現在可以看到。' : '題目已設為未發布，仍保留在題目列表。');
       updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(item => (
         String(item.id) === String(question.id)
-          ? { ...item, review_status: isPublishing ? 'published' : 'unpublished' }
+          ? { ...item, status: isPublishing ? 'published' : 'unpublished' }
           : item
       )));
     } catch (err) {
@@ -450,23 +450,9 @@ export default function QuestionReview() {
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.detail || '發布題目失敗');
-      setMessage(`已發布 ${body.published_count || pendingQuestions.length} 題，學生現在可以看到新版題目。`);
+      setMessage(`已發布 ${body.published_count} 題，學生現在可以看到新版題目。`);
       setEditorOpen(false);
-      updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(question => {
-        if (question.generation_batch_id === body.generation_batch_id) {
-          return { ...question, review_status: 'published' };
-        }
-        if (question.review_status === 'pending') {
-          return { ...question, review_status: 'unpublished' };
-        }
-        if (
-          question.review_status === 'published'
-          && ['ai', 'legacy'].includes(question.source_type)
-        ) {
-          return { ...question, review_status: 'unpublished' };
-        }
-        return question;
-      }));
+      await loadReviewData(lectureId);
     } catch (err) {
       setMessage(err.message || '發布題目失敗');
     } finally {
@@ -563,8 +549,8 @@ export default function QuestionReview() {
                 <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
                   <button type="button" onClick={() => startEdit(question)}>
                     <small>
-                      <span className={`question-review-status ${question.review_status || 'published'}`}>
-                        {question.review_status === 'pending' ? '待審核' : question.review_status === 'unpublished' ? '未發布' : '已發布'}
+                      <span className={`question-review-status ${question.status}`}>
+                        {question.status === 'pending' ? '待審核' : question.status === 'unpublished' ? '未發布' : '已發布'}
                       </span>
                       {formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}
                     </small>
@@ -575,10 +561,10 @@ export default function QuestionReview() {
                     <button type="button" className="question-secondary-button compact" onClick={() => startEdit(question)}>
                       修改
                     </button>
-                    {question.review_status === 'published'
+                    {question.status === 'published'
                       ? <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>取消發布</button>
-                      : <button type="button" className="question-save-button compact" onClick={() => changePublicationStatus(question, 'publish')} disabled={saving}>{question.review_status === 'pending' ? '核准並發布' : '發布'}</button>}
-                    {question.review_status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
+                      : <button type="button" className="question-save-button compact" onClick={() => changePublicationStatus(question, 'publish')} disabled={saving}>{question.status === 'pending' ? '核准並發布' : '發布'}</button>}
+                    {question.status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
                     <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
                   </div>
                   {String(questionActionError?.questionId) === String(question.id) && (

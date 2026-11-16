@@ -3,6 +3,7 @@ from typing import Any
 
 from database.supabase import supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
@@ -43,7 +44,6 @@ class TeacherQuestionUpdate(BaseModel):
     explanation: str | None = None
     source_timestamp: int | None = Field(default=None, ge=0)
     knowledge_point_id: int | None = None
-    is_active: bool | None = None
 
 
 def normalize_answer(value: Any) -> str:
@@ -138,8 +138,7 @@ def teacher_question(row: dict[str, Any]) -> dict[str, Any]:
     return {
         **public_question(row),
         "answer": row.get("answer"),
-        "is_active": row.get("is_active", True),
-        "review_status": row.get("review_status") or "published",
+        "status": row["status"],
         "source_type": row.get("source_type") or "legacy",
         "generation_batch_id": row.get("generation_batch_id"),
     }
@@ -320,8 +319,7 @@ def get_lecture_questions(
         )
         .eq("lecture_id", lecture_id)
         .eq("question_type", "original")
-        .eq("is_active", True)
-        .eq("review_status", "published")
+        .eq("status", "published")
         .order("source_timestamp")
         .execute()
     )
@@ -408,11 +406,11 @@ def get_teacher_question_review(user=Depends(get_current_user)):
             .select(
                 "id, lecture_id, knowledge_point_id, question_text, options_json, "
                 "answer, explanation, source_timestamp, question_type, source_question_id, "
-                "is_active, review_status, source_type, generation_batch_id"
+                "status, source_type, generation_batch_id"
             )
             .in_("lecture_id", lecture_ids)
             .eq("question_type", "original")
-            .eq("is_active", True)
+            .neq("status", "deleted")
             .order("source_timestamp")
             .execute()
             .data
@@ -460,7 +458,7 @@ def create_teacher_question(
 
     row = {
         **teacher_question_row(body),
-        "review_status": "unpublished",
+        "status": "unpublished",
         "source_type": "manual",
     }
     if not row.get("question_text", "").strip():
@@ -480,19 +478,13 @@ def update_teacher_question(
     question_id: int, body: TeacherQuestionUpdate, user=Depends(get_current_user)
 ):
     teacher = require_teacher(user)
-    existing_response = (
-        supabase_admin.table("questions")
-        .select("*")
-        .eq("id", question_id)
-        .maybe_single()
-        .execute()
-    )
-    existing = existing_response.data
-    if not existing:
-        raise HTTPException(status_code=404, detail="找不到題目")
+    existing = get_question_for_teacher(question_id, teacher)
+    if existing.get("status") == "deleted":
+        raise HTTPException(status_code=410, detail="已刪除的題目不能修改")
 
     target_lecture_id = body.lecture_id or existing.get("lecture_id")
-    get_lecture_for_teacher(target_lecture_id, teacher)
+    if target_lecture_id != existing["lecture_id"]:
+        get_lecture_for_teacher(target_lecture_id, teacher)
 
     update_data = teacher_question_row(body)
     if not update_data:
@@ -514,40 +506,38 @@ def update_teacher_question(
         supabase_admin.table("questions")
         .update(update_data)
         .eq("id", question_id)
+        .eq("lecture_id", existing["lecture_id"])
+        .neq("status", "deleted")
         .execute()
     )
     if not response.data:
-        raise HTTPException(status_code=500, detail="修改題目失敗")
+        raise HTTPException(status_code=409, detail="題目已變更，請重新載入")
     return teacher_question(response.data[0])
 
 
 @router.delete("/teacher/questions/{question_id}")
 def delete_teacher_question(question_id: int, user=Depends(get_current_user)):
     teacher = require_teacher(user)
-    existing_response = (
-        supabase_admin.table("questions")
-        .select("id, lecture_id")
-        .eq("id", question_id)
-        .maybe_single()
-        .execute()
-    )
-    existing = existing_response.data
-    if not existing:
-        raise HTTPException(status_code=404, detail="找不到題目")
-    get_lecture_for_teacher(existing["lecture_id"], teacher)
-
-    response = (
-        supabase_admin.table("questions")
-        .update({"is_active": False})
-        .eq("id", question_id)
-        .execute()
-    )
-    supabase_admin.table("questions").update({"is_active": False}).eq(
-        "source_question_id", question_id
-    ).execute()
-    if not response.data:
-        raise HTTPException(status_code=500, detail="停用題目失敗")
+    question = get_question_for_teacher(question_id, teacher)
+    set_teacher_question_status(question, "deleted")
     return {"message": "deleted", "question_id": question_id}
+
+
+def set_teacher_question_status(question: dict[str, Any], status: str) -> dict[str, Any]:
+    question_id = question["id"]
+    query = (
+        supabase_admin.table("questions")
+        .update({"status": status})
+        .eq("lecture_id", question["lecture_id"])
+        .or_(f"id.eq.{question_id},source_question_id.eq.{question_id}")
+    )
+    if status != "deleted":
+        query = query.neq("status", "deleted")
+    rows = query.execute().data or []
+    for row in rows:
+        if row["id"] == question_id:
+            return row
+    raise HTTPException(status_code=409, detail="題目已變更，請重新載入")
 
 
 @router.post("/teacher/questions/{question_id}/publish")
@@ -556,34 +546,19 @@ def publish_teacher_question(question_id: int, user=Depends(get_current_user)):
     question = get_question_for_teacher(question_id, teacher)
     if (question.get("question_type") or "original") != "original":
         raise HTTPException(status_code=422, detail="只能核准正式題目")
+    if question.get("status") == "deleted":
+        raise HTTPException(status_code=409, detail="已刪除的題目不能直接重新發布")
 
-    response = (
-        supabase_admin.table("questions")
-        .update({"review_status": "published", "is_active": True})
-        .eq("id", question_id)
-        .execute()
-    )
-    supabase_admin.table("questions").update(
-        {"review_status": "published", "is_active": True}
-    ).eq("source_question_id", question_id).execute()
-    if not response.data:
-        raise HTTPException(status_code=500, detail="發布題目失敗")
-    return teacher_question(response.data[0])
+    return teacher_question(set_teacher_question_status(question, "published"))
 
 
 @router.post("/teacher/questions/{question_id}/unpublish")
 def unpublish_teacher_question(question_id: int, user=Depends(get_current_user)):
     teacher = require_teacher(user)
     question = get_question_for_teacher(question_id, teacher)
-    values = {"review_status": "unpublished", "is_active": True}
-    response = (
-        supabase_admin.table("questions").update(values).eq("id", question_id).execute()
-    )
-    supabase_admin.table("questions").update(values).eq(
-        "source_question_id", question_id
-    ).execute()
-    if not response.data:
-        raise HTTPException(status_code=500, detail="取消發布題目失敗")
+    if question.get("status") == "deleted":
+        raise HTTPException(status_code=409, detail="已刪除的題目不能變更發布狀態")
+    set_teacher_question_status(question, "unpublished")
     return {"message": "unpublished", "question_id": question_id}
 
 
@@ -591,78 +566,19 @@ def unpublish_teacher_question(question_id: int, user=Depends(get_current_user))
 def publish_pending_questions(lecture_id: int, user=Depends(get_current_user)):
     teacher = require_teacher(user)
     get_lecture_for_teacher(lecture_id, teacher)
-    pending = (
-        supabase_admin.table("questions")
-        .select("id, generation_batch_id, created_at")
-        .eq("lecture_id", lecture_id)
-        .eq("question_type", "original")
-        .eq("is_active", True)
-        .eq("review_status", "pending")
-        .order("created_at", desc=True)
-        .execute()
-        .data
-        or []
-    )
-    if not pending:
+    try:
+        result = supabase_admin.rpc(
+            "publish_pending_questions", {"target_lecture_id": lecture_id}
+        ).execute().data
+    except APIError as error:
+        if error.code == "PT409":
+            raise HTTPException(status_code=409, detail=error.message) from error
+        raise
+    if result["message"] == "no_pending":
         raise HTTPException(status_code=404, detail="這個小節沒有待審核題目")
-
-    batch_id = pending[0].get("generation_batch_id")
-    if not batch_id:
-        raise HTTPException(
-            status_code=409, detail="待審核題目缺少產生批次，請逐題核准"
-        )
-
-    new_rows = (
-        supabase_admin.table("questions")
-        .select("id")
-        .eq("lecture_id", lecture_id)
-        .eq("generation_batch_id", batch_id)
-        .eq("is_active", True)
-        .execute()
-        .data
-        or []
-    )
-    new_ids = [row["id"] for row in new_rows]
-    if not new_ids:
-        raise HTTPException(status_code=409, detail="找不到可發布的待審核題目")
-
-    supabase_admin.table("questions").update({"review_status": "published"}).in_(
-        "id", new_ids
-    ).execute()
-
-    previous_rows = (
-        supabase_admin.table("questions")
-        .select("id")
-        .eq("lecture_id", lecture_id)
-        .eq("is_active", True)
-        .eq("review_status", "published")
-        .in_("source_type", ["ai", "legacy"])
-        .execute()
-        .data
-        or []
-    )
-    previous_ids = [row["id"] for row in previous_rows if row["id"] not in new_ids]
-    if previous_ids:
-        supabase_admin.table("questions").update({"review_status": "unpublished"}).in_(
-            "id", previous_ids
-        ).execute()
-
-    stale_ids = [
-        row["id"] for row in pending if row.get("generation_batch_id") != batch_id
-    ]
-    if stale_ids:
-        supabase_admin.table("questions").update(
-            {"review_status": "unpublished", "is_active": True}
-        ).in_("id", stale_ids).execute()
-
-    return {
-        "message": "published",
-        "lecture_id": lecture_id,
-        "generation_batch_id": batch_id,
-        "published_count": sum(
-            1 for row in pending if row.get("generation_batch_id") == batch_id
-        ),
-    }
+    if result["message"] == "missing_batch":
+        raise HTTPException(status_code=409, detail="待審核題目缺少產生批次，請逐題核准")
+    return result
 
 
 @router.get("/lectures/{lecture_id}/question-attempts")
@@ -690,7 +606,7 @@ def skip_question(
     require_lecture_viewer(body.lecture_id, context.user)
     question = (
         supabase_admin.table("questions")
-        .select("id,lecture_id,is_active,review_status")
+        .select("id,lecture_id,status")
         .eq("id", question_id)
         .maybe_single()
         .execute()
@@ -698,10 +614,7 @@ def skip_question(
     )
     if not question or question.get("lecture_id") != body.lecture_id:
         raise HTTPException(status_code=404, detail="找不到這道課堂練習")
-    if (
-        not question.get("is_active", True)
-        or (question.get("review_status") or "published") != "published"
-    ):
+    if question.get("status") != "published":
         raise HTTPException(status_code=410, detail="這道題目目前無法作答")
 
     existing_attempt = (
@@ -817,9 +730,9 @@ def create_question_attempt(
     question = question_response.data
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    if not question.get("is_active", True):
-        raise HTTPException(status_code=410, detail="Question is no longer active")
-    if (question.get("review_status") or "published") != "published":
+    if question.get("status") == "deleted":
+        raise HTTPException(status_code=410, detail="這道題目目前無法作答")
+    if question.get("status") != "published":
         raise HTTPException(status_code=403, detail="這題尚未通過教師審核")
 
     if question.get("lecture_id") != body.lecture_id:
