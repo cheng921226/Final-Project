@@ -148,30 +148,33 @@ select option,
   color: #fffaf9;
   text-align: center;
 }
-@property --hero-drift-x {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 50%;
-}
-@property --hero-drift-y {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 120%;
-}
 @media (prefers-reduced-motion: no-preference) {
-  .home-hero {
-    background: radial-gradient(
-      ellipse at var(--hero-drift-x, 50%) var(--hero-drift-y, 120%),
-      #922b45 0%, #38141e 52%, #1b1215 86%
-    );
-    animation: home-hero-drift 18s ease-in-out infinite;
+  @supports (offset-path: ellipse(34% 40% at 50% 62%)) {
+    .home-hero {
+      position: relative;
+      isolation: isolate;
+      overflow: hidden;
+      background: #1b1215;
+    }
+
+    .home-hero::before {
+      content: "";
+      position: absolute;
+      inset: 0 auto auto 0;
+      z-index: -1;
+      width: 160%;
+      height: 180%;
+      background: radial-gradient(ellipse at center, #922b45 0%, #38141e 52%, transparent 86%);
+      offset-path: ellipse(34% 40% at 50% 62%);
+      offset-rotate: 0deg;
+      animation: home-hero-drift 18s linear -4.5s infinite;
+      pointer-events: none;
+    }
   }
 }
 @keyframes home-hero-drift {
-  0%, 100% { --hero-drift-x: 50%; --hero-drift-y: 105%; }
-  25% { --hero-drift-x: 17%; --hero-drift-y: 58%; }
-  50% { --hero-drift-x: 52%; --hero-drift-y: 20%; }
-  75% { --hero-drift-x: 84%; --hero-drift-y: 63%; }
+  from { offset-distance: 0%; }
+  to { offset-distance: 100%; }
 }
 .home-hero h1 {
   margin: 0;

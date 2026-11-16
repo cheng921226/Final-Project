@@ -1851,13 +1851,13 @@ a {
   height: 32px;
   flex-shrink: 0;
   border-radius: 6px;
+  color: var(--primary);
   background: var(--ink);
   animation: page-loader-flip 1.4s ease-in-out infinite;
 }
 
 .teacher-loader {
   margin-bottom: 14px;
-  color: var(--primary);
 }
 
 @keyframes page-loader-flip {
