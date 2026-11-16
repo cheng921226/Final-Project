@@ -178,7 +178,7 @@ function CourseDetail() {
               );
             })}
 
-            {finalAssessment && (
+            {finalAssessment && finalAssessment.state !== 'disabled' && (
               <Link to={`/course/${id}/final-assessment`}>
                 <div className={`lecture-card final-assessment-entry ${finalAssessment.state}`}>
                   <div className="lecture-info">

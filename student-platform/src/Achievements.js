@@ -113,8 +113,12 @@ export default function Achievements() {
 
             <div className="achievement-meta">
               <span>觀看時間：{course.watched_hours} 小時</span>
-              <span>正式測驗次數：{course.final_attempt_count}</span>
-              <span>{course.has_final_assessment ? '正式測驗已建立' : '正式測驗準備中'}</span>
+              {course.final_assessment_enabled !== false && (
+                <>
+                  <span>正式測驗次數：{course.final_attempt_count}</span>
+                  <span>{course.has_final_assessment ? '正式測驗已建立' : '正式測驗準備中'}</span>
+                </>
+              )}
             </div>
 
             {course.requirements?.length ? (

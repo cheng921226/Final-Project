@@ -49,8 +49,10 @@ from routers.course_management import (
     update_course,
 )
 from routers.final_assessment import (
+    build_status,
     course_completion,
     require_course_manager as require_final_course_manager,
+    start_final_assessment,
 )
 
 
@@ -124,6 +126,35 @@ class FakeSupabase:
 
 
 class CourseCompletionTests(unittest.TestCase):
+    def test_disabled_final_assessment_is_not_required_for_credit_or_available_to_start(self):
+        course = {"id": 7, "credit_value": 2, "final_assessment_enabled": False}
+        lectures = [{"id": 8}]
+        progresses = [{"lecture_id": 8, "completed": True}]
+        result = evaluate_course(course, lectures, progresses, [], None, 5)
+        self.assertTrue(result["course_passed"])
+        self.assertEqual(result["credits_earned"], 2)
+        self.assertEqual([item["key"] for item in result["requirements"]], ["completion"])
+        self.assertFalse(evaluate_course(course, lectures, [], [], None, 5)["course_passed"])
+
+        module = "routers.final_assessment"
+        student = {"id": 3}
+        with (
+            patch(f"{module}.require_student", return_value=student),
+            patch(f"{module}.require_enrollment"),
+            patch(f"{module}.get_course", return_value=course),
+            patch(f"{module}.get_course_lectures", return_value=lectures),
+            patch(f"{module}.course_completion", return_value={"completion_met": True}),
+            patch(f"{module}.active_questions", return_value=[{"id": 9}]),
+            patch(f"{module}.student_attempts", return_value=[{"passed": True}]),
+            patch(f"{module}.get_certificate", return_value=None),
+            patch(f"{module}.issue_certificate") as issue_certificate,
+        ):
+            self.assertEqual(build_status(student, 7)["state"], "disabled")
+            with self.assertRaises(HTTPException) as error:
+                start_final_assessment(7, user=object())
+            self.assertEqual(error.exception.status_code, 403)
+            issue_certificate.assert_not_called()
+
     def test_hidden_lectures_do_not_affect_credit_or_final_assessment_completion(self):
         course = {"credit_value": 2, "completion_threshold": 100}
         lectures = [

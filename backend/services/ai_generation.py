@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+from collections.abc import Collection
 from uuid import uuid4
 from typing import Any
 
@@ -107,8 +108,10 @@ def get_lecture_title(lecture_id: int) -> str:
 
 def existing_rows(table_name: str, lecture_id: int) -> list[dict[str, Any]]:
     query = supabase_admin.table(table_name).select("*").eq("lecture_id", lecture_id)
-    if table_name in {"knowledge_points", "questions"}:
+    if table_name == "knowledge_points":
         query = query.eq("is_active", True)
+    elif table_name == "questions":
+        query = query.neq("status", "deleted")
     response = query.execute()
     return response.data or []
 
@@ -392,7 +395,10 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
 
 
 def run_ai_generation_pipeline(
-    lecture_id: int, segments: list[dict[str, Any]], skip_existing: bool = True
+    lecture_id: int,
+    segments: list[dict[str, Any]],
+    skip_existing: bool = True,
+    components: Collection[str] | None = None,
 ) -> dict[str, Any]:
     transcript_text = format_transcript_for_prompt(segments)
     if not transcript_text:
@@ -416,39 +422,30 @@ def run_ai_generation_pipeline(
             set_generation_status(lecture_id, component, "failed", error=str(exc))
             return {"status": "failed", "error": str(exc)}
 
-    steps["summary"] = run_step(
-        "summary",
-        lambda: generate_summary(
-            lecture_id, transcript_text, skip_existing=skip_existing
-        ),
-    )
+    generators = {
+        "summary": generate_summary,
+        "knowledge_points": generate_knowledge_points,
+        "mindmap": generate_mindmap,
+    }
+    for component, generate in generators.items():
+        if components is None or component in components:
+            steps[component] = run_step(
+                component,
+                lambda: generate(lecture_id, transcript_text, skip_existing=skip_existing),
+            )
 
-    steps["knowledge_points"] = run_step(
-        "knowledge_points",
-        lambda: generate_knowledge_points(
-            lecture_id, transcript_text, skip_existing=skip_existing
-        ),
-    )
-
-    knowledge_points = steps["knowledge_points"].get("inserted") or existing_rows(
-        "knowledge_points", lecture_id
-    )
-
-    steps["mindmap"] = run_step(
-        "mindmap",
-        lambda: generate_mindmap(
-            lecture_id, transcript_text, skip_existing=skip_existing
-        ),
-    )
-
-    steps["questions"] = run_step(
-        "questions",
-        lambda: generate_questions(
-            lecture_id,
-            transcript_text,
-            knowledge_points,
-            skip_existing=skip_existing,
-        ),
-    )
+    if components is None or "questions" in components:
+        knowledge_points = steps.get("knowledge_points", {}).get("inserted") or existing_rows(
+            "knowledge_points", lecture_id
+        )
+        steps["questions"] = run_step(
+            "questions",
+            lambda: generate_questions(
+                lecture_id,
+                transcript_text,
+                knowledge_points,
+                skip_existing=skip_existing,
+            ),
+        )
 
     return steps

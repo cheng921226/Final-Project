@@ -110,10 +110,13 @@ def evaluate_course(
         lecture_count and completion_percentage >= required_completion
     )
     final_requirement_met = bool(passed_attempt)
+    final_assessment_enabled = course.get("final_assessment_enabled", True)
     course_passed = bool(
         certificate
         or (
-            has_credit_settings and completion_requirement_met and final_requirement_met
+            has_credit_settings
+            and completion_requirement_met
+            and (not final_assessment_enabled or final_requirement_met)
         )
     )
     earned_credits = (
@@ -132,15 +135,16 @@ def evaluate_course(
             "unit": "%",
             "met": completion_requirement_met,
         },
-        {
+    ]
+    if final_assessment_enabled:
+        requirements.append({
             "key": "final_assessment",
             "label": "最終測驗",
             "current": final_score,
             "target": required_score,
             "unit": "分",
             "met": final_requirement_met,
-        },
-    ]
+        })
     next_requirements = [
         f"{item['label']}達到 {item['target']:g}{item['unit']}"
         for item in requirements
@@ -174,6 +178,7 @@ def evaluate_course(
         "final_score": final_score,
         "final_attempt_count": len(final_attempts),
         "final_assessment_passed": final_requirement_met,
+        "final_assessment_enabled": final_assessment_enabled,
         "has_final_assessment": final_question_count > 0,
         "retry_available_at": latest_attempt.get("retry_available_at")
         if latest_attempt

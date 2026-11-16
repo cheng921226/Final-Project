@@ -368,7 +368,9 @@ def build_status(student: dict[str, Any], course_id: int) -> dict[str, Any]:
     retry_seconds = max(0, int((retry_at - now).total_seconds())) if retry_at else 0
 
     has_credit_settings = number(course.get("credit_value")) > 0
-    if passed_attempt:
+    if not course.get("final_assessment_enabled", True):
+        state = "disabled"
+    elif passed_attempt:
         state = "passed"
         if (
             completion["completion_met"]
@@ -825,6 +827,8 @@ def get_final_assessment_status(course_id: int, user=Depends(get_current_user)):
 def start_final_assessment(course_id: int, user=Depends(get_current_user)):
     student = require_student(user)
     status = build_status(student, course_id)
+    if status["state"] == "disabled":
+        raise HTTPException(status_code=403, detail="這門課目前未開放最終測驗")
     if status["state"] == "passed":
         return {**status, "status": "already_passed"}
     if status["state"] == "locked":
@@ -848,6 +852,8 @@ def start_final_assessment(course_id: int, user=Depends(get_current_user)):
         return {**status, "status": "in_progress"}
 
     course = get_course(course_id)
+    if not course.get("final_assessment_enabled", True):
+        raise HTTPException(status_code=403, detail="這門課目前未開放最終測驗")
     questions = active_questions(course_id)
     requested_count = max(1, int(number(course.get("final_question_count"), 10)))
     selected = random.sample(questions, min(requested_count, len(questions)))
@@ -899,6 +905,10 @@ def submit_final_assessment(
     if attempt.get("status") != "in_progress":
         raise HTTPException(status_code=400, detail="這次正式測驗已經送出")
 
+    course = get_course(attempt["course_id"])
+    if not course.get("final_assessment_enabled", True):
+        raise HTTPException(status_code=403, detail="這門課目前未開放最終測驗")
+
     question_ids = [int(value) for value in attempt.get("question_ids") or []]
     answer_map = {
         answer.question_id: normalize_answer(answer.selected_answer)
@@ -942,7 +952,6 @@ def submit_final_assessment(
     passing_score = number(attempt.get("passing_score"), 70)
     passed = score >= passing_score
     now = datetime.now(timezone.utc)
-    course = get_course(attempt["course_id"])
     cooldown = max(0, int(number(course.get("retest_cooldown_minutes"), 60)))
     retry_available_at = (
         None if passed else (now + timedelta(minutes=cooldown)).isoformat()

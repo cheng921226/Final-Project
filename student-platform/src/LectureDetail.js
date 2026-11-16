@@ -288,6 +288,7 @@ function LectureDetail() {
   const playerLoadTimeoutRef = useRef(null);
   const pauseHelpTimerRef = useRef(null);
   const questionsRef = useRef([]);
+  const timedQuestionsEnabledRef = useRef(true);
   const activeQuestionRef = useRef(null);
   const shownQuestionIdsRef = useRef(new Set());
   const completedQuestionIdsRef = useRef(new Set());
@@ -367,7 +368,7 @@ function LectureDetail() {
   }
 
   const showTimedQuestion = useCallback((question, currentTime) => {
-    if (!question || activeQuestionRef.current || completedQuestionIdsRef.current.has(question.id)) return;
+    if (!timedQuestionsEnabledRef.current || !question || activeQuestionRef.current || completedQuestionIdsRef.current.has(question.id)) return;
 
     shownQuestionIdsRef.current.add(question.id);
     activeQuestionRef.current = question;
@@ -386,7 +387,7 @@ function LectureDetail() {
   }, [cancelPauseHelp, lectureId]);
 
   const maybeShowTimedQuestion = useCallback((currentTime) => {
-    if (activeQuestionRef.current) return;
+    if (!timedQuestionsEnabledRef.current || activeQuestionRef.current) return;
 
     const previousTime = lastQuestionCheckTimeRef.current;
     lastQuestionCheckTimeRef.current = currentTime;
@@ -637,6 +638,7 @@ function LectureDetail() {
     const { signal } = controller;
     const cached = lectureDetailCache.get(cacheKey);
     const applyCachedData = data => {
+      timedQuestionsEnabledRef.current = data.timedQuestionsEnabled !== false;
       setSummary(data.summary);
       setKnowledgePoints(data.knowledgePoints);
       setVideoId(data.videoId);
@@ -726,6 +728,8 @@ function LectureDetail() {
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const lecture = lectureData[0] || {};
+          data.timedQuestionsEnabled = lecture.timed_questions_enabled !== false;
+          timedQuestionsEnabledRef.current = data.timedQuestionsEnabled;
           if (lecturePlayerMode(lecture) === 'local') {
             data.videoId = '';
             data.backupInfo = null;
@@ -1690,11 +1694,15 @@ function LectureDetail() {
       setActiveQuestion(null);
       setSelectedAnswer('');
       setQuestionFeedback(null);
+      if (!timedQuestionsEnabledRef.current) {
+        setResetMessage('已重置作答紀錄。');
+        return;
+      }
       setResetMessage('已重置測驗，題目可以重新跳出。');
 
       let timedQuestions = questionsRef.current;
       if (!timedQuestions.length) {
-        timedQuestions = await fetchTimedQuestions(lectureId);
+        timedQuestions = await fetchTimedQuestions(lectureId, undefined, token);
         questionsRef.current = timedQuestions;
         setQuestions(timedQuestions);
       }

@@ -186,6 +186,12 @@ export default function FinalAssessment() {
         </section>
       )}
 
+      {data?.state === 'disabled' && (
+        <section className="assessment-state-card">
+          <h2>這門課目前未開放最終測驗</h2>
+        </section>
+      )}
+
       {data?.state === 'locked' && (
         <section className="assessment-state-card">
           <h2>完成課程後解鎖</h2>

@@ -3,6 +3,13 @@ import { Link, useLocation } from 'react-router-dom';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
+const GENERATION_OPTIONS = [
+  ['transcript', '逐字稿'],
+  ['summary', '摘要'],
+  ['knowledge_points', '知識點'],
+  ['mindmap', '心智圖'],
+  ['questions', '課堂題目'],
+];
 
 function courseOptionLabel(course) {
   const title = course.title || course.course_name || `課程 ${course.id}`;
@@ -34,10 +41,15 @@ export default function CourseUpload() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [modelSize, setModelSize] = useState('small');
   const [backupVideo, setBackupVideo] = useState(false);
+  const [generationSelection, setGenerationSelection] = useState([]);
   const [loading, setLoading] = useState(true);
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const needsTranscript = generationSelection.some(component => component !== 'transcript');
+  const generationComponents = GENERATION_OPTIONS
+    .filter(([component]) => generationSelection.includes(component) || (component === 'transcript' && needsTranscript))
+    .map(([component]) => component);
 
   useEffect(() => {
     if (!token) {
@@ -138,7 +150,8 @@ export default function CourseUpload() {
     form.append('file', videoFile);
     form.append('language', 'zh');
     form.append('model_size', modelSize);
-    form.append('auto_process', 'true');
+    form.append('auto_process', String(generationComponents.length > 0));
+    generationComponents.forEach(component => form.append('generation_components', component));
 
     return new Promise((resolve, reject) => {
       const request = new XMLHttpRequest();
@@ -204,6 +217,7 @@ export default function CourseUpload() {
         setResult({ ...body, course_id: body.course_id ?? targetCourseId });
         setLectureTitle('');
         setVideoFile(null);
+        setGenerationSelection([]);
         setUploadProgress(100);
         if (courseMode === 'new') {
           setNewCourseTitle('');
@@ -223,7 +237,8 @@ export default function CourseUpload() {
             media_url: youtubeUrl.trim(),
             course_id: targetCourseId,
             status: 'uploaded',
-            auto_process: true,
+            auto_process: generationComponents.length > 0,
+            generation_components: generationComponents,
             language: 'zh',
             model_size: modelSize,
             skip_existing_transcript: true,
@@ -240,7 +255,7 @@ export default function CourseUpload() {
         if (body.detail?.code === 'DUPLICATE_LECTURE' && body.detail?.lecture) {
           setResult({ duplicate: true, ...body.detail.lecture });
           const shouldOverwrite = window.confirm(
-            `「${body.detail.lecture.title}」使用相同影片。要覆蓋原有小節嗎？\n\n已完成的教材與學生學習紀錄會保留，只會更新小節資料並重新處理缺少或失敗的內容。`
+            `「${body.detail.lecture.title}」使用相同影片。要覆蓋原有小節嗎？\n\n已完成的教材與學生學習紀錄會保留，只會生成你選取但尚未完成的教材。`
           );
           if (!shouldOverwrite) return;
           ({ response: res, body } = await submitPayload(true));
@@ -256,6 +271,7 @@ export default function CourseUpload() {
       setLectureTitle('');
       setYoutubeUrl('');
       setBackupVideo(false);
+      setGenerationSelection([]);
       if (courseMode === 'new') {
         setNewCourseTitle('');
         setCourseMode('existing');
@@ -288,7 +304,7 @@ export default function CourseUpload() {
         <div>
           <p className="eyebrow">Course upload</p>
           <h1>上傳課程</h1>
-          <p>選擇 YouTube 或本機影片，後端會共用同一套流程產生逐字稿、摘要、知識點、心智圖與題目。</p>
+          <p>選擇 YouTube 或本機影片，再選擇要生成的教材。</p>
         </div>
       </header>
 
@@ -394,6 +410,30 @@ export default function CourseUpload() {
           </label>
         )}
 
+        <fieldset className="upload-generation" disabled={processing}>
+          <legend>生成教材</legend>
+          <p>可只建立小節。摘要、知識點、心智圖與課堂題目需要逐字稿，選取時會一併勾選逐字稿。</p>
+          <div className="upload-generation-options">
+            {GENERATION_OPTIONS.map(([component, label]) => (
+              <label className="switch sw-15" key={component}>
+                <input
+                  type="checkbox"
+                  checked={generationComponents.includes(component)}
+                  disabled={component === 'transcript' && needsTranscript}
+                  onChange={event => {
+                    const checked = event.target.checked;
+                    setGenerationSelection(current => checked
+                      ? [...current, component]
+                      : current.filter(item => item !== component));
+                  }}
+                />
+                <span className="track" aria-hidden="true"><span className="thumb" /></span>
+                {label}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         {sourceMode === 'upload' && processing && (
           <div className="upload-progress" aria-live="polite">
             <div className="upload-progress-label"><span>影片上傳進度</span><strong>{uploadProgress}%</strong></div>
@@ -404,7 +444,9 @@ export default function CourseUpload() {
         {error && <p className="auth-error">{error}</p>}
         <div className="question-editor-actions">
           <button className="question-save-button" type="submit" disabled={!canSubmit}>
-            {processing ? (sourceMode === 'upload' && uploadProgress < 100 ? '正在上傳影片...' : '正在建立教材...') : '建立並自動生成'}
+            {processing
+              ? (sourceMode === 'upload' && uploadProgress < 100 ? '正在上傳影片...' : '正在建立小節...')
+              : generationComponents.length ? '建立並生成所選教材' : '建立小節'}
           </button>
         </div>
       </form>
@@ -419,7 +461,7 @@ export default function CourseUpload() {
           <div className="panel-title">
             <div>
               <h3>{result.overwritten ? '原有小節已覆蓋' : result.pipeline?.status === 'processing' ? '教材正在背景產生' : '處理完成'}</h3>
-              <p>{result.pipeline?.message || `AI pipeline 回傳狀態：${result.pipeline?.status || result.status}`}</p>
+              <p>{result.pipeline?.message || '小節已建立。'}</p>
             </div>
           </div>
           <div className="achievement-meta">

@@ -2463,11 +2463,109 @@ a {
   margin-top: 18px;
 }
 
-.credit-settings-fields {
+.credit-settings-fields,
+.course-assessment-settings {
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
+}
+
+.course-assessment-settings legend {
+  padding: 0;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.course-assessment-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.course-assessment-settings .switch {
+  position: relative;
+  display: inline-flex;
+  flex: 1 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 4px 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.course-assessment-settings .switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  opacity: 0;
+}
+
+.course-assessment-settings .switch .track {
+  position: relative;
+  flex-shrink: 0;
+  width: 38px;
+  height: 22px;
+  margin: 0;
+  border-radius: 9999px;
+  background: #e4d8db;
+  transition: background-color .4s cubic-bezier(.65, 0, .35, 1);
+}
+
+.course-assessment-settings .switch .thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  transition: transform .4s cubic-bezier(.65, 0, .35, 1);
+}
+
+.course-assessment-settings .switch input:checked + .track {
+  background: var(--primary-soft);
+}
+
+.course-assessment-settings .switch input:checked + .track .thumb {
+  background: var(--primary);
+  transform: translateX(16px);
+}
+
+.course-assessment-settings .switch input:focus-visible + .track {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.course-assessment-settings .sw-5 .thumb::after {
+  content: "✕";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #785b63;
+  font: 700 11px/1 monospace;
+}
+
+.course-assessment-settings .sw-5 input:checked + .track .thumb::after {
+  content: "✓";
+  color: var(--surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-assessment-settings .switch .track,
+  .course-assessment-settings .switch .thumb {
+    transition: none;
+  }
 }
 
 .searchable-course-field {
@@ -2525,6 +2623,10 @@ a {
   position: relative;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.course-status-tabs,
+.course-assessment-switches {
   padding: 4px;
   border: 1px solid var(--line, #e0e3ed);
   border-radius: 10px;
@@ -4585,6 +4687,11 @@ a {
 
 .course-management-actions {
   justify-content: flex-end;
+}
+
+.course-credit-toggle {
+  margin-inline-end: auto;
+  gap: 6px;
 }
 
 .course-management-actions>.question-secondary-button,

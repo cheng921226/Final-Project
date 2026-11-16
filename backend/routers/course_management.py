@@ -54,6 +54,8 @@ class CourseUpdate(BaseModel):
     description: str | None = Field(default=None, max_length=4000)
     status: Literal["draft", "published", "archived"] | None = None
     teacher_id: int | None = None
+    timed_questions_enabled: bool = True
+    final_assessment_enabled: bool = True
 
 
 class LectureUpdate(BaseModel):
@@ -735,6 +737,7 @@ def retry_failed_generation(
                 lecture["media_url"],
                 skip_existing_transcript=True,
                 skip_existing_ai=True,
+                components=failed,
             )
         except PipelineStepError as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc

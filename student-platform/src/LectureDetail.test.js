@@ -209,6 +209,44 @@ test.each([
   }
 });
 
+test.each([true, false])('respects the course timed question setting (%s)', async enabled => {
+  localStorage.setItem('access_token', `timed-question-${enabled}`);
+  const pause = jest.spyOn(HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+  const responses = {
+    '/lectures/2': [{ media_source: 'upload', timed_questions_enabled: enabled }],
+    '/lectures/2/media': { playback_url: '/lecture.mp4' },
+    '/lectures/2/chats': { messages: [] },
+    '/lectures/2/questions': [{
+      id: 23,
+      source_timestamp: 20,
+      question_text: '片中測試題',
+      options: ['第一個選項', '第二個選項'],
+    }],
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+
+  try {
+    const { container } = renderLectureDetail('/course/1/lecture/2');
+    await screen.findByText(/儘管發問吧/);
+    const video = container.querySelector('video');
+    expect(video).toHaveAttribute('src', '/lecture.mp4');
+    video.currentTime = 20;
+    fireEvent.seeked(video);
+    if (enabled) {
+      expect(screen.getByText('片中測試題')).toBeInTheDocument();
+      expect(pause).toHaveBeenCalled();
+    } else {
+      expect(screen.queryByText('片中測試題')).not.toBeInTheDocument();
+      expect(pause).not.toHaveBeenCalled();
+    }
+  } finally {
+    pause.mockRestore();
+  }
+});
+
 test('sends a selected image to the assistant without requiring a typed question', async () => {
   localStorage.setItem('access_token', 'image-test-token');
   const originalCreateUrl = URL.createObjectURL;

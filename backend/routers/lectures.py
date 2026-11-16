@@ -33,6 +33,7 @@ from services.local_video import (
 )
 from services.lecture_processing import (
     GENERATION_COMPONENTS,
+    GenerationComponent,
     get_generation_statuses,
     set_generation_status,
 )
@@ -71,6 +72,22 @@ def public_lecture(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _selected_generation_components(auto_process, components):
+    if not auto_process:
+        return []
+    if components is None:
+        return list(GENERATION_COMPONENTS)
+    return list(dict.fromkeys(["transcript", *components])) if components else []
+
+
+def _mark_blocked_generation(lecture_id, components, error):
+    statuses = get_generation_statuses(lecture_id)
+    for component in components:
+        status = statuses.get(component, {}).get("status")
+        if component != "transcript" and status not in {"completed", "processing"}:
+            set_generation_status(lecture_id, component, "failed", error=str(error))
+
+
 def run_automatic_lecture_pipeline(
     lecture_id: int,
     *,
@@ -79,6 +96,7 @@ def run_automatic_lecture_pipeline(
     model_size: str,
     skip_existing_transcript: bool,
     skip_existing_ai: bool,
+    components: list[str],
 ) -> None:
     """Run generation after the create response so the browser can navigate away."""
     logger.info("Starting automatic lecture pipeline lecture_id=%s", lecture_id)
@@ -90,8 +108,11 @@ def run_automatic_lecture_pipeline(
             model_size=model_size,
             skip_existing_transcript=skip_existing_transcript,
             skip_existing_ai=skip_existing_ai,
+            components=components,
         )
     except PipelineStepError as exc:
+        if exc.code != "AI_GENERATION_FAILED":
+            _mark_blocked_generation(lecture_id, components, exc)
         logger.error(
             "Automatic lecture pipeline failed lecture_id=%s step=%s",
             lecture_id,
@@ -115,6 +136,7 @@ def run_automatic_uploaded_pipeline(
     file_path: str,
     language: str,
     model_size: str,
+    components: list[str],
 ) -> None:
     """Process an uploaded video with the same AI stages as YouTube media."""
     try:
@@ -126,7 +148,12 @@ def run_automatic_uploaded_pipeline(
             model_size=model_size,
             skip_existing_transcript=True,
             skip_existing_ai=True,
+            components=components,
         )
+    except PipelineStepError as exc:
+        if exc.code != "AI_GENERATION_FAILED":
+            _mark_blocked_generation(lecture_id, components, exc)
+        logger.exception("Uploaded media pipeline failed lecture_id=%s", lecture_id)
     except Exception:
         logger.exception("Uploaded media pipeline failed lecture_id=%s", lecture_id)
     finally:
@@ -268,6 +295,7 @@ class LectureCreate(BaseModel):
     course_id: int
     duration_seconds: int | None = None
     auto_process: bool = True
+    generation_components: list[GenerationComponent] | None = None
     language: str | None = "zh"
     model_size: str = DEFAULT_MODEL_SIZE
     skip_existing_transcript: bool = True
@@ -282,9 +310,16 @@ def get_selected_lecture(
     lecture_id: int,
     context: AuthContext | None = Depends(get_optional_auth_context),
 ):
-    res = supabase_admin.table("lectures").select("*").eq("id", lecture_id).execute()
+    res = (
+        supabase_admin.table("lectures")
+        .select("*,courses(timed_questions_enabled)")
+        .eq("id", lecture_id)
+        .execute()
+    )
     for row in res.data or []:
         _require_course_enrollment(row["course_id"], context)
+        course = row.pop("courses", None) or {}
+        row["timed_questions_enabled"] = course.get("timed_questions_enabled", True)
     return [public_lecture(row) for row in (res.data or [])]
 
 
@@ -294,6 +329,7 @@ def create_lecture(
     background_tasks: BackgroundTasks,
     user=Depends(get_current_user),
 ):
+    components = _selected_generation_components(body.auto_process, body.generation_components)
     teacher = require_teacher(user)
     require_course_manager(body.course_id, teacher)
     existing = (
@@ -370,7 +406,7 @@ def create_lecture(
                     or []
                 )
                 lecture = overwritten[0] if overwritten else {**duplicate, **values}
-                if body.auto_process:
+                if components:
                     background_tasks.add_task(
                         run_automatic_lecture_pipeline,
                         lecture["id"],
@@ -379,6 +415,7 @@ def create_lecture(
                         model_size=body.model_size,
                         skip_existing_transcript=True,
                         skip_existing_ai=True,
+                        components=components,
                     )
                 if body.backup_video:
                     background_tasks.add_task(
@@ -388,7 +425,7 @@ def create_lecture(
                     **lecture,
                     "overwritten": True,
                     "pipeline": {
-                        "status": "processing" if body.auto_process else "skipped",
+                        "status": "processing" if components else "skipped",
                         "message": "已更新原有小節，並保留既有教材與學習紀錄。",
                     },
                 }
@@ -481,9 +518,9 @@ def create_lecture(
         raise HTTPException(status_code=500, detail="新增小節失敗")
 
     lecture = res.data[0]
-    for component in GENERATION_COMPONENTS:
+    for component in components:
         set_generation_status(lecture["id"], component, "pending")
-    if not body.auto_process or not is_youtube:
+    if not components or not is_youtube:
         if body.backup_video and is_youtube:
             background_tasks.add_task(
                 backup_lecture_video, lecture["id"], body.media_url
@@ -498,6 +535,7 @@ def create_lecture(
         model_size=body.model_size,
         skip_existing_transcript=body.skip_existing_transcript,
         skip_existing_ai=body.skip_existing_ai,
+        components=components,
     )
     if body.backup_video:
         background_tasks.add_task(backup_lecture_video, lecture["id"], body.media_url)
@@ -520,8 +558,10 @@ async def upload_lecture_video(
     language: str = Form(default="zh"),
     model_size: str = Form(default=DEFAULT_MODEL_SIZE),
     auto_process: bool = Form(default=True),
+    generation_components: list[GenerationComponent] | None = Form(default=None),
     user=Depends(get_current_user),
 ):
+    components = _selected_generation_components(auto_process, generation_components)
     teacher = require_teacher(user)
     require_course_manager(course_id, teacher)
     if not title.strip():
@@ -616,26 +656,27 @@ async def upload_lecture_video(
         if not inserted:
             raise RuntimeError("新增小節失敗")
         lecture = inserted[0]
-        for component in GENERATION_COMPONENTS:
+        for component in components:
             set_generation_status(lecture["id"], component, "pending")
 
-        if auto_process:
+        if components:
             background_tasks.add_task(
                 run_automatic_uploaded_pipeline,
                 lecture["id"],
                 file_path=temp_path,
                 language=language,
                 model_size=model_size,
+                components=components,
             )
             temp_path = None
         return {
             **lecture,
             "media_storage_path": None,
             "pipeline": {
-                "status": "processing" if auto_process else "skipped",
+                "status": "processing" if components else "skipped",
                 "message": (
                     "影片已安全上傳，教材正在背景產生。"
-                    if auto_process
+                    if components
                     else "影片已安全上傳。"
                 ),
             },

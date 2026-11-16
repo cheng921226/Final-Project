@@ -72,6 +72,8 @@ function courseForm(course = {}) {
     title: course.title || '',
     description: course.description || '',
     status: course.status || 'draft',
+    timed_questions_enabled: course.timed_questions_enabled ?? true,
+    final_assessment_enabled: course.final_assessment_enabled ?? true,
     teacher_id: course.teacher_id ?? '',
   };
 }
@@ -129,6 +131,7 @@ export default function CourseManagement() {
   const [pendingGeneration, setPendingGeneration] = useState(null);
   const [message, setMessage] = useState(location.state?.deletionMessage || '');
   const [creditSettingsDirty, setCreditSettingsDirty] = useState(false);
+  const [creditSettingsOpen, setCreditSettingsOpen] = useState(false);
   const [error, setError] = useState('');
   const skipNextHistoryWarning = useRef(false);
   const activeCourseId = useRef(courseId);
@@ -226,6 +229,7 @@ export default function CourseManagement() {
     setExpandedLectureIds(new Set());
     setOpenTranscriptId(null);
     setCreditSettingsDirty(false);
+    setCreditSettingsOpen(false);
     setMessage(location.state?.deletionMessage || '');
   }, [courseId, location.state, requestedId]);
 
@@ -327,6 +331,8 @@ export default function CourseManagement() {
         title: form.title.trim(),
         description: form.description.trim() || null,
         status: form.status,
+        timed_questions_enabled: form.timed_questions_enabled,
+        final_assessment_enabled: form.final_assessment_enabled,
       };
       if (isCampus) payload.teacher_id = form.teacher_id === '' ? null : Number(form.teacher_id);
       const response = await fetch(`${API_URL}/teacher/course-management/courses/${selectedCourse.id}`, {
@@ -708,26 +714,66 @@ export default function CourseManagement() {
               />
               <p className="course-publication-hint" aria-live="polite">{STATUS_HINTS[form.status]}</p>
             </div>
-            <label className="review-field"><span>上傳者</span><input readOnly value={selectedCourse.creator?.name || selectedCourse.creator?.email || '無法辨識'} /></label>
+            <fieldset className="review-field course-assessment-settings">
+              <legend>測驗功能</legend>
+              <div className="course-assessment-switches">
+                <label className="switch sw-5">
+                  <input
+                    type="checkbox"
+                    checked={form.timed_questions_enabled}
+                    onChange={event => setForm(current => ({ ...current, timed_questions_enabled: event.target.checked }))}
+                  />
+                  <span className="track" aria-hidden="true"><span className="thumb" /></span>
+                  開啟片中跳題
+                </label>
+                <label className="switch sw-5">
+                  <input
+                    type="checkbox"
+                    checked={form.final_assessment_enabled}
+                    onChange={event => setForm(current => ({ ...current, final_assessment_enabled: event.target.checked }))}
+                  />
+                  <span className="track" aria-hidden="true"><span className="thumb" /></span>
+                  開啟最終測驗
+                </label>
+              </div>
+              {!form.final_assessment_enabled && (
+                <p className="course-publication-hint">關閉後，最終測驗將從課程通過條件移除。</p>
+              )}
+            </fieldset>
             {isCampus && <label className="review-field"><span>授課教師</span><select value={form.teacher_id} onChange={event => setForm(current => ({ ...current, teacher_id: event.target.value }))}><option value="">尚未指派</option>{(data.teachers || []).map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name || teacher.email}</option>)}</select></label>}
           </div>
           <label className="review-field"><span>課程介紹</span><textarea rows={4} value={form.description} onChange={event => setForm(current => ({ ...current, description: event.target.value }))} placeholder="說明課程內容、學習目標與適合對象" /></label>
-          <div className="course-management-actions"><button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button><Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link><button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button></div>
+          <div className="course-management-actions">
+            <button
+              type="button"
+              className="question-secondary-button course-credit-toggle"
+              aria-expanded={creditSettingsOpen}
+              aria-controls="course-credit-settings"
+              onClick={() => setCreditSettingsOpen(open => !open)}
+            >
+              學分與認證設定 <span aria-hidden="true">{creditSettingsOpen ? '▴' : '▾'}</span>
+            </button>
+            <button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button>
+            <Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link>
+            <button className="question-save-button" type="submit" disabled={Boolean(busyKey)}>{busyKey === 'course' ? '儲存中...' : '儲存課程'}</button>
+          </div>
         </form>
 
-        <CreditSettingsForm
-          key={selectedCourse.id}
-          course={selectedCourse}
-          token={token}
-          embedded
-          onDirtyChange={setCreditSettingsDirty}
-          onSaved={(savedCourseId, settings) => setData(current => ({
-            ...current,
-            courses: current.courses.map(course =>
-              course.id === savedCourseId ? { ...course, ...settings } : course
-            ),
-          }))}
-        />
+        <div id="course-credit-settings" hidden={!creditSettingsOpen}>
+          <CreditSettingsForm
+            key={selectedCourse.id}
+            course={selectedCourse}
+            token={token}
+            embedded
+            onDirtyChange={setCreditSettingsDirty}
+            onSaved={(savedCourseId, settings) => setData(current => ({
+              ...current,
+              courses: current.courses.map(course =>
+                course.id === savedCourseId ? { ...course, ...settings } : course
+              ),
+            }))}
+          />
+        </div>
 
         <section className="teacher-panel course-lecture-manager">
           <div className="panel-title">

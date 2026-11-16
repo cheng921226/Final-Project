@@ -262,7 +262,7 @@ test('campus sees and manages teacher courses alongside its own courses', async 
 
   renderManagement();
   expect(await screen.findByRole('heading', { name: '資料結構' })).toBeInTheDocument();
-  expect(screen.getByDisplayValue('校園平台甲')).toBeInTheDocument();
+  expect(screen.queryByRole('textbox', { name: '上傳者' })).not.toBeInTheDocument();
   expect(screen.getByText('授課教師')).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '校園平台甲（平台端）' })).toBeInTheDocument();
   expect(screen.getByRole('option', { name: '王老師' })).toBeInTheDocument();
@@ -388,12 +388,21 @@ test('edits the selected course credit settings directly and warns before discar
   const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false);
 
   renderManagement();
-  const threshold = await screen.findByRole('spinbutton', { name: '完成度門檻 (%)' });
+  const toggle = await screen.findByRole('button', { name: '學分與認證設定' });
+  expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.queryByRole('spinbutton', { name: '完成度門檻 (%)' })).not.toBeInTheDocument();
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  const threshold = screen.getByRole('spinbutton', { name: '完成度門檻 (%)' });
   expect(threshold).toHaveValue(90);
   fireEvent.change(threshold, { target: { value: '85' } });
+  fireEvent.click(toggle);
+  expect(threshold).not.toBeVisible();
   fireEvent.click(screen.getByRole('link', { name: '← 返回課程管理' }));
   expect(confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
 
+  fireEvent.click(toggle);
+  expect(threshold).toHaveValue(85);
   fireEvent.click(screen.getByRole('button', { name: '儲存學分設定' }));
   expect(await screen.findByText('學分設定已更新。')).toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledWith(
@@ -579,8 +588,19 @@ test('selects a publication status and saves it only when the course form is sub
   expect(published).toHaveAttribute('aria-pressed', 'true');
   expect(global.fetch.mock.calls.some(([, options]) => options?.method === 'PATCH')).toBe(false);
 
+  const timedQuestions = screen.getByRole('checkbox', { name: '開啟片中跳題' });
+  const finalAssessment = screen.getByRole('checkbox', { name: '開啟最終測驗' });
+  expect(timedQuestions).toBeChecked();
+  expect(finalAssessment).toBeChecked();
+  fireEvent.click(timedQuestions);
+  fireEvent.click(finalAssessment);
+
   fireEvent.click(screen.getByRole('button', { name: '儲存課程' }));
   expect(await screen.findByText('課程資料已更新。')).toBeInTheDocument();
   const [, request] = global.fetch.mock.calls.find(([, options]) => options?.method === 'PATCH');
-  expect(JSON.parse(request.body).status).toBe('published');
+  expect(JSON.parse(request.body)).toMatchObject({
+    status: 'published',
+    timed_questions_enabled: false,
+    final_assessment_enabled: false,
+  });
 });

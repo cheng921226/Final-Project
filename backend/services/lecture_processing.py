@@ -1,9 +1,11 @@
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Literal
 
 from database.supabase import supabase_admin
 
+
+GenerationComponent = Literal["transcript", "summary", "knowledge_points", "mindmap", "questions"]
 
 GENERATION_COMPONENTS = (
     "transcript",

@@ -1,6 +1,7 @@
 import logging
 import shutil
 import tempfile
+from collections.abc import Collection
 from typing import Any
 
 from database.supabase import supabase_admin
@@ -57,6 +58,7 @@ def run_media_ai_pipeline(
     save_to_db: bool = True,
     skip_existing_transcript: bool = True,
     skip_existing_ai: bool = True,
+    components: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """Run the shared transcription and AI generation stages for any media."""
     metadata = source_metadata or {}
@@ -139,12 +141,15 @@ def run_media_ai_pipeline(
                 "error": str(exc),
             }
 
+    ai_steps = {}
     try:
-        ai_steps = run_ai_generation_pipeline(
-            lecture_id,
-            transcript_result["segments"],
-            skip_existing=skip_existing_ai,
-        )
+        if components is None or set(components) - {"transcript"}:
+            ai_steps = run_ai_generation_pipeline(
+                lecture_id,
+                transcript_result["segments"],
+                skip_existing=skip_existing_ai,
+                components=components,
+            )
     except Exception as exc:
         raise PipelineStepError(
             "AI_GENERATION_FAILED", f"AI 生成流程失敗：{exc}"
@@ -188,6 +193,7 @@ def run_youtube_ai_pipeline(
     save_to_db: bool = True,
     skip_existing_transcript: bool = True,
     skip_existing_ai: bool = True,
+    components: Collection[str] | None = None,
 ) -> dict[str, Any]:
     download_dir = None
 
@@ -241,6 +247,7 @@ def run_youtube_ai_pipeline(
             save_to_db=save_to_db,
             skip_existing_transcript=skip_existing_transcript,
             skip_existing_ai=skip_existing_ai,
+            components=components,
         )
         return {
             **result,
