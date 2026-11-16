@@ -444,8 +444,11 @@ test('switches the student table to the selected lecture metrics', async () => {
       courses: [{
         id: 1,
         title: '測試課程',
-        summary: { students: 1, active_students: 1, lectures: 1, completion_rate: 100, watched_hours: 1, question_accuracy: 80 },
-        students: [{ id: 1, name: '課程資料', email: 'student@example.com', completed_lectures: 3, total_lectures: 3, watched_minutes: 60, accuracy: 80 }],
+        summary: {
+          students: 1, active_students: 1, lectures: 1, completion_rate: 100, watched_hours: 1, question_accuracy: 80,
+          mastery_student_count: 1, mastery_passed_students: 1, mastery_pass_rate: 1, mastery_pass_threshold: 0.7,
+        },
+        students: [{ id: 1, name: '課程資料', email: 'student@example.com', completed_lectures: 3, total_lectures: 3, watched_minutes: 60, accuracy: 80, mastery_rate: 0.75 }],
         questions: [],
         lectures: [{
           id: 11,
@@ -453,13 +456,17 @@ test('switches the student table to the selected lecture metrics', async () => {
           completion_rate: 0,
           watched_minutes: 2,
           accuracy: 50,
+          mastery_student_count: 1,
+          mastery_passed_students: 0,
+          mastery_pass_rate: 0,
+          mastery_pass_threshold: 0.7,
           attempts: 2,
           students_started: 1,
           pause_count: 0,
           seek_count: 0,
           pause_hotspots: [],
           seek_hotspots: [],
-          students: [{ id: 1, name: '小節資料', email: 'student@example.com', completed_lectures: 0, total_lectures: 1, watched_minutes: 2, accuracy: 50 }],
+          students: [{ id: 1, name: '小節資料', email: 'student@example.com', completed_lectures: 0, total_lectures: 1, watched_minutes: 2, accuracy: 50, mastery_rate: 0.25 }],
         }],
       }],
     }),
@@ -468,10 +475,14 @@ test('switches the student table to the selected lecture metrics', async () => {
   try {
     render(<TeacherDashboard />);
     await screen.findByText('課程資料');
+    expect(screen.getByText('1／1 位修課學生達標（掌握率 ≥ 70%）')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '75%' })).toBeInTheDocument();
     const scopeSelect = screen.getByRole('combobox', { name: '分析範圍' });
     fireEvent.change(scopeSelect, { target: { value: '11' } });
     expect(screen.queryByText('課程資料')).not.toBeInTheDocument();
     expect(screen.getByText('小節資料')).toBeInTheDocument();
+    expect(screen.getByText('0／1 位修課學生達標（掌握率 ≥ 70%）')).toBeInTheDocument();
+    expect(screen.getByRole('cell', { name: '25%' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '正確率' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '小節完成' })).toBeInTheDocument();
   } finally {

@@ -21,6 +21,7 @@ from routers.teacher_analytics import (
     RecommendationSnoozeRequest,
     _clean_ai_recommendation,
     _enrolled_student_ids,
+    _mastery_summary,
     _student_scope_result,
     _teaching_recommendations,
     snooze_teaching_recommendation,
@@ -36,6 +37,8 @@ from routers.questions import (
     validate_question_options,
 )
 from routers.lectures import get_lecture_summary
+from routers.review import build_assessment_status
+from services.question_statistics import question_mastery
 from routers.course_management import (
     CourseUpdate,
     RegenerateRequest,
@@ -276,11 +279,50 @@ class TeacherAnalyticsTests(unittest.TestCase):
                 {"is_correct": False, "answered_at": "2026-01-03"},
             ],
             1,
+            [],
         )
         self.assertEqual(result["completed_lectures"], 1)
         self.assertEqual(result["watched_minutes"], 2)
         self.assertEqual(result["accuracy"], 50)
         self.assertEqual(result["last_active"], "2026-01-03")
+
+    def test_mastery_counts_unanswered_questions_and_deduplicates_retest_credit(self):
+        questions = [
+            *({"id": question_id, "status": "published"} for question_id in range(1, 5)),
+            {"id": 5, "status": "pending"},
+            {"id": 6, "status": "deleted"},
+            {"id": 7, "status": "unpublished"},
+            {"id": 8, "status": "published", "question_type": "extension", "source_question_id": 2},
+        ]
+        attempts = [
+            {"question_id": 1, "is_correct": True, "answered_at": "2026-11-01"},
+        ]
+        mastery, _ = question_mastery(questions, attempts)
+        assessment = build_assessment_status(1, None, questions, attempts, mastery)
+        self.assertEqual(assessment["original_accuracy"], 1)
+        self.assertEqual(assessment["mastery_rate"], 0.25)
+        self.assertFalse(assessment["passed"])
+
+        attempts.extend([
+            {"question_id": 2, "is_correct": False, "answered_at": "2026-11-01"},
+            {"question_id": 2, "is_correct": True, "answered_at": "2026-11-02"},
+            {"question_id": 8, "attempt_type": "retest", "is_correct": True},
+            {"question_id": 2, "attempt_type": "retest", "is_correct": True},
+            {"question_id": 3, "attempt_type": "retest", "is_correct": True},
+            {"question_id": 5, "attempt_type": "retest", "is_correct": True},
+            {"question_id": 6, "attempt_type": "retest", "is_correct": True},
+        ])
+        mastery, mastered_ids = question_mastery(questions, attempts)
+        self.assertEqual(mastered_ids, {1, 2, 3})
+        self.assertEqual(mastery["mastery_rate"], 0.75)
+        self.assertTrue(mastery["mastery_passed"])
+
+        not_started, _ = question_mastery(questions, [])
+        no_questions, _ = question_mastery([], [])
+        self.assertEqual(not_started["mastery_rate"], 0)
+        self.assertIsNone(no_questions["mastery_rate"])
+        self.assertEqual(_mastery_summary([mastery, not_started])["mastery_pass_rate"], 0.5)
+        self.assertIsNone(_mastery_summary([no_questions])["mastery_pass_rate"])
 
     def test_edited_transcript_keeps_timestamp_segments(self):
         segments = _segments_from_edited_transcript(

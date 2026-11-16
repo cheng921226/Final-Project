@@ -32,11 +32,11 @@ function getQuestionOptions(question) {
   return [];
 }
 
-function formatPercent(value) {
+function formatPercent(value, fractionDigits = 0) {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '尚無資料';
   }
-  return `${Math.round(Number(value) * 100)}%`;
+  return `${Number((Number(value) * 100).toFixed(fractionDigits))}%`;
 }
 
 function lectureTitle(lecture) {
@@ -196,7 +196,7 @@ function ReviewMode() {
         throw new Error(data.detail || '無法開始重新測驗');
       }
       if (data.status === 'already_passed') {
-        setRetestMessage('練習題正確率已達掌握目標，不需要補充練習。');
+        setRetestMessage('掌握率已達練習目標，不需要補充練習。');
         setRefreshKey(key => key + 1);
         return;
       }
@@ -236,7 +236,7 @@ function ReviewMode() {
       if (!res.ok) {
         throw new Error(data.detail || '提交重新測驗失敗');
       }
-      setRetestMessage(data.passed ? '重新測驗已通過。' : '重新測驗尚未通過，請再回顧錯題。');
+      setRetestMessage(`已完成補充練習，補測正確率為 ${formatPercent(data.retest_accuracy)}。`);
       setRetestSession(null);
       setRetestQuestions([]);
       setRetestAnswers({});
@@ -372,6 +372,13 @@ function ReviewMode() {
 
               <div className="assessment-card">
                 <div>
+                  <span>掌握率</span>
+                  <strong>{formatPercent(reviewData.assessment?.mastery_rate, 2)}</strong>
+                  {reviewData.assessment?.mastery_question_count > 0 && (
+                    <small>{reviewData.assessment.mastered_questions}／{reviewData.assessment.mastery_question_count} 題已掌握</small>
+                  )}
+                </div>
+                <div>
                   <span>原始正確率</span>
                   <strong>{formatPercent(reviewData.assessment?.original_accuracy)}</strong>
                 </div>
@@ -388,11 +395,13 @@ function ReviewMode() {
                 <p className={reviewData.assessment?.passed ? 'review-success' : 'teacher-empty compact'}>
                   {reviewData.assessment?.passed
                     ? '已達到練習題掌握目標。這項結果只供學習診斷，不影響學分。'
-                    : reviewData.assessment?.original_accuracy === null || reviewData.assessment?.original_accuracy === undefined
-                      ? '完成影片中的題目後，這裡會顯示課程測驗狀態。'
-                      : '目前練習題尚未達到掌握目標，可先回顧錯題，再進行補充練習。'}
+                    : !reviewData.assessment?.mastery_question_count
+                      ? '目前沒有已發布的課堂題目。'
+                      : reviewData.assessment?.needs_retest
+                        ? '目前尚未達到掌握目標，可回顧錯題並進行補充練習。'
+                        : '目前尚未達到掌握目標，可以繼續完成課堂題目。'}
                 </p>
-                {!reviewData.assessment?.passed && (reviewData.wrong_questions || []).length > 0 && (
+                {reviewData.assessment?.needs_retest && (
                   <button
                     type="button"
                     className="review-reset-button"

@@ -3,16 +3,21 @@ from collections import Counter
 from datetime import datetime, timezone
 from typing import Any
 
-from database.supabase import supabase_admin
+from database.supabase import fetch_all_by_id, supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+
+from services.question_statistics import (
+    ASSESSMENT_PASS_THRESHOLD,
+    first_attempts_by_question,
+    question_mastery,
+)
 
 from .security import get_current_user
 from .users import get_student_id_from_auth
 
 router = APIRouter()
 
-ASSESSMENT_PASS_THRESHOLD = 0.7
 RETEST_MAX_QUESTIONS = 10
 RETEST_ORIGINAL_RECHECK_LIMIT = 4
 
@@ -67,22 +72,6 @@ def latest_attempts_by_question(
     return latest
 
 
-def first_attempts_by_question(
-    attempts: list[dict[str, Any]],
-) -> dict[Any, dict[str, Any]]:
-    first: dict[Any, dict[str, Any]] = {}
-    for attempt in attempts:
-        question_id = attempt.get("question_id")
-        if question_id is None:
-            continue
-        previous = first.get(question_id)
-        if not previous or str(attempt.get("answered_at") or "") < str(
-            previous.get("answered_at") or ""
-        ):
-            first[question_id] = attempt
-    return first
-
-
 def percent_ratio(correct: int, total: int) -> float | None:
     if total <= 0:
         return None
@@ -94,8 +83,8 @@ def is_original_question(question: dict[str, Any]) -> bool:
 
 
 def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
-    return (
-        supabase_admin.table("questions")
+    return fetch_all_by_id(
+        lambda: supabase_admin.table("questions")
         .select(
             "id, lecture_id, knowledge_point_id, question_text, options_json, "
             "answer, explanation, source_timestamp, question_type, source_question_id, "
@@ -103,9 +92,6 @@ def select_questions(lecture_ids: list[int]) -> list[dict[str, Any]]:
         )
         .in_("lecture_id", lecture_ids)
         .eq("status", "published")
-        .execute()
-        .data
-        or []
     )
 
 
@@ -172,15 +158,19 @@ def start_course_retest(course_id: int, user=Depends(get_current_user)):
         course_id=course_id,
         questions=context["questions"],
         attempts=context["attempts"],
+        mastery=context["mastery"],
     )
     original_accuracy = assessment.get("original_accuracy")
-    historical_wrong = context["historical_wrong_questions"]
-    if original_accuracy is not None and original_accuracy >= ASSESSMENT_PASS_THRESHOLD:
+    if assessment["passed"]:
         return {
             "status": "already_passed",
             "assessment": assessment,
             "questions": [],
         }
+    historical_wrong = [
+        question for question in context["historical_wrong_questions"]
+        if question["id"] not in context["mastered_question_ids"]
+    ]
     if not historical_wrong:
         raise HTTPException(status_code=400, detail="目前沒有可補測的歷史錯題")
 
@@ -390,14 +380,8 @@ def get_lecture(lecture_id: int) -> dict[str, Any] | None:
 
 
 def get_course_lectures(course_id: int) -> list[dict[str, Any]]:
-    return (
-        supabase_admin.table("lectures")
-        .select("*")
-        .eq("course_id", course_id)
-        .order("id")
-        .execute()
-        .data
-        or []
+    return fetch_all_by_id(
+        lambda: supabase_admin.table("lectures").select("*").eq("course_id", course_id)
     )
 
 
@@ -412,14 +396,11 @@ def build_review_context(student_id: int, lecture_ids: list[int]) -> dict[str, A
     )
     lecture_map = rows_by_id(lectures)
 
-    attempts = (
-        supabase_admin.table("question_attempts")
+    attempts = fetch_all_by_id(
+        lambda: supabase_admin.table("question_attempts")
         .select("*")
         .in_("lecture_id", lecture_ids)
         .eq("student_id", student_id)
-        .execute()
-        .data
-        or []
     )
 
     questions = select_questions(lecture_ids)
@@ -459,6 +440,7 @@ def build_review_context(student_id: int, lecture_ids: list[int]) -> dict[str, A
             continue
         historical_wrong_questions.append(question)
 
+    mastery, mastered_question_ids = question_mastery(questions, attempts)
     latest_retest_session = get_latest_retest_session(student_id, lecture_ids)
 
     return {
@@ -476,6 +458,8 @@ def build_review_context(student_id: int, lecture_ids: list[int]) -> dict[str, A
         "extensions_by_source": extensions_by_source,
         "historical_wrong_questions": historical_wrong_questions,
         "latest_retest_session": latest_retest_session,
+        "mastery": mastery,
+        "mastered_question_ids": mastered_question_ids,
     }
 
 
@@ -517,6 +501,7 @@ def build_assessment_status(
     course_id: int | None,
     questions: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
+    mastery: dict[str, Any],
 ) -> dict[str, Any]:
     original_questions = [
         question for question in questions if is_original_question(question)
@@ -555,15 +540,8 @@ def build_assessment_status(
 
     retest_accuracy = latest_session.get("retest_accuracy") if latest_session else None
     retest_status = latest_session.get("status") if latest_session else None
-    passed = (
-        original_accuracy is not None and original_accuracy >= ASSESSMENT_PASS_THRESHOLD
-    ) or (
-        retest_status == "passed"
-        and retest_accuracy is not None
-        and float(retest_accuracy) >= ASSESSMENT_PASS_THRESHOLD
-    )
-
     return {
+        **mastery,
         "pass_threshold": ASSESSMENT_PASS_THRESHOLD,
         "original_total": original_total,
         "original_correct": original_correct,
@@ -571,11 +549,9 @@ def build_assessment_status(
         "retest_accuracy": retest_accuracy,
         "retest_status": retest_status,
         "latest_retest_session": latest_session,
-        "passed": passed,
-        "needs_retest": bool(
-            original_accuracy is not None
-            and original_accuracy < ASSESSMENT_PASS_THRESHOLD
-            and not passed
+        "passed": mastery["mastery_passed"],
+        "needs_retest": (
+            not mastery["mastery_passed"] and mastery["has_unmastered_wrong_questions"]
         ),
     }
 
@@ -679,6 +655,7 @@ def build_review_payload(
         course_id=scope.get("course_id"),
         questions=questions,
         attempts=attempts,
+        mastery=context["mastery"],
     )
 
     wrong_questions = []
@@ -703,9 +680,7 @@ def build_review_payload(
             ],
         ]
         related_retest_attempts = [row for row in related_retest_attempts if row]
-        retest_mastered = bool(related_retest_attempts) and all(
-            row.get("is_correct") for row in related_retest_attempts
-        )
+        retest_mastered = question["id"] in context["mastered_question_ids"]
         wrong_questions.append(
             {
                 "question_id": question.get("id"),
@@ -817,6 +792,7 @@ def empty_review_payload(scope: dict[str, Any]) -> dict[str, Any]:
             "extension_question_count": 0,
         },
         "assessment": {
+            **question_mastery([], [])[0],
             "pass_threshold": ASSESSMENT_PASS_THRESHOLD,
             "original_total": 0,
             "original_correct": 0,

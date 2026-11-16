@@ -4,13 +4,18 @@ import json
 from math import ceil
 from typing import Any
 
-from database.supabase import supabase_admin
+from database.supabase import fetch_all_by_id, supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
 from services.ai_generation import generate_json_content, parse_json_response
-from services.question_statistics import percentage, question_attempt_statistics
+from services.question_statistics import (
+    ASSESSMENT_PASS_THRESHOLD,
+    percentage,
+    question_attempt_statistics,
+    question_mastery,
+)
 
 from .achievements import evaluate_course
 from .security import get_current_user
@@ -61,14 +66,21 @@ def _clean_ai_recommendation(value: Any) -> dict[str, Any] | None:
     }
 
 
-def _rows(table: str, **filters: Any) -> list[dict[str, Any]]:
-    query = supabase_admin.table(table).select("*")
-    for column, values in filters.items():
-        if not values:
-            return []
-        query = query.in_(column, list(values))
-    response = query.execute()
-    return response.data or []
+def _rows(
+    table: str, *, paginate: bool = False, **filters: Any
+) -> list[dict[str, Any]]:
+    if not all(filters.values()):
+        return []
+
+    def build_query():
+        query = supabase_admin.table(table).select("*")
+        for column, values in filters.items():
+            query = query.in_(column, list(values))
+        return query
+
+    if paginate:
+        return fetch_all_by_id(build_query)
+    return build_query().execute().data or []
 
 
 def _latest(*values: str | None) -> str | None:
@@ -190,10 +202,14 @@ def _student_scope_result(
     events: list[dict[str, Any]],
     attempts: list[dict[str, Any]],
     total_lectures: int,
+    questions: list[dict[str, Any]],
 ) -> dict[str, Any]:
     correct = sum(bool(row.get("is_correct")) for row in attempts)
+    mastery, _ = question_mastery(questions, attempts)
     return {
         "id": student.get("id"),
+        "mastery_rate": mastery["mastery_rate"],
+        "mastery_passed": mastery["mastery_passed"],
         "student_number": student.get("student_number"),
         "name": student.get("name") or f"學生 {student.get('id')}",
         "email": student.get("email"),
@@ -207,6 +223,17 @@ def _student_scope_result(
         "attempts": len(attempts),
         "accuracy": _percent(correct, len(attempts)),
         "last_active": _last_student_activity(progresses, events, attempts),
+    }
+
+
+def _mastery_summary(students: list[dict[str, Any]]) -> dict[str, Any]:
+    eligible = [student for student in students if student["mastery_rate"] is not None]
+    passed = sum(student["mastery_passed"] for student in eligible)
+    return {
+        "mastery_pass_threshold": ASSESSMENT_PASS_THRESHOLD,
+        "mastery_passed_students": passed,
+        "mastery_student_count": len(eligible),
+        "mastery_pass_rate": passed / len(eligible) if eligible else None,
     }
 
 
@@ -606,31 +633,26 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         > now
     }
 
-    lectures = _rows("lectures", course_id=course_ids)
+    lectures = _rows("lectures", paginate=True, course_id=course_ids)
     lecture_ids = [lecture["id"] for lecture in lectures]
-    students = (
-        supabase_admin.table("users")
+    students = fetch_all_by_id(
+        lambda: supabase_admin.table("users")
         .select("id,student_number,name,email,role,class_id")
         .eq("role", "student")
-        .order("id")
-        .execute()
-    ).data or []
+    )
     all_student_ids = {row["id"] for row in students}
     class_ids = {row["class_id"] for row in students if row.get("class_id") is not None}
     class_rows = _rows("classes", id=class_ids)
     class_map = {row["id"]: row for row in class_rows}
-    enrollments = (
-        supabase_admin.table("student_courses")
-        .select("student_id,course_id")
+    enrollments = fetch_all_by_id(
+        lambda: supabase_admin.table("student_courses")
+        .select("id,student_id,course_id")
         .in_("course_id", course_ids)
-        .execute()
-        .data
-        or []
     )
     progresses = _rows("video_progresses", lecture_id=lecture_ids)
     events = _rows("learning_events", lecture_id=lecture_ids)
-    attempts = _rows("question_attempts", lecture_id=lecture_ids)
-    questions = _rows("questions", lecture_id=lecture_ids)
+    attempts = _rows("question_attempts", paginate=True, lecture_id=lecture_ids)
+    questions = _rows("questions", paginate=True, lecture_id=lecture_ids)
     knowledge_points = _rows("knowledge_points", lecture_id=lecture_ids)
     final_attempts = _rows("final_assessment_attempts", course_id=course_ids)
     certificates = _rows("course_certifications", course_id=course_ids)
@@ -655,6 +677,12 @@ def get_teacher_analytics(user=Depends(get_current_user)):
         course_student_ids = _enrolled_student_ids(enrollments, cid, all_student_ids)
         course_lectures = [row for row in lectures if row.get("course_id") == cid]
         course_lecture_ids = {row["id"] for row in course_lectures}
+        course_questions = [
+            row
+            for row in questions
+            if row.get("lecture_id") in course_lecture_ids
+            and row.get("status") == "published"
+        ]
         course_progresses = [
             row
             for row in progresses
@@ -691,6 +719,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             ]
             lecture_events = [
                 row for row in course_events if row.get("lecture_id") == lid
+            ]
+            lecture_questions = [
+                row for row in course_questions if row.get("lecture_id") == lid
             ]
             lecture_attempts = [
                 row for row in course_attempts if row.get("lecture_id") == lid
@@ -729,12 +760,14 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                             if row.get("student_id") == student_id
                         ],
                         1,
+                        lecture_questions,
                     )
                 )
 
             lecture_results.append(
                 {
                     "id": lid,
+                    **_mastery_summary(lecture_students),
                     "title": lecture.get("title") or f"小節 {lid}",
                     "students_started": len(
                         {row["student_id"] for row in lecture_progresses}
@@ -787,6 +820,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 student_events,
                 student_attempts,
                 len(course_lectures),
+                course_questions,
             )
             credit_result = evaluate_course(
                 course,
@@ -825,14 +859,9 @@ def get_teacher_analytics(user=Depends(get_current_user)):
 
         question_results = []
         question_stats = question_attempt_statistics(course_attempts)
-        course_questions = [
-            row
-            for row in questions
-            if row.get("lecture_id") in course_lecture_ids
-            and (row.get("question_type") or "original") == "original"
-            and (row.get("status") or "published") == "published"
-        ]
         for question in course_questions:
+            if (question.get("question_type") or "original") != "original":
+                continue
             question_id = question.get("id")
             question_attempts = [
                 row for row in course_attempts if row.get("question_id") == question_id
@@ -878,6 +907,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 ),
                 "ai_recommendation": ai_recommendation_map.get(cid),
                 "summary": {
+                    **_mastery_summary(student_results),
                     "students": len(course_student_ids),
                     "active_students": len(active_students),
                     "lectures": len(course_lectures),

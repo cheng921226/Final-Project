@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import HTTPException
 
@@ -10,6 +10,7 @@ from routers.lectures import (
     get_courses,
     get_lecture_notes,
     get_lectures_by_course,
+    get_resume_video_progress,
     get_selected_lecture,
     update_lecture_note,
 )
@@ -82,6 +83,43 @@ def student_context(student_id, tables):
 
 
 class StudentDataBoundaryTests(unittest.TestCase):
+    def test_resume_queries_only_the_students_visible_unfinished_enrolled_lectures(self):
+        database = Mock()
+        context = AuthContext(
+            user=SimpleNamespace(id="auth-10"),
+            profile={"id": 10, "role": "student"},
+            database=database,
+        )
+        database.table.side_effect = {
+            "student_courses": FakeQuery([{"student_id": 10, "course_id": 7}]),
+            "video_progresses": Mock(),
+        }.get
+        query = database.table.side_effect("video_progresses").select.return_value
+        for method in ("eq", "gt", "in_", "order", "limit"):
+            getattr(query, method).return_value = query
+        query.execute.return_value = FakeResponse([{
+            "lecture_id": 25,
+            "last_position": 83,
+            "lectures": {"title": "二元搜尋樹", "course_id": 7, "courses": {"title": "資料結構"}},
+        }])
+
+        self.assertEqual(get_resume_video_progress(context), {
+            "course_id": 7,
+            "course_title": "資料結構",
+            "lecture_id": 25,
+            "lecture_title": "二元搜尋樹",
+            "last_position": 83,
+        })
+        for column, value in [
+            ("student_id", 10), ("completed", False),
+            ("lectures.is_visible", True), ("lectures.courses.status", "published"),
+        ]:
+            query.eq.assert_any_call(column, value)
+        query.gt.assert_called_once_with("last_position", 0)
+        query.in_.assert_called_once_with("lectures.course_id", [7])
+        query.order.assert_any_call("updated_at", desc=True)
+        query.limit.assert_called_once_with(1)
+
     def test_course_list_contains_only_courses_enrolled_by_current_student(self):
         context = student_context(
             10,

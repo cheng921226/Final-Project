@@ -47,6 +47,7 @@ const STUDENT_SORT_COLUMNS = [
   ['completed_lectures', '完成小節'],
   ['watched_minutes', '觀看時間'],
   ['accuracy', '正確率'],
+  ['mastery_rate', '掌握率'],
   ['course_passed', '學分狀態'],
   ['last_active', '最近活動'],
 ];
@@ -63,6 +64,10 @@ const RECOMMENDATION_CATEGORY = {
   question: '題目品質',
   class_gap: '班級差異',
 };
+
+function formatMasteryRate(rate) {
+  return rate == null ? '—' : `${Number((rate * 100).toFixed(2))}%`;
+}
 
 function studentSortValue(student, key) {
   if (key === 'class_name') {
@@ -568,6 +573,19 @@ export default function TeacherDashboard() {
     );
   }
 
+  const masteryScope = selectedLecture || course.summary;
+  const selectedClass = classOptions.find(([id]) => id === classFilter);
+  let masteryStudentCount = masteryScope.mastery_student_count;
+  let masteryPassedStudents = masteryScope.mastery_passed_students;
+  let masteryPassRate = masteryScope.mastery_pass_rate;
+  if (selectedClass) {
+    const classStudents = students.filter(student => student.mastery_rate != null
+      && student.classes?.some(item => String(item.id) === classFilter));
+    masteryStudentCount = classStudents.length;
+    masteryPassedStudents = classStudents.filter(student => student.mastery_passed).length;
+    masteryPassRate = masteryStudentCount ? masteryPassedStudents / masteryStudentCount : null;
+  }
+
   return (
     <div className="teacher-page teacher-dashboard-page">
       {showEmailPreview && (
@@ -684,6 +702,14 @@ export default function TeacherDashboard() {
           label="答題正確率"
           value={`${selectedLecture ? selectedLecture.accuracy : course.summary.question_accuracy}%`}
           note={`${selectedLecture ? selectedLecture.attempts : course.questions.reduce((sum, item) => sum + item.attempts, 0)} 次作答`}
+          tone="green"
+        />
+        <MetricCard
+          label="掌握達標率"
+          value={formatMasteryRate(masteryPassRate)}
+          note={masteryStudentCount
+            ? `${masteryPassedStudents}／${masteryStudentCount} 位${selectedClass ? selectedClass[1] : '修課學生'}達標（掌握率 ≥ ${formatMasteryRate(masteryScope.mastery_pass_threshold)}）`
+            : '尚無可計算的資料'}
           tone="green"
         />
       </section>
@@ -897,11 +923,12 @@ export default function TeacherDashboard() {
                     <td><b>{student.completed_lectures}</b> / {student.total_lectures}</td>
                     <td>{student.watched_minutes} 分鐘</td>
                     <td><span className={`accuracy-chip ${student.accuracy < 60 ? 'needs-help' : ''}`}>{student.accuracy}%</span></td>
+                    <td>{formatMasteryRate(student.mastery_rate)}</td>
                     <td><span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>{student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}</span></td>
                     <td>{formatDate(student.last_active)}</td>
                   </tr>
                 ))}
-                {!filteredStudents.length && <tr><td className="student-filter-empty" colSpan="9">沒有符合目前篩選條件的學生</td></tr>}
+                {!filteredStudents.length && <tr><td className="student-filter-empty" colSpan={STUDENT_SORT_COLUMNS.length + 1}>沒有符合目前篩選條件的學生</td></tr>}
               </tbody>
             </table>
           </div>

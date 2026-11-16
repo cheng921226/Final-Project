@@ -786,7 +786,7 @@ a {
 
 .teacher-metrics {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 15px;
   margin-bottom: 18px;
 }
@@ -2853,7 +2853,7 @@ a {
 }
 
 .assessment-card {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(115px, 1fr));
   align-items: start;
 }
 

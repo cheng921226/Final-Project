@@ -1,4 +1,6 @@
 import os
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -44,3 +46,18 @@ def create_user_supabase_client(access_token: str):
 # Trusted server client: bypasses RLS. Keep it inside FastAPI and background
 # jobs; never return this key or client to the browser.
 supabase_admin = _create_supabase_client(SUPABASE_SERVICE_ROLE_KEY)
+
+
+
+def fetch_all_by_id(build_query: Callable[[], Any]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page_size = 500
+    while True:
+        offset = len(rows)
+        page = (
+            build_query().order("id").range(offset, offset + page_size - 1).execute().data
+            or []
+        )
+        rows.extend(page)
+        if len(page) < page_size:
+            return rows
