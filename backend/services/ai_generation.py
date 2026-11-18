@@ -15,6 +15,7 @@ from services.time_values import normalize_time_range, time_to_seconds
 
 logger = logging.getLogger(__name__)
 
+AI_QUESTION_DELAY_SECONDS = 5
 AI_REQUEST_TIMEOUT_MS = int(os.getenv("AI_REQUEST_TIMEOUT_MS", "120000"))
 gemini_client = genai.Client(
     http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
@@ -249,8 +250,20 @@ def normalize_source_timestamp(value: Any) -> int | None:
         return None
     try:
         return int(float(value))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
+
+
+def delayed_question_timestamp(
+    estimate: int | None, duration_seconds: int | None
+) -> int | None:
+    if estimate is None:
+        return None
+
+    delayed = max(0, estimate) + AI_QUESTION_DELAY_SECONDS
+    if duration_seconds is not None and duration_seconds > 0:
+        return min(delayed, duration_seconds - 1)
+    return delayed
 
 
 def normalize_answer(value: Any) -> str:
@@ -289,7 +302,7 @@ def generate_questions(
     kp_text = format_knowledge_points_for_prompt(knowledge_points)
     prompt = f'''請根據以下課程逐字稿和知識點列表，產生 5 到 10 題正式選擇題。
 每題固定 4 個選項，answer 只能是 A、B、C 或 D。related_knowledge_point 使用知識點 id，無法對應時填 null。
-每題都必須有影片出題時間點 source_timestamp，以逐字稿時間推估純整數秒數，不可為 null。
+每題的 source_timestamp 請以逐字稿推估該題相關內容講解完畢的時間，填純整數秒數，不可為 null。緩衝時間由系統加上。
 每題另外產生 1 到 2 題 retry_questions，測試相同知識概念，不可只是改寫原題；延伸題不需要 source_timestamp，也不能直接透露原題答案。所有題目都要有答案與 explanation。
 題目、選項與解析直接呈現課程知識，不提及逐字稿或描述資訊來源。
 JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"B","explanation":"延伸題解析"}}]}}]}}
@@ -311,15 +324,28 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
     ]
     generation_batch_id = str(uuid4())
     rows = []
+    duration_seconds = None
+    if source_questions:
+        lecture = (
+            supabase_admin.table("lectures")
+            .select("duration_seconds")
+            .eq("id", lecture_id)
+            .maybe_single()
+            .execute()
+        )
+        duration_seconds = (getattr(lecture, "data", None) or {}).get("duration_seconds")
+
     for q in source_questions:
-        source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
+        estimate = normalize_source_timestamp(q.get("source_timestamp"))
+        source_timestamp = delayed_question_timestamp(estimate, duration_seconds)
+        q["source_timestamp"] = source_timestamp
         rows.append(
             {
                 "lecture_id": lecture_id,
                 "knowledge_point_id": normalize_knowledge_point_id(
                     q.get("related_knowledge_point")
                 )
-                or infer_knowledge_point_id(source_timestamp, knowledge_points),
+                or infer_knowledge_point_id(estimate, knowledge_points),
                 "question_text": q.get("question_text"),
                 "options_json": q.get("options"),
                 "answer": normalize_answer(q.get("answer")),

@@ -13,7 +13,12 @@ from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
 from services.time_values import normalize_time_range, time_to_seconds
-from services.ai_generation import CONTENT_SYSTEM_INSTRUCTION
+from services.ai_generation import (
+    CONTENT_SYSTEM_INSTRUCTION,
+    delayed_question_timestamp,
+    format_transcript_for_prompt,
+    normalize_source_timestamp,
+)
 from .security import AuthContext, get_auth_context, get_current_user
 from .teacher_access import require_lecture_manager, require_teacher
 from .users import get_chat_context
@@ -73,15 +78,6 @@ def parse_transcript_rows(rows):
         if str(seg.get("text") or "").strip()
     )
     return segments, stored_content or segment_text
-
-
-def normalize_source_timestamp(value):
-    if value in (None, "", "null"):
-        return None
-    try:
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
 
 
 def normalize_knowledge_point_id(value):
@@ -310,7 +306,7 @@ class SummaryRequest(BaseModel):
 @router.post("/ai/summary")
 def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
     teacher = require_teacher(user)
-    require_lecture_manager(body.lecture_id, teacher)
+    lecture = require_lecture_manager(body.lecture_id, teacher)
     existing_response = (
         supabase_admin.table("summaries")
         .select("*")
@@ -510,7 +506,8 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
 
     try:
         transcript_rows = get_lecture_transcript(body.lecture_id)
-        _, transcript = parse_transcript_rows(transcript_rows)
+        segments, transcript = parse_transcript_rows(transcript_rows)
+        transcript = format_transcript_for_prompt(segments) or transcript
         knowledge_points = get_lecture_knowledge_points(body.lecture_id)
         if not transcript:
             raise HTTPException(
@@ -518,7 +515,7 @@ def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
             )
 
         prompt = f'''請根據以下課程逐字稿和知識點列表，產生 5 到 10 題選擇題。每題固定 4 個選項，answer 只能是 A、B、C 或 D。
-每題都要對應影片出題時間點，依逐字稿段落時間與知識點時間推估非空的整數秒 source_timestamp；related_knowledge_point 使用知識點 id，無法對應時填 null。
+請依逐字稿與知識點的時間，推估該題相關內容講解完畢的時間，以非空的整數秒填入 source_timestamp。緩衝時間由系統加上。related_knowledge_point 使用知識點 id，無法對應時填 null。
 題目、選項與解析使用繁體中文，直接呈現課程知識，不提及逐字稿或資訊來源。
 JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":745}}]}}
 
@@ -536,10 +533,12 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
 
         generation_batch_id = str(uuid4())
         for q in result_json["questions"]:
-            source_timestamp = normalize_source_timestamp(q.get("source_timestamp"))
+            estimate = normalize_source_timestamp(q.get("source_timestamp"))
+            source_timestamp = delayed_question_timestamp(estimate, lecture.get("duration_seconds"))
+            q["source_timestamp"] = source_timestamp
             knowledge_point_id = normalize_knowledge_point_id(
                 q.get("related_knowledge_point")
-            ) or infer_knowledge_point_id(source_timestamp, knowledge_points)
+            ) or infer_knowledge_point_id(estimate, knowledge_points)
             supabase_admin.table("questions").insert(
                 {
                     "lecture_id": body.lecture_id,
