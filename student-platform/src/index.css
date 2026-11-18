@@ -6189,3 +6189,28 @@ a {
     height: 44px;
   }
 }
+
+.review-practice-panel .panel-title,
+.review-practice-actions {
+  flex-wrap: wrap;
+}
+
+.review-practice-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.review-practice-feedback {
+  padding: 12px 0;
+  font-weight: 700;
+}
+
+.review-practice-panel fieldset {
+  min-width: 0;
+  margin: 0;
+}
+
+.review-practice-panel legend {
+  padding: 0 5px;
+  font-weight: 700;
+}

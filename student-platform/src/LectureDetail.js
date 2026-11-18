@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useLocation, useParams, Link } from 'react-router-dom';
 import { Transformer } from 'markmap-lib';
 import { Markmap } from 'markmap-view';
 import {
@@ -218,6 +218,7 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
+  const { hash } = useLocation();
   const token = localStorage.getItem('access_token');
   const cacheKey = `${lectureId}:${token || 'anonymous'}`;
   const invalidateLectureDetailCache = () => lectureDetailCache.delete(cacheKey);
@@ -295,6 +296,12 @@ function LectureDetail() {
   const lastQuestionCheckTimeRef = useRef(null);
   const practiceSectionRef = useRef(null);
   const allowLeaveRef = useRef(false);
+
+  useEffect(() => {
+    if (!loading && hash === '#classroom-practice-title') {
+      practiceSectionRef.current?.scrollIntoView?.({ block: 'start' });
+    }
+  }, [hash, lectureId, loading]);
 
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInitialized, setChatInitialized] = useState(false);

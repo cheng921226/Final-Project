@@ -683,6 +683,10 @@ def get_teacher_analytics(user=Depends(get_current_user)):
             if row.get("lecture_id") in course_lecture_ids
             and row.get("status") == "published"
         ]
+        visible_lecture_ids = {row["id"] for row in course_lectures if row.get("is_visible", True)}
+        mastery_questions = [
+            row for row in course_questions if row.get("lecture_id") in visible_lecture_ids
+        ]
         course_progresses = [
             row
             for row in progresses
@@ -721,7 +725,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 row for row in course_events if row.get("lecture_id") == lid
             ]
             lecture_questions = [
-                row for row in course_questions if row.get("lecture_id") == lid
+                row for row in mastery_questions if row.get("lecture_id") == lid
             ]
             lecture_attempts = [
                 row for row in course_attempts if row.get("lecture_id") == lid
@@ -820,7 +824,7 @@ def get_teacher_analytics(user=Depends(get_current_user)):
                 student_events,
                 student_attempts,
                 len(course_lectures),
-                course_questions,
+                mastery_questions,
             )
             credit_result = evaluate_course(
                 course,

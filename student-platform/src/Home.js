@@ -7,6 +7,16 @@ const API_URL = 'http://127.0.0.1:8000';
 const COURSE_CACHE_TTL_MS = 60_000;
 const courseListCache = new Map();
 
+function normalizeCourse(course) {
+  return {
+    id: String(course.id),
+    title: course.course_name ?? course.title ?? '未命名課程',
+    teacher: course.teacher ?? course.teacher_name ?? (course.teacher_id ? `講師 ${course.teacher_id}` : '未知講師'),
+    status: course.status ?? '未設定狀態',
+    canAnalyze: Boolean(course.canAnalyze),
+  };
+}
+
 function Home({ token }) {
   const outletContext = useOutletContext();
   const user = token ? outletContext?.user : null;
@@ -22,55 +32,38 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
   const isCampus = user?.role === 'campus';
   const canViewStatus = Boolean(user && user.role !== 'student');
   const cachedCourseList = courseListCache.get(cacheKey);
-  const [courses, setCourses] = useState(() => cachedCourseList?.courses || []);
-  const [keyword, setKeyword] = useState("");
+  const [catalog, setCatalog] = useState(() => cachedCourseList?.catalog);
+  const [view, setView] = useState(token ? 'mine' : 'all');
+  const [keyword, setKeyword] = useState('');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(!cachedCourseList);
   const [error, setError] = useState(null);
 
-  const loadCourses = useCallback(async (searchKeyword = '', signal) => {
-    const query = searchKeyword.trim();
-    const publicUrl = `${API_URL}/courses${query ? `?keyword=${encodeURIComponent(query)}` : ''}`;
-    const headers = token ? { Authorization: `Bearer ${token}` } : {};
-    async function fetchCourses(url) {
-      const response = await fetch(url, { headers, signal });
+  const loadCourses = useCallback(async signal => {
+    async function fetchCourses(path, authenticated = false) {
+      const headers = authenticated ? { Authorization: `Bearer ${token}` } : {};
+      const response = await fetch(`${API_URL}${path}`, { headers, signal });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return response.json();
     }
 
-    const [publicCourses, managementData] = await Promise.all([
-      isCampus ? [] : fetchCourses(publicUrl),
-      isTeacher || isCampus ? fetchCourses(`${API_URL}/teacher/course-management`) : null,
+    const [all, personal] = await Promise.all([
+      fetchCourses('/courses'),
+      isTeacher || isCampus
+        ? fetchCourses('/teacher/course-management', true)
+        : token ? fetchCourses('/courses', true) : null,
     ]);
-    const actorId = managementData?.actor?.id;
-    const managedCourses = managementData?.courses || [];
+    const actorId = personal?.actor?.id;
+    const managed = (personal?.courses || []).map(course => ({
+      ...course,
+      canAnalyze: isCampus || (actorId != null && String(course.teacher_id) === String(actorId)),
+      teacher_name: course.assigned_teacher?.name || course.creator?.name || course.teacher_name,
+    }));
 
-    const coursesById = new Map();
-    publicCourses.forEach(item => {
-      coursesById.set(String(item.id), { ...item, canAnalyze: false });
-    });
-    managedCourses.forEach(item => {
-      coursesById.set(String(item.id), {
-        ...item,
-        canAnalyze: isCampus || (isTeacher && actorId != null && String(item.teacher_id) === String(actorId)),
-        teacher_name: item.assigned_teacher?.name || item.creator?.name || item.teacher_name,
-      });
-    });
-
-    const normalizedKeyword = query.toLocaleLowerCase('zh-TW');
-    return [...coursesById.values()]
-      .filter(item => !normalizedKeyword || [
-        item.title,
-        item.course_name,
-        item.teacher_name,
-        item.teacher,
-      ].some(value => String(value || '').toLocaleLowerCase('zh-TW').includes(normalizedKeyword)))
-      .map(item => ({
-        id: item.id?.toString() ?? item.course_name ?? item.title ?? 'unknown',
-        title: item.course_name ?? item.title ?? '未命名課程',
-        teacher: item.teacher ?? item.teacher_name ?? (item.teacher_id ? `講師 ${item.teacher_id}` : '未知講師'),
-        status: item.status ?? '未設定狀態',
-        canAnalyze: item.canAnalyze,
-      }));
+    return {
+      all: all.map(normalizeCourse),
+      mine: (Array.isArray(personal) ? personal : managed).map(normalizeCourse),
+    };
   }, [isCampus, isTeacher, token]);
 
   useEffect(() => {
@@ -78,7 +71,7 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
     const controller = new AbortController();
     const cached = courseListCache.get(cacheKey);
     if (cached) {
-      setCourses(cached.courses);
+      setCatalog(cached.catalog);
       setLoading(false);
     } else {
       setLoading(true);
@@ -88,11 +81,11 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
       return () => controller.abort();
     }
 
-    loadCourses('', controller.signal)
+    loadCourses(controller.signal)
       .then(result => {
         if (controller.signal.aborted) return;
-        courseListCache.set(cacheKey, { courses: result, fetchedAt: Date.now() });
-        setCourses(result);
+        courseListCache.set(cacheKey, { catalog: result, fetchedAt: Date.now() });
+        setCatalog(result);
       })
       .catch(err => {
         if (err.name !== 'AbortError' && !controller.signal.aborted) {
@@ -105,18 +98,16 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
     return () => controller.abort();
   }, [cacheKey, loadCourses, waitingForUser]);
 
-  const searchCourses = async () => {
-    if (waitingForUser) return;
-    try {
-      setLoading(true);
-      setError(null);
-      setCourses(await loadCourses(keyword));
-    } catch (err) {
-      setError(err.message || '搜尋失敗');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const loginRequired = view === 'mine' && !token;
+  const enrolledIds = new Set(catalog?.mine.map(course => course.id));
+  const courses = (catalog?.[view] || []).filter(course =>
+    [course.title, course.teacher].some(text => text.toLocaleLowerCase('zh-TW').includes(search))
+  );
+
+  function searchCourses(event) {
+    event.preventDefault();
+    setSearch(keyword.trim().toLocaleLowerCase('zh-TW'));
+  }
 
   return (
     <div className="page-wrap home-page">
@@ -124,66 +115,86 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
         <div className="home-hero-copy">
           <h1 id="home-title">照自己的步調，<br />把課程學懂。</h1>
           <p className="home-description">看影片、整理重點，有問題就問 AI 助教。</p>
-          <a className="hero-explore" href="#course-library">瀏覽課程 <span aria-hidden="true">↓</span></a>
+          <a className="hero-explore" href="#course-library" onClick={() => setView('all')}>瀏覽課程 <span aria-hidden="true">↓</span></a>
         </div>
       </section>
 
       <section id="course-library" className="course-library" aria-labelledby="library-title">
+        <div className="home-catalog-switch" role="group" aria-label="課程清單">
+          <button type="button" aria-pressed={view === 'all'} onClick={() => setView('all')}>所有課程</button>
+          <button type="button" aria-pressed={view === 'mine'} onClick={() => setView('mine')}>我的學習空間</button>
+        </div>
         <div className="library-toolbar">
           <div className="section-heading">
             <h2 id="library-title">
-              {token ? "我的學習空間" : "探索所有課程"}
-              {(!loading || courses.length > 0) && <span className="course-count">{courses.length}</span>}
+              {view === 'all' ? '所有課程' : '我的學習空間'}
+              {!loginRequired && (!loading || courses.length > 0) && <span className="course-count">{courses.length}</span>}
             </h2>
           </div>
-        <div className="search-panel">
-          <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-          <input
-            type="text"
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") searchCourses();
-            }}
-            placeholder="搜尋課程名稱、講師或知識點"
-            aria-label="搜尋課程"
-            disabled={waitingForUser}
-          />
-          <button disabled={waitingForUser}
-            onClick={searchCourses}>搜尋
-          </button>
+          {!loginRequired && (
+            <form className="search-panel" onSubmit={searchCourses}>
+              <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
+              <input
+                type="search"
+                value={keyword}
+                onChange={event => setKeyword(event.target.value)}
+                placeholder="搜尋課程名稱或講師"
+                aria-label="搜尋課程"
+                disabled={waitingForUser}
+              />
+              <button type="submit" disabled={waitingForUser}>搜尋</button>
+            </form>
+          )}
         </div>
-        </div>
-        {error && courses.length > 0 && <div className="empty-card home-state home-error" role="alert"><strong>課程清單更新失敗，以下顯示最近載入的資料</strong><p>{error}</p></div>}
-        {loading && !courses.length ? (
-          <div className="empty-card home-state" role="status"><div className="teacher-loader" /><p>正在載入課程資料...</p></div>
-        ) : error && !courses.length ? (
-          <div className="empty-card home-state home-error" role="alert"><strong>暫時無法取得課程</strong><p>{error}</p></div>
-        ) : courses.length === 0 ? (
-          <div className="empty-card home-state"><strong>目前沒有符合的課程</strong><p>試試其他關鍵字，探索更多學習內容。</p></div>
-        ) : (
-          <div className="course-grid">
-            {courses.map((course, index) => (
-              <div className={`course-link cover-theme-${index % 4}`} key={course.id}>
-                <div className="course-card">
-                  <Link className="course-card-main" to={`/course/${course.id}`}>
-                    <div className="course-cover">
-                      <div className="cover-art" aria-hidden="true"><i /><i /><i /><i /></div>
-                    </div>
-                    <div className="course-card-body">
-                      <h3>{course.title}</h3>
-                      <p className="course-meta"><span className="instructor-icon" aria-hidden="true">{course.teacher.charAt(0)}</span>{course.teacher}</p>
-                    </div>
-                  </Link>
-                  <div className="course-card-footer">
-                    {canViewStatus && <span className={`status-pill status-${course.status}`}>{STATUS_LABELS[course.status] || course.status}</span>}
-                    {course.canAnalyze && <Link className="course-analysis-link" to={`/teacher?course=${encodeURIComponent(course.id)}`}>課程分析</Link>}
-                    <Link className="course-enter" to={`/course/${course.id}`}>查看課程 <span aria-hidden="true">↗</span></Link>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {loginRequired ? (
+          <div className="empty-card home-state">
+            <p>登入後即可查看你的課程。</p>
+            <Link className="primary-link" to="/login">前往登入</Link>
           </div>
+        ) : (
+          <>
+            {error && courses.length > 0 && <div className="empty-card home-state home-error" role="alert"><strong>課程清單更新失敗，以下顯示最近載入的資料</strong><p>{error}</p></div>}
+            {loading && !courses.length ? (
+              <div className="empty-card home-state" role="status"><div className="teacher-loader" /><p>正在載入課程資料...</p></div>
+            ) : error && !courses.length ? (
+              <div className="empty-card home-state home-error" role="alert"><strong>暫時無法取得課程</strong><p>{error}</p></div>
+            ) : courses.length === 0 ? (
+              <div className="empty-card home-state"><strong>{search ? '目前沒有符合的課程' : view === 'mine' ? '目前還沒有你的課程' : '目前沒有已發布的課程'}</strong></div>
+            ) : (
+              <div className="course-grid">
+                {courses.map((course, index) => {
+                  const canOpen = user?.role !== 'student' || enrolledIds.has(course.id);
+                  const cardContent = (
+                    <>
+                      <div className="course-cover">
+                        <div className="cover-art" aria-hidden="true"><i /><i /><i /><i /></div>
+                      </div>
+                      <div className="course-card-body">
+                        <h3>{course.title}</h3>
+                        <p className="course-meta"><span className="instructor-icon" aria-hidden="true">{course.teacher.charAt(0)}</span>{course.teacher}</p>
+                      </div>
+                    </>
+                  );
+                  return (
+                    <div className={`course-link cover-theme-${index % 4}`} key={course.id}>
+                      <div className="course-card">
+                        {canOpen
+                          ? <Link className="course-card-main" to={`/course/${course.id}`}>{cardContent}</Link>
+                          : <div className="course-card-main">{cardContent}</div>}
+                        <div className="course-card-footer">
+                          {view === 'mine' && canViewStatus && <span className={`status-pill status-${course.status}`}>{STATUS_LABELS[course.status] || course.status}</span>}
+                          {course.canAnalyze && <Link className="course-analysis-link" to={`/teacher?course=${encodeURIComponent(course.id)}`}>課程分析</Link>}
+                          {canOpen
+                            ? <Link className="course-enter" to={`/course/${course.id}`}>查看課程 <span aria-hidden="true">↗</span></Link>
+                            : <span className="course-enrollment-label">尚未選修</span>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
       </section>
       <footer className="home-footer"><span>AI 輔助線上學習平台</span></footer>
