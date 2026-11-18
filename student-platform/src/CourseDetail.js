@@ -15,6 +15,22 @@ function CourseDetail() {
   const [finalAssessment, setFinalAssessment] = useState(cachedCourseDetail?.finalAssessment || null);
   const [loading, setLoading] = useState(!cachedCourseDetail);
   const [error, setError] = useState(null);
+  const [pendingQuestions, setPendingQuestions] = useState(null);
+
+  useEffect(() => {
+    if (!token) return undefined;
+    const controller = new AbortController();
+    fetch(`${API_URL}/courses/${id}/pending-timed-questions`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(response => response.ok ? response.json() : {})
+      .then(counts => {
+        if (!controller.signal.aborted) setPendingQuestions({ cacheKey, counts });
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [cacheKey, id, token]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -131,6 +147,9 @@ function CourseDetail() {
           <div className="lecture-list">
             {lectures.map((lecture, index) => {
               const progress = getProgressDisplay(lecture);
+              const pending = pendingQuestions?.cacheKey === cacheKey
+                ? pendingQuestions.counts[lecture.id]
+                : 0;
               return (
                 <Link to={`/course/${id}/lecture/${lecture.id}`} key={lecture.id}>
                   <div className="lecture-card">
@@ -157,21 +176,26 @@ function CourseDetail() {
                         </div>
                       </div>
 
-                      <div className="lecture-state">
-                        {!progress?.completed && (progress ? (
-                          <div>
-                            <div className="progress-copy">{progress.percent}%</div>
-                            <div className="progress-track">
-                              <div
-                                className="progress-fill"
-                                style={{ width: `${progress.percent}%` }}
-                              />
+                      <div className="lecture-status-stack">
+                        <div className="lecture-state">
+                          {!progress?.completed && (progress ? (
+                            <div>
+                              <div className="progress-copy">{progress.percent}%</div>
+                              <div className="progress-track">
+                                <div
+                                  className="progress-fill"
+                                  style={{ width: `${progress.percent}%` }}
+                                />
+                              </div>
                             </div>
-                          </div>
-                        ) : (
-                          <span className="progress-copy">尚未觀看</span>
-                        ))}
-                        <span className="card-arrow">→</span>
+                          ) : (
+                            <span className="progress-copy">尚未觀看</span>
+                          ))}
+                          <span className="card-arrow">→</span>
+                        </div>
+                        {pending > 0 && (
+                          <span className="lecture-pending-questions">有 {pending} 題跳題待作答</span>
+                        )}
                       </div>
                   </div>
                 </Link>

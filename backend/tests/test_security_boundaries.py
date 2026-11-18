@@ -10,6 +10,7 @@ from routers.lectures import (
     get_courses,
     get_lecture_notes,
     get_lectures_by_course,
+    get_pending_timed_questions,
     get_selected_lecture,
     update_lecture_note,
 )
@@ -82,6 +83,24 @@ def student_context(student_id, tables):
 
 
 class StudentDataBoundaryTests(unittest.TestCase):
+    def test_learning_map_counts_only_skipped_timed_questions_without_an_attempt(self):
+        context = student_context(
+            10, {"student_courses": [{"student_id": 10, "course_id": 7}]}
+        )
+        skipped = [
+            {"lecture_id": 3, "question_id": 1, "questions": {"source_timestamp": 0}},
+            {"lecture_id": 3, "question_id": 2, "questions": {"source_timestamp": 10}},
+            {"lecture_id": 4, "question_id": 3, "questions": {"source_timestamp": None}},
+        ]
+        with patch(
+            "routers.lectures.fetch_all_by_id", side_effect=[skipped, [{"question_id": 2}]]
+        ) as fetch:
+            self.assertEqual(get_pending_timed_questions(7, context), {3: 1})
+            with self.assertRaises(HTTPException) as error:
+                get_pending_timed_questions(8, context)
+            self.assertEqual(error.exception.status_code, 404)
+            self.assertEqual(fetch.call_count, 2)
+
     def test_course_list_contains_only_courses_enrolled_by_current_student(self):
         context = student_context(
             10,

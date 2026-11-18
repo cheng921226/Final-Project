@@ -3,7 +3,7 @@ import os
 import tempfile
 from datetime import datetime, timezone
 
-from database.supabase import supabase_admin
+from database.supabase import fetch_all_by_id, supabase_admin
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -1061,6 +1061,47 @@ def get_course_video_progresses(
         .data
         or []
     )
+
+
+@router.get("/courses/{course_id}/pending-timed-questions")
+def get_pending_timed_questions(
+    course_id: int,
+    context: AuthContext = Depends(get_auth_context),
+) -> dict[int, int]:
+    if context.profile.get("role") != "student":
+        return {}
+    _require_course_enrollment(course_id, context)
+    student_id = context.profile["id"]
+    skipped = fetch_all_by_id(
+        lambda: supabase_admin.table("question_learning_states")
+        .select("id,lecture_id,question_id,lectures!inner(course_id,is_visible),questions!inner(source_timestamp)")
+        .eq("student_id", student_id)
+        .eq("status", "skipped")
+        .eq("lectures.course_id", course_id)
+        .eq("lectures.is_visible", True)
+        .eq("questions.status", "published")
+        .eq("questions.question_type", "original")
+    )
+    timed = [row for row in skipped if row["questions"]["source_timestamp"] is not None]
+    if not timed:
+        return {}
+
+    lecture_ids = sorted({row["lecture_id"] for row in timed})
+    answered = {
+        row["question_id"]
+        for row in fetch_all_by_id(
+            lambda: context.database.table("question_attempts")
+            .select("id,question_id")
+            .eq("student_id", student_id)
+            .in_("lecture_id", lecture_ids)
+        )
+    }
+    counts: dict[int, int] = {}
+    for row in timed:
+        if row["question_id"] not in answered:
+            lecture_id = row["lecture_id"]
+            counts[lecture_id] = counts.get(lecture_id, 0) + 1
+    return counts
 
 
 # =====================================================================

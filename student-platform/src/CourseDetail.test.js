@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import CourseDetail from './CourseDetail';
 
@@ -21,7 +21,11 @@ afterEach(() => {
 
 test('reuses cached lectures and user progress when returning to the learning map', async () => {
   localStorage.setItem('access_token', 'course-detail-cache-token');
+  let pending = { 7: 2 };
   const fetchMock = jest.fn(url => {
+    if (String(url).endsWith('/pending-timed-questions')) {
+      return Promise.resolve({ ok: true, json: async () => pending });
+    }
     if (String(url).endsWith('/lectures')) {
       return Promise.resolve({
         ok: true,
@@ -49,7 +53,8 @@ test('reuses cached lectures and user progress when returning to the learning ma
   const firstRender = renderCourseDetail();
   expect(await screen.findByRole('heading', { name: '快取測試小節' })).toBeInTheDocument();
   expect(screen.getByText('50%')).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(3);
+  expect(await screen.findByText('有 2 題跳題待作答')).toBeInTheDocument();
+  expect(fetchMock).toHaveBeenCalledTimes(4);
   expect(fetchMock).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/courses/cache-test-301/lectures',
     expect.objectContaining({
@@ -58,11 +63,13 @@ test('reuses cached lectures and user progress when returning to the learning ma
   );
   firstRender.unmount();
 
+  pending = {};
   renderCourseDetail();
 
   expect(screen.getByRole('heading', { name: '快取測試小節' })).toBeInTheDocument();
   expect(screen.getByText('50%')).toBeInTheDocument();
-  expect(fetchMock).toHaveBeenCalledTimes(3);
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+  expect(screen.queryByText('有 2 題跳題待作答')).not.toBeInTheDocument();
 });
 
 test('does not share cached learning progress between users', async () => {
@@ -82,5 +89,5 @@ test('does not share cached learning progress between users', async () => {
   renderCourseDetail(courseId);
   await screen.findByText('這門課程目前還沒有小節內容。');
 
-  expect(fetchMock).toHaveBeenCalledTimes(6);
+  expect(fetchMock).toHaveBeenCalledTimes(8);
 });
