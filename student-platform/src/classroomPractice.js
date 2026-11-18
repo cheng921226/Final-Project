@@ -8,6 +8,12 @@ export function partitionPracticeQuestions(questions, lectureCompleted = false) 
   }, { pending: [] });
 }
 
+export function questionPlaybackTime(question) {
+  if (question.source_timestamp == null || question.source_timestamp === '') return null;
+  const seconds = Number(question.source_timestamp);
+  return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
 export function findTimedQuestion({
   questions,
   currentTime,
@@ -18,13 +24,12 @@ export function findTimedQuestion({
   const largeJump = previousTime !== null && Math.abs(currentTime - previousTime) > 6;
   const lowerBound = previousTime === null ? currentTime - 3 : previousTime - 0.25;
   return (questions || []).find(question => {
-    if (question.source_timestamp == null || question.source_timestamp === '') return false;
-    const triggerTime = Number(question.source_timestamp);
+    const triggerTime = questionPlaybackTime(question);
+    if (triggerTime === null) return false;
     const reached = largeJump
       ? Math.abs(currentTime - triggerTime) <= 2
       : triggerTime > lowerBound && triggerTime <= currentTime + 0.75;
-    return Number.isFinite(triggerTime)
-      && reached
+    return reached
       && !completedIds.has(question.id)
       && !shownIds.has(question.id);
   });

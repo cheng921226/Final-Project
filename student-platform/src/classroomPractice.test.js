@@ -48,3 +48,22 @@ test('selects HTML5 only for uploaded media', () => {
   expect(lecturePlayerMode({ media_source: 'upload' })).toBe('local');
   expect(lecturePlayerMode({ media_source: 'youtube' })).toBe('youtube');
 });
+
+test('includes unanswered questions after the lecture is complete', () => {
+  const questions = [
+    { id: 1, learning_status: 'skipped' },
+    { id: 2, learning_status: 'completed' },
+    { id: 3, learning_status: 'unanswered', source_timestamp: null },
+  ];
+  expect(partitionPracticeQuestions(questions, true).pending.map(question => question.id)).toEqual([1, 3]);
+});
+
+test('questions without timestamps never trigger during playback', () => {
+  expect(findTimedQuestion({
+    questions: [{ id: 1, source_timestamp: null }],
+    currentTime: 0,
+    previousTime: null,
+    shownIds: new Set(),
+    completedIds: new Set(),
+  })).toBeUndefined();
+});

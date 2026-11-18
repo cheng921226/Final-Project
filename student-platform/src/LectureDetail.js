@@ -6,6 +6,7 @@ import {
   findTimedQuestion,
   lecturePlayerMode,
   partitionPracticeQuestions,
+  questionPlaybackTime,
 } from './classroomPractice';
 import { lectureDetailCache } from './lectureDetailCache';
 import assistantUniversityMark from './assistant-university-mark.png';
@@ -152,7 +153,7 @@ async function fetchLectureQuestions(lectureId, signal, token) {
   if (!Array.isArray(questionData)) return [];
 
   return questionData.sort((a, b) => (
-    (a.source_timestamp ?? Infinity) - (b.source_timestamp ?? Infinity)
+    (questionPlaybackTime(a) ?? Infinity) - (questionPlaybackTime(b) ?? Infinity)
   ));
 }
 
@@ -1713,14 +1714,14 @@ function LectureDetail() {
       }
 
       const firstQuestion = timedQuestions.find(question =>
-        Number.isFinite(Number(question.source_timestamp))
+        questionPlaybackTime(question) !== null
       );
       if (!firstQuestion) {
         throw new Error('這個小節目前沒有設定時間點的題目');
       }
 
       if (firstQuestion) {
-        const triggerTime = Number(firstQuestion.source_timestamp);
+        const triggerTime = questionPlaybackTime(firstQuestion);
         if (playerRef.current && playerReadyRef.current) {
           ignoreSeekUntilRef.current = Date.now() + 3000;
           lastObservedTimeRef.current = triggerTime;
@@ -1827,28 +1828,31 @@ function LectureDetail() {
               <p className="classroom-practice-empty">目前沒有待作答的題目。</p>
             ) : (
               <div className="classroom-practice-list">
-                {pendingQuestions.map((question, index) => (
-                  <article key={question.id} className="classroom-practice-row">
-                    <div className="classroom-practice-number">{index + 1}</div>
-                    <div className="classroom-practice-content">
-                      <div className="classroom-practice-meta">
-                        {question.source_timestamp != null && <span>{formatVideoTime(question.source_timestamp)}</span>}
-                        <span className="status-pending">{question.learning_status === 'skipped' ? '稍後作答' : '尚未作答'}</span>
+                {pendingQuestions.map((question, index) => {
+                  const timestamp = questionPlaybackTime(question);
+                  return (
+                    <article key={question.id} className="classroom-practice-row">
+                      <div className="classroom-practice-number">{index + 1}</div>
+                      <div className="classroom-practice-content">
+                        <div className="classroom-practice-meta">
+                          {timestamp !== null && <span>{formatVideoTime(timestamp)}</span>}
+                          <span className="status-pending">{question.learning_status === 'skipped' ? '稍後作答' : '尚未作答'}</span>
+                        </div>
+                        <p>{question.question_text}</p>
                       </div>
-                      <p>{question.question_text}</p>
-                    </div>
-                    <div className="classroom-practice-actions">
-                      <button type="button" onClick={() => openPracticeQuestion(question)}>
-                        開始作答
-                      </button>
-                      {question.source_timestamp != null && (
-                        <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
-                          跳至時間點
+                      <div className="classroom-practice-actions">
+                        <button type="button" onClick={() => openPracticeQuestion(question)}>
+                          開始作答
                         </button>
-                      )}
-                    </div>
-                  </article>
-                ))}
+                        {timestamp !== null && (
+                          <button type="button" className="secondary" onClick={() => seekToTime(timestamp, 'classroom_practice')}>
+                            跳至時間點
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

@@ -291,3 +291,33 @@ test('sends a selected image to the assistant without requiring a typed question
     URL.revokeObjectURL = originalRevokeUrl;
   }
 });
+
+test.each([false, true])('uses saved completion (%s) to show untouched practice questions', async completed => {
+  localStorage.setItem('access_token', 'practice-completion-token');
+  const responses = {
+    '/lectures/2': [{}],
+    '/lectures/2/chats': { messages: [] },
+    '/video_progresses/2': { completed, watched_seconds: completed ? 80 : 79 },
+    '/lectures/2/questions': [
+      { id: 1, question_text: '跨過未作答的題目', learning_status: 'unanswered', source_timestamp: 30 },
+      { id: 2, question_text: '無影片時間點的題目', learning_status: 'unanswered', source_timestamp: null },
+      { id: 3, question_text: '已答過的題目', learning_status: 'completed', source_timestamp: 50 },
+    ],
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+  renderLectureDetail('/course/1/lecture/2');
+  await screen.findByText(/儘管發問吧/);
+
+  expect(screen.queryByText('已答過的題目')).not.toBeInTheDocument();
+  if (completed) {
+    expect(screen.getByText('跨過未作答的題目')).toBeInTheDocument();
+    expect(screen.getByText('無影片時間點的題目')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '跳至時間點' })).toHaveLength(1);
+  } else {
+    expect(screen.queryByText('跨過未作答的題目')).not.toBeInTheDocument();
+    expect(screen.queryByText('無影片時間點的題目')).not.toBeInTheDocument();
+  }
+});

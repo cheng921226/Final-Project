@@ -828,7 +828,14 @@ class TeacherAuthorizationTests(unittest.TestCase):
                 "options_json": ["A", "B"],
                 "source_timestamp": 30,
                 "question_type": "original",
-            }
+            },
+            {
+                "id": 6,
+                "lecture_id": 7,
+                "question_text": "無時間點的已發布題目",
+                "source_timestamp": None,
+                "question_type": "original",
+            },
         ]
         database = Mock()
         database.table.return_value = query
@@ -847,7 +854,7 @@ class TeacherAuthorizationTests(unittest.TestCase):
             )
 
         query.eq.assert_any_call("status", "published")
-        self.assertEqual([row["id"] for row in result], [5])
+        self.assertEqual([row["id"] for row in result], [5, 6])
 
     def test_campus_can_read_questions_from_any_course(self):
         database = FakeSupabase(
