@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import CourseSearchBar from './CourseSearchBar';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -125,6 +126,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
   const [keyword, setKeyword] = useState('');
+  const [courseSearch, setCourseSearch] = useState('');
   const questionTextRef = useRef(null);
   const editorBaseline = useRef(EMPTY_FORM);
 
@@ -524,23 +526,22 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
         theme: index % 4,
         title: item.title || item.course_name || `課程 ${item.id}`,
       }))
-      .filter(({ title }) => title.toLowerCase().includes(search));
+      .filter(({ title }) => title.toLocaleLowerCase('zh-TW').includes(courseSearch));
 
     return (
       <div className="teacher-page question-review-page">
-        <header className="teacher-hero"><h1>審題中心</h1></header>
+        <header className="teacher-hero">
+          <h1>審題中心</h1>
+          <CourseSearchBar
+            value={keyword}
+            onChange={setKeyword}
+            onSearch={setCourseSearch}
+            placeholder="搜尋課程名稱"
+          />
+        </header>
         {(initialCourseId || initialLectureId) && (
           <p role="status">找不到指定的課程或小節，請從下方選擇課程。</p>
         )}
-        <div className="question-review-navigation searchable-course-field">
-          <input
-            type="search"
-            aria-label="搜尋課程"
-            placeholder="輸入課程名稱"
-            value={keyword}
-            onChange={event => setKeyword(event.target.value)}
-          />
-        </div>
         {matchingCourses.length === 0 && (
           <div className="teacher-empty" role="status">找不到符合的課程。</div>
         )}

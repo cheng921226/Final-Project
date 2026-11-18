@@ -1,6 +1,9 @@
-export function partitionPracticeQuestions(questions) {
+export function partitionPracticeQuestions(questions, lectureCompleted = false) {
   return (questions || []).reduce((groups, question) => {
-    if (question.learning_status === 'skipped') groups.pending.push(question);
+    if (question.learning_status === 'skipped'
+      || (lectureCompleted && question.learning_status === 'unanswered')) {
+      groups.pending.push(question);
+    }
     return groups;
   }, { pending: [] });
 }
@@ -15,6 +18,7 @@ export function findTimedQuestion({
   const largeJump = previousTime !== null && Math.abs(currentTime - previousTime) > 6;
   const lowerBound = previousTime === null ? currentTime - 3 : previousTime - 0.25;
   return (questions || []).find(question => {
+    if (question.source_timestamp == null || question.source_timestamp === '') return false;
     const triggerTime = Number(question.source_timestamp);
     const reached = largeJump
       ? Math.abs(currentTime - triggerTime) <= 2

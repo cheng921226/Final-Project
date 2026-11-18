@@ -16,6 +16,7 @@ from services.time_values import normalize_seconds, time_to_seconds
 logger = logging.getLogger(__name__)
 
 AI_QUESTION_DELAY_SECONDS = 5
+QUESTION_KNOWLEDGE_POINTS_PER_REQUEST = 8
 AI_REQUEST_TIMEOUT_MS = int(os.getenv("AI_REQUEST_TIMEOUT_MS", "120000"))
 gemini_client = genai.Client(
     http_options=types.HttpOptions(timeout=AI_REQUEST_TIMEOUT_MS)
@@ -274,7 +275,9 @@ def format_knowledge_points_for_prompt(knowledge_points: list[dict[str, Any]]) -
         kp_id = kp.get("id")
         title = kp.get("title", "")
         description = kp.get("description", "")
-        lines.append(f"id={kp_id}: {title} - {description}")
+        start, end = kp.get("start_time"), kp.get("end_time")
+        timing = f"（{start} 至 {end} 秒）" if start is not None and end is not None else ""
+        lines.append(f"id={kp_id}{timing}: {title} - {description}")
     return "\n".join(lines)
 
 
@@ -331,23 +334,39 @@ def infer_knowledge_point_id(
     return None
 
 
-def generate_questions(
-    lecture_id: int,
-    transcript_text: str,
-    knowledge_points: list[dict[str, Any]],
-    skip_existing: bool = True,
-) -> dict[str, Any]:
-    existing = existing_rows("questions", lecture_id)
-    if skip_existing and existing:
-        return {"status": "cached", "data": existing}
+def question_transcript_excerpt(
+    segments: list[dict[str, Any]], knowledge_points: list[dict[str, Any]]
+) -> str:
+    starts = [time_to_seconds(point.get("start_time")) for point in knowledge_points]
+    ends = [time_to_seconds(point.get("end_time")) for point in knowledge_points]
+    if None in starts or None in ends:
+        return ""
 
+    start, end = min(starts), max(ends)
+    excerpt = []
+    for segment in segments:
+        segment_start = time_to_seconds(segment.get("start_time"))
+        segment_end = time_to_seconds(segment.get("end_time"))
+        if segment_start is None or segment_end is None:
+            continue
+        if segment_start <= end and segment_end >= start:
+            excerpt.append(segment)
+    return format_transcript_for_prompt(excerpt)
+
+
+def generate_question_group(
+    transcript_text: str, knowledge_points: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     kp_text = format_knowledge_points_for_prompt(knowledge_points)
-    prompt = f'''請根據以下課程逐字稿和知識點列表，產生 5 到 10 題正式選擇題。
-每題固定 4 個選項，answer 只能是 A、B、C 或 D。related_knowledge_point 使用知識點 id，無法對應時填 null。
-每題的 source_timestamp 請以逐字稿推估該題相關內容講解完畢的時間，填純整數秒數，不可為 null。緩衝時間由系統加上。
-每題另外產生 1 到 2 題 retry_questions，測試相同知識概念，不可只是改寫原題；延伸題不需要 source_timestamp，也不能直接透露原題答案。所有題目都要有答案與 explanation。
-題目、選項與解析直接呈現課程知識，不提及逐字稿或描述資訊來源。
-JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"A","explanation":"解析","related_knowledge_point":null,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題文字內容","options":["A. 選項A內容","B. 選項B內容","C. 選項C內容","D. 選項D內容"],"answer":"B","explanation":"延伸題解析"}}]}}]}}
+    prompt = f'''請依課程逐字稿和知識點產生影片中的課堂練習題。題數依可測驗的核心概念數量決定。
+每個知識點至少出 1 道原題；若它容易混淆、需要多步推理，或適合另測應用，再出第 2 題。第二題須測不同能力，不能換句話重考同一件事。
+related_knowledge_point 必須填這份知識點列表中的 ID。若逐字稿沒有足夠內容支撐某知識點出題，把該 ID 和具體原因放進 skipped_knowledge_points。每個 ID 都必須有題目或明確列為略過。
+如果沒有知識點列表，先從逐字稿辨識教過的核心概念，依同樣規則決定題數，related_knowledge_point 填 null。略過開場、行政說明和重複內容。
+每題固定 4 個選項，answer 只能是 A、B、C 或 D，並提供 explanation。
+原題的 source_timestamp 以逐字稿推估該題相關內容講解完畢的影片時間，填非負整數秒數。緩衝由系統加上。若同一知識點出兩題，優先放在各自概念講解完成的時間。
+每道原題在 retry_questions 中提供 1 題延伸題；若值得再用另一個情境驗證，可提供第 2 題。延伸題測相同概念，但需換例子或情境，省略時間欄位。
+題目、選項與解析使用繁體中文，直接呈現課程知識。只輸出 JSON。
+JSON 格式：{{"questions":[{{"question_text":"課堂題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"A","explanation":"解析","related_knowledge_point":3,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"B","explanation":"延伸題解析"}}]}}],"skipped_knowledge_points":[{{"id":4,"reason":"略過原因"}}]}}
 
 課程逐字稿：
 {transcript_text}
@@ -355,15 +374,100 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
 知識點列表：
 {kp_text}'''
 
-    ai_response = generate_json_content(prompt)
-    result_json = parse_json_response(ai_response.text)
-    questions = result_json.get("questions", [])
+    result = parse_json_response(generate_json_content(prompt).text)
+    if not isinstance(result, dict) or not isinstance(result.get("questions"), list):
+        raise RuntimeError("AI 回傳的課堂題目格式不正確，請重新生成。")
 
-    source_questions = [
-        q
-        for q in questions
-        if q.get("question_text") and q.get("options") and q.get("answer")
-    ]
+    point_ids = {normalize_knowledge_point_id(point["id"]) for point in knowledge_points}
+    question_counts: dict[int, int] = {}
+    questions = []
+    for question in result["questions"]:
+        if not isinstance(question, dict):
+            continue
+        options = question.get("options")
+        estimate = normalize_source_timestamp(question.get("source_timestamp"))
+        if (
+            not question.get("question_text")
+            or not isinstance(options, list)
+            or len(options) != 4
+            or normalize_answer(question.get("answer")) not in {"A", "B", "C", "D"}
+            or estimate is None
+            or estimate < 0
+        ):
+            continue
+        point_id = (
+            normalize_knowledge_point_id(question.get("related_knowledge_point"))
+            or infer_knowledge_point_id(estimate, knowledge_points)
+        )
+        if point_ids and (point_id not in point_ids or question_counts.get(point_id, 0) >= 2):
+            continue
+        if point_id is not None:
+            question_counts[point_id] = question_counts.get(point_id, 0) + 1
+        retries = question.get("retry_questions")
+        questions.append({
+            **question,
+            "related_knowledge_point": point_id if point_ids else None,
+            "source_timestamp": estimate,
+            "retry_questions": [retry for retry in retries if isinstance(retry, dict)]
+            if isinstance(retries, list) else [],
+        })
+
+    skipped = {}
+    reported_skips = result.get("skipped_knowledge_points")
+    if isinstance(reported_skips, list):
+        for item in reported_skips:
+            if not isinstance(item, dict):
+                continue
+            point_id = normalize_knowledge_point_id(item.get("id"))
+            reason = item.get("reason")
+            if point_id in point_ids and point_id not in question_counts and isinstance(reason, str) and reason.strip():
+                skipped[point_id] = {"id": point_id, "reason": reason.strip()}
+    missing = point_ids.difference(question_counts, skipped)
+    if missing:
+        missing_ids = "、".join(str(point_id) for point_id in sorted(missing))
+        raise RuntimeError(f"AI 未處理以下知識點：{missing_ids}。請重新生成。")
+    return questions, list(skipped.values())
+
+
+def generate_questions(
+    lecture_id: int,
+    transcript_text: str,
+    knowledge_points: list[dict[str, Any]],
+    skip_existing: bool = True,
+    *,
+    segments: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    if skip_existing:
+        existing = existing_rows("questions", lecture_id)
+        if any(row.get("question_type", "original") == "original" for row in existing):
+            return {"status": "cached", "data": existing}
+
+    points_by_id = {
+        point_id: point
+        for point in knowledge_points
+        if (point_id := normalize_knowledge_point_id(point.get("id"))) is not None
+    }
+    ordered_points = sorted(
+        points_by_id.values(),
+        key=lambda point: time_to_seconds(point.get("start_time")) or 0,
+    )
+    group_size = QUESTION_KNOWLEDGE_POINTS_PER_REQUEST
+    groups = [
+        ordered_points[index:index + group_size]
+        for index in range(0, len(ordered_points), group_size)
+    ] or [[]]
+    source_questions = []
+    skipped_points = []
+    for group in groups:
+        material = transcript_text
+        if len(groups) > 1 and segments:
+            material = question_transcript_excerpt(segments, group) or transcript_text
+        questions, skipped = generate_question_group(material, group)
+        source_questions.extend(questions)
+        skipped_points.extend(skipped)
+    if not source_questions:
+        raise RuntimeError("AI 沒有產生可用的課堂題目，請確認逐字稿內容後重試。")
+    questions = source_questions
     generation_batch_id = str(uuid4())
     rows = []
     duration_seconds = None
@@ -384,10 +488,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
         rows.append(
             {
                 "lecture_id": lecture_id,
-                "knowledge_point_id": normalize_knowledge_point_id(
-                    q.get("related_knowledge_point")
-                )
-                or infer_knowledge_point_id(estimate, knowledge_points),
+                "knowledge_point_id": q["related_knowledge_point"],
                 "question_text": q.get("question_text"),
                 "options_json": q.get("options"),
                 "answer": normalize_answer(q.get("answer")),
@@ -414,7 +515,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
             if not source_question_id:
                 continue
             retry_questions = original.get("retry_questions") or []
-            for retry in retry_questions:
+            for retry in retry_questions[:2]:
                 if not (
                     retry.get("question_text")
                     and retry.get("options")
@@ -455,7 +556,7 @@ JSON 格式：{{"questions":[{{"question_text":"題目文字內容","options":["
 
     return {
         "status": "success",
-        "data": {"questions": questions},
+        "data": {"questions": questions, "skipped_knowledge_points": skipped_points},
         "inserted": inserted,
         "extensions": extension_status,
         "generation_batch_id": generation_batch_id,
@@ -517,6 +618,7 @@ def run_ai_generation_pipeline(
                 transcript_text,
                 knowledge_points,
                 skip_existing=skip_existing,
+                segments=segments,
             ),
         )
 

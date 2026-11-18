@@ -670,6 +670,7 @@ def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, 
                     transcript_text,
                     knowledge_points,
                     skip_existing=False,
+                    segments=segments,
                 ),
             )
             # 新產生的題目保持待審核；原本已發布題目會繼續供學生使用，

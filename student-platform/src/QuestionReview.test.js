@@ -78,9 +78,11 @@ test('opens the selected review course from its card and returns to the catalog'
   await screen.findByRole('link', { name: '資料結構' });
   const search = screen.getByRole('searchbox', { name: '搜尋課程' });
   fireEvent.change(search, { target: { value: '其他課程' } });
+  fireEvent.click(screen.getByRole('button', { name: '搜尋' }));
   expect(screen.queryByRole('link', { name: '資料結構' })).not.toBeInTheDocument();
   expect(screen.getByText('找不到符合的課程。')).toBeInTheDocument();
   fireEvent.change(search, { target: { value: ' 結構 ' } });
+  fireEvent.click(screen.getByRole('button', { name: '搜尋' }));
   expect(screen.getByRole('link', { name: '資料結構' })).toBeInTheDocument();
   expect(screen.getByText('待審核 1 題')).toBeInTheDocument();
   expect(screen.queryByRole('combobox', { name: '小節' })).not.toBeInTheDocument();

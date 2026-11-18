@@ -139,7 +139,7 @@ async function logEvent(lectureId, eventType, eventData) {
   } catch (e) { }
 }
 
-async function fetchTimedQuestions(lectureId, signal, token) {
+async function fetchLectureQuestions(lectureId, signal, token) {
   const questionRes = await fetch(`${API_URL}/lectures/${lectureId}/questions`, {
     signal,
     headers: { Authorization: `Bearer ${token}` },
@@ -151,9 +151,9 @@ async function fetchTimedQuestions(lectureId, signal, token) {
   const questionData = await questionRes.json();
   if (!Array.isArray(questionData)) return [];
 
-  return questionData
-    .filter(q => q.source_timestamp !== null && q.source_timestamp !== undefined)
-    .sort((a, b) => Number(a.source_timestamp) - Number(b.source_timestamp));
+  return questionData.sort((a, b) => (
+    (a.source_timestamp ?? Infinity) - (b.source_timestamp ?? Infinity)
+  ));
 }
 
 async function optionalRequest(request, fallback = null, onError) {
@@ -258,15 +258,13 @@ function LectureDetail() {
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
   const [resettingQuestions, setResettingQuestions] = useState(false);
   const [resetMessage, setResetMessage] = useState('');
-  const questionGroups = useMemo(
-    () => partitionPracticeQuestions(questions),
-    [questions]
-  );
-  const pendingQuestions = questionGroups.pending;
-
-  // 進度顯示用 state
   const [watchedPercent, setWatchedPercent] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
+  const { pending: pendingQuestions } = useMemo(
+    () => partitionPracticeQuestions(questions, isCompleted),
+    [questions, isCompleted]
+  );
+  const skippedQuestionCount = questions.filter(question => question.learning_status === 'skipped').length;
 
   const mindmapSvgRef = useRef(null);
   const playerRef = useRef(null);
@@ -616,7 +614,7 @@ function LectureDetail() {
   }, [activeQuestion]);
 
   useEffect(() => {
-    if (!pendingQuestions.length) return undefined;
+    if (!skippedQuestionCount) return undefined;
     const handleBeforeUnload = event => {
       event.preventDefault();
       event.returnValue = '';
@@ -637,7 +635,7 @@ function LectureDetail() {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       document.removeEventListener('click', handleLinkClick, true);
     };
-  }, [pendingQuestions.length]);
+  }, [skippedQuestionCount]);
 
   // 載入課程資料（同時撈觀看進度，確保 prevWatchedSecondsRef 在播放前就設好）
   useEffect(() => {
@@ -716,7 +714,7 @@ function LectureDetail() {
             }
           ),
           optionalRequest(fetch(`${API_URL}/lectures/${lectureId}/mindmaps`, { signal })),
-          optionalRequest(fetchTimedQuestions(lectureId, signal, token), []),
+          optionalRequest(fetchLectureQuestions(lectureId, signal, token), []),
           authOptions
             ? optionalRequest(fetch(`${API_URL}/video_progresses/${lectureId}`, authOptions))
             : Promise.resolve(null),
@@ -1709,7 +1707,7 @@ function LectureDetail() {
 
       let timedQuestions = questionsRef.current;
       if (!timedQuestions.length) {
-        timedQuestions = await fetchTimedQuestions(lectureId, undefined, token);
+        timedQuestions = await fetchLectureQuestions(lectureId, undefined, token);
         questionsRef.current = timedQuestions;
         setQuestions(timedQuestions);
       }
@@ -1834,8 +1832,8 @@ function LectureDetail() {
                     <div className="classroom-practice-number">{index + 1}</div>
                     <div className="classroom-practice-content">
                       <div className="classroom-practice-meta">
-                        <span>{formatVideoTime(question.source_timestamp)}</span>
-                        <span className="status-pending">稍後作答</span>
+                        {question.source_timestamp != null && <span>{formatVideoTime(question.source_timestamp)}</span>}
+                        <span className="status-pending">{question.learning_status === 'skipped' ? '稍後作答' : '尚未作答'}</span>
                       </div>
                       <p>{question.question_text}</p>
                     </div>
@@ -1843,9 +1841,11 @@ function LectureDetail() {
                       <button type="button" onClick={() => openPracticeQuestion(question)}>
                         開始作答
                       </button>
-                      <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
-                        跳至時間點
-                      </button>
+                      {question.source_timestamp != null && (
+                        <button type="button" className="secondary" onClick={() => seekToTime(Number(question.source_timestamp), 'classroom_practice')}>
+                          跳至時間點
+                        </button>
+                      )}
                     </div>
                   </article>
                 ))}
@@ -2369,11 +2369,11 @@ function LectureDetail() {
         </div>
       )}
 
-      {welcomeReminder && pendingQuestions.length > 0 && !activeQuestion && (
+      {welcomeReminder && skippedQuestionCount > 0 && !activeQuestion && (
         <div className="practice-dialog-backdrop">
           <div className="practice-dialog" role="dialog" aria-modal="true" aria-labelledby="welcome-practice-title">
             <h3 id="welcome-practice-title">歡迎回來！</h3>
-            <p>你上次還有 {pendingQuestions.length} 題課堂練習尚未完成，記得完成這些題目。</p>
+            <p>你上次還有 {skippedQuestionCount} 題課堂練習尚未完成，記得完成這些題目。</p>
             <div>
               <button type="button" className="secondary" onClick={() => setWelcomeReminder(false)}>稍後再說</button>
               <button type="button" onClick={scrollToPractice}>前往作答</button>
@@ -2385,7 +2385,7 @@ function LectureDetail() {
       {leavePrompt && (
         <div className="practice-dialog-backdrop">
           <div className="practice-dialog" role="dialog" aria-modal="true" aria-labelledby="leave-practice-title">
-            <h3 id="leave-practice-title">你還有 {pendingQuestions.length} 題課堂練習尚未完成！</h3>
+            <h3 id="leave-practice-title">你還有 {skippedQuestionCount} 題課堂練習尚未完成！</h3>
             <p>未完成的題目將會保留，下次進入課程時仍會提醒你作答。</p>
             <div>
               <button type="button" className="secondary" onClick={() => {

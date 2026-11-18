@@ -6,6 +6,7 @@ from unittest.mock import patch
 from routers.lectures import _selected_generation_components
 from services.ai_generation import (
     generate_knowledge_points,
+    generate_question_group,
     generate_questions,
     run_ai_generation_pipeline,
 )
@@ -62,8 +63,9 @@ class GenerationSelectionTests(unittest.TestCase):
 
     def test_generated_questions_add_five_seconds_and_stay_inside_video(self):
         ai_questions = [
-            {"question_text": "第一題", "options": ["A. 是", "B. 否"], "answer": "A", "source_timestamp": 30},
-            {"question_text": "第二題", "options": ["A. 是", "B. 否"], "answer": "B", "source_timestamp": 58},
+            {"question_text": title, "options": ["一", "二", "三", "四"], "answer": "A",
+             "source_timestamp": timestamp, "related_knowledge_point": point_id}
+            for title, timestamp, point_id in [("第一題", 30, 3), ("第二題", 58, 4)]
         ]
         response = SimpleNamespace(text=json.dumps({"questions": ai_questions}))
         with (
@@ -78,7 +80,10 @@ class GenerationSelectionTests(unittest.TestCase):
             table.insert.return_value.execute.return_value.data = []
             result = generate_questions(
                 8, "[0 - 30] 教材內容",
-                [{"id": 3, "start_time": 0, "end_time": 30}],
+                [
+                    {"id": 3, "start_time": 0, "end_time": 30},
+                    {"id": 4, "start_time": 31, "end_time": 59},
+                ],
             )
 
         rows = table.insert.call_args.args[0]
@@ -138,3 +143,58 @@ class GenerationSelectionTests(unittest.TestCase):
 
         generate.assert_not_called()
         table.insert.assert_not_called()
+
+
+    def test_question_group_caps_each_point_and_reports_explicit_skips(self):
+        questions = [
+            {
+                "question_text": f"題目 {index}", "options": ["一", "二", "三", "四"],
+                "answer": "A", "source_timestamp": 10, "related_knowledge_point": 1,
+            }
+            for index in range(3)
+        ]
+        skipped = [{"id": 2, "reason": "逐字稿裡只提到名詞，沒有講解"}]
+        response = SimpleNamespace(
+            text=json.dumps({"questions": questions, "skipped_knowledge_points": skipped})
+        )
+        with patch("services.ai_generation.generate_json_content", return_value=response):
+            generated, reported_skips = generate_question_group("教材內容", [{"id": 1}, {"id": 2}])
+            self.assertEqual(len(generated), 2)
+            self.assertEqual(reported_skips, skipped)
+            with self.assertRaisesRegex(RuntimeError, "AI 未處理以下知識點：3"):
+                generate_question_group("教材內容", [{"id": 1}, {"id": 2}, {"id": 3}])
+
+    def test_question_generation_groups_long_videos_without_splitting_the_saved_batch(self):
+        points = [
+            {"id": index, "start_time": index * 60, "end_time": index * 60 + 30}
+            for index in range(1, 11)
+        ]
+        segments = [
+            {"start_time": point["start_time"], "end_time": point["end_time"], "text": f"段落 {point['id']}。"}
+            for point in points
+        ]
+
+        def questions_for_group(_transcript, group):
+            return ([
+                {"question_text": f"課堂題 {point['id']}", "options": ["一", "二", "三", "四"],
+                 "answer": "A", "source_timestamp": point["end_time"],
+                 "related_knowledge_point": point["id"]}
+                for point in group
+            ], [])
+
+        with (
+            patch("services.ai_generation.generate_question_group", side_effect=questions_for_group) as generate,
+            patch("services.ai_generation.supabase_admin") as database,
+        ):
+            table = database.table.return_value
+            table.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {}
+            table.insert.return_value.execute.return_value.data = []
+            generate_questions(8, "完整逐字稿", points, skip_existing=False, segments=segments)
+
+        self.assertEqual([len(call.args[1]) for call in generate.call_args_list], [8, 2])
+        self.assertNotIn("段落 9。", generate.call_args_list[0].args[0])
+        self.assertIn("段落 9。", generate.call_args_list[1].args[0])
+        table.insert.assert_called_once()
+        rows = table.insert.call_args.args[0]
+        self.assertEqual(len(rows), 10)
+        self.assertEqual(len({row["generation_batch_id"] for row in rows}), 1)

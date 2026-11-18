@@ -326,8 +326,7 @@ def get_lecture_questions(
     rows = [
         row
         for row in response.data or []
-        if row.get("source_timestamp") is not None
-        and (row.get("question_type") or "original") == "original"
+        if (row.get("question_type") or "original") == "original"
     ]
     states = {
         row["question_id"]: row

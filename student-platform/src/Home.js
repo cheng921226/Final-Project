@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useOutletContext } from 'react-router-dom';
+import CourseSearchBar from './CourseSearchBar';
 
 const STATUS_LABELS = { published: '已發布', draft: '草稿', archived: '已封存' };
 
@@ -104,11 +105,6 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
     [course.title, course.teacher].some(text => text.toLocaleLowerCase('zh-TW').includes(search))
   );
 
-  function searchCourses(event) {
-    event.preventDefault();
-    setSearch(keyword.trim().toLocaleLowerCase('zh-TW'));
-  }
-
   return (
     <div className="page-wrap home-page">
       <section className="home-hero" aria-labelledby="home-title">
@@ -132,18 +128,13 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
             </h2>
           </div>
           {!loginRequired && (
-            <form className="search-panel" onSubmit={searchCourses}>
-              <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" /><path d="m16 16 4.5 4.5" /></svg>
-              <input
-                type="search"
-                value={keyword}
-                onChange={event => setKeyword(event.target.value)}
-                placeholder="搜尋課程名稱或講師"
-                aria-label="搜尋課程"
-                disabled={waitingForUser}
-              />
-              <button type="submit" disabled={waitingForUser}>搜尋</button>
-            </form>
+            <CourseSearchBar
+              value={keyword}
+              onChange={setKeyword}
+              onSearch={setSearch}
+              placeholder="搜尋課程名稱或講師"
+              disabled={waitingForUser}
+            />
           )}
         </div>
         {loginRequired ? (
