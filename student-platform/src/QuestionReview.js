@@ -109,11 +109,13 @@ export default function QuestionReview() {
   const [questionActionError, setQuestionActionError] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [keyword, setKeyword] = useState('');
   const questionTextRef = useRef(null);
+  const editorBaseline = useRef(EMPTY_FORM);
 
   function focusEditor() {
     setTimeout(() => {
-      questionTextRef.current?.focus({ preventScroll: true });
+      questionTextRef.current?.focus();
     }, 0);
   }
 
@@ -184,9 +186,14 @@ export default function QuestionReview() {
   const pendingQuestions = questions.filter(question => question.status === 'pending');
   const unpublishedQuestions = questions.filter(question => question.status === 'unpublished');
   const publishedQuestions = questions.filter(question => question.status === 'published');
-  const filteredQuestions = statusFilter === 'all'
-    ? questions
-    : questions.filter(question => question.status === statusFilter);
+  const search = keyword.trim().toLowerCase();
+  const filteredQuestions = questions.filter(question =>
+    (statusFilter === 'all' || question.status === statusFilter)
+    && (!search || [question.question_text, optionsToText(question.options_json), question.explanation]
+      .some(text => text?.toLowerCase().includes(search)))
+  );
+  const lectures = course?.lectures || [];
+  const lectureIndex = lectures.findIndex(item => String(item.id) === lectureId);
   const knowledgePoints = lecture?.knowledge_points || [];
   const availableAnswers = useMemo(() => answerChoices(form.options_text), [form.options_text]);
 
@@ -255,23 +262,39 @@ export default function QuestionReview() {
   }
 
   function changeLecture(nextLectureId) {
+    if (!canLeaveEditor()) return false;
     setLectureId(nextLectureId);
     setStatusFilter('all');
+    setKeyword('');
     setForm({ ...EMPTY_FORM, lecture_id: nextLectureId });
     setEditorOpen(false);
     setMessage('');
     setQuestionActionError(null);
+    return true;
+  }
+
+  function canLeaveEditor() {
+    const hasChanges = editorOpen && Object.keys(form).some(key => form[key] !== editorBaseline.current[key]);
+    return !saving && (!hasChanges || window.confirm('題目有尚未儲存的修改，要捨棄嗎？'));
   }
 
   function startCreate() {
-    setForm({ ...EMPTY_FORM, lecture_id: lectureId });
+    if (!canLeaveEditor()) return;
+    editorBaseline.current = { ...EMPTY_FORM, lecture_id: lectureId };
+    setForm(editorBaseline.current);
     setEditorOpen(true);
     setMessage('');
     focusEditor();
   }
 
   function startEdit(question) {
-    setForm(questionToForm(question));
+    if (editorOpen && form.id === question.id) {
+      focusEditor();
+      return;
+    }
+    if (!canLeaveEditor()) return;
+    editorBaseline.current = questionToForm(question);
+    setForm(editorBaseline.current);
     setEditorOpen(true);
     setMessage('');
     focusEditor();
@@ -438,7 +461,7 @@ export default function QuestionReview() {
   }
 
   async function publishPendingBatch() {
-    if (!lectureId || !pendingQuestions.length || saving) return;
+    if (!lectureId || !pendingQuestions.length || !canLeaveEditor()) return;
     if (!window.confirm('確定發布最新一批待審核題目嗎？發布後會取代這個小節原本的 AI 題目。')) return;
 
     setSaving(true);
@@ -489,9 +512,7 @@ export default function QuestionReview() {
     <div className="teacher-page question-review-page">
       <header className="teacher-hero">
         <div>
-          <p className="eyebrow">Question review</p>
           <h1>審題中心</h1>
-          <p>管理每個小節的題目、選項、答案、解析與影片出現時間。</p>
         </div>
         <div className="teacher-filters">
           <SearchableCourseSelect
@@ -500,14 +521,15 @@ export default function QuestionReview() {
             onChange={nextCourseId => {
                 const nextCourse = data.courses.find(item => String(item.id) === String(nextCourseId));
                 const firstLectureId = nextCourse?.lectures?.[0]?.id ? String(nextCourse.lectures[0].id) : '';
+                if (!changeLecture(firstLectureId)) return false;
                 setCourseId(nextCourseId);
-                changeLecture(firstLectureId);
+                return true;
             }}
           />
           <label>
             <span>小節</span>
-            <select value={lectureId} onChange={event => changeLecture(event.target.value)}>
-              {(course?.lectures || []).map(item => (
+            <select value={lectureId} disabled={saving || !lectures.length} onChange={event => changeLecture(event.target.value)}>
+              {lectures.map(item => (
                 <option key={item.id} value={item.id}>{item.title || item.course_name || `小節 ${item.id}`}</option>
               ))}
             </select>
@@ -515,14 +537,14 @@ export default function QuestionReview() {
         </div>
       </header>
 
-      {message && <p className="question-review-message">{message}</p>}
+      {message && <p className="question-review-message" role="status">{message}</p>}
 
-      <section className="question-review-grid">
+      <section className={`question-review-grid${editorOpen ? ' is-editing' : ''}`}>
         <article className="teacher-panel">
           <div className="panel-title">
             <div>
-              <h3>{lecture?.title || '小節題目'}</h3>
-              <div className="question-review-status-filters" aria-label="依題目狀態篩選">
+              <h2>{lecture?.title || '小節題目'}</h2>
+              <div className="question-review-status-filters" role="group" aria-label="依題目狀態篩選">
                 <button type="button" className={statusFilter === 'all' ? 'active' : ''} aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
                   全部 {questions.length}
                 </button>
@@ -538,8 +560,22 @@ export default function QuestionReview() {
               </div>
             </div>
             <div className="question-review-toolbar">
-              {pendingQuestions.length > 0 && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>全部核准發布</button>}
-              <button type="button" className="question-secondary-button" onClick={startCreate}>新增題目</button>
+              {pendingQuestions.length > 0 && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>發布最新一批</button>}
+              <button type="button" className="question-secondary-button" onClick={startCreate} disabled={saving || !lectureId}>新增題目</button>
+            </div>
+          </div>
+
+          <div className="question-review-navigation">
+            <input
+              type="search"
+              aria-label="搜尋題目"
+              placeholder="搜尋題目、選項或解析"
+              value={keyword}
+              onChange={event => setKeyword(event.target.value)}
+            />
+            <div className="question-review-toolbar" role="group" aria-label="切換小節">
+              <button type="button" className="question-secondary-button compact" disabled={saving || lectureIndex < 1} onClick={() => changeLecture(String(lectures[lectureIndex - 1].id))}>上一小節</button>
+              <button type="button" className="question-secondary-button compact" disabled={saving || lectureIndex < 0 || lectureIndex >= lectures.length - 1} onClick={() => changeLecture(String(lectures[lectureIndex + 1].id))}>下一小節</button>
             </div>
           </div>
 
@@ -547,7 +583,7 @@ export default function QuestionReview() {
             <div className="question-review-list">
               {filteredQuestions.length ? filteredQuestions.map(question => (
                 <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
-                  <button type="button" onClick={() => startEdit(question)}>
+                  <div className="question-review-content">
                     <small>
                       <span className={`question-review-status ${question.status}`}>
                         {question.status === 'pending' ? '待審核' : question.status === 'unpublished' ? '未發布' : '已發布'}
@@ -555,10 +591,18 @@ export default function QuestionReview() {
                       {formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}
                     </small>
                     <strong>{question.question_text}</strong>
-                    <span>{question.explanation || '尚未填寫解析'}</span>
-                  </button>
+                    <ul className="question-review-options" aria-label="作答選項">
+                      {answerChoices(optionsToText(question.options_json)).map(({ value, option }) => (
+                        <li key={value} className={value === question.answer?.toUpperCase() ? 'is-correct' : undefined}>
+                          {value}. {option.replace(/^[A-Z][.、)]\s*/i, '')}
+                          {value === question.answer?.toUpperCase() && <b>正確答案</b>}
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="question-review-explanation">{question.explanation || '尚未填寫解析'}</p>
+                  </div>
                   <div className="question-review-actions">
-                    <button type="button" className="question-secondary-button compact" onClick={() => startEdit(question)}>
+                    <button type="button" className="question-secondary-button compact" disabled={saving} onClick={() => startEdit(question)}>
                       修改
                     </button>
                     {question.status === 'published'
@@ -573,14 +617,14 @@ export default function QuestionReview() {
                     </p>
                   )}
                 </div>
-              )) : <div className="teacher-empty compact">這個狀態目前沒有題目。</div>}
+              )) : <div className="teacher-empty compact">{search ? '找不到符合搜尋條件的題目。' : '這個狀態目前沒有題目。'}</div>}
             </div>
           ) : (
             <div className="teacher-empty compact">這個小節目前沒有題目。</div>
           )}
         </article>
 
-        {editorOpen ? (
+        {editorOpen && (
         <form className="teacher-panel question-editor" onSubmit={saveQuestion}>
           <div className="panel-title">
             <div>
@@ -621,7 +665,7 @@ export default function QuestionReview() {
               </select>
             </label>
             <label className="review-field">
-              <span>出現秒數 source_timestamp</span>
+              <span>出題時間（秒）</span>
               <input
                 type="number"
                 min="0"
@@ -658,7 +702,9 @@ export default function QuestionReview() {
           </label>
 
           <div className="question-editor-actions">
-            <button type="button" className="question-secondary-button" onClick={() => setEditorOpen(false)}>
+            <button type="button" className="question-secondary-button" disabled={saving} onClick={() => {
+              if (canLeaveEditor()) setEditorOpen(false);
+            }}>
               取消
             </button>
             <button type="submit" className="question-save-button" disabled={saving || !lectureId}>
@@ -666,11 +712,6 @@ export default function QuestionReview() {
             </button>
           </div>
         </form>
-        ) : (
-          <aside className="teacher-panel question-editor-empty">
-            <h3>選擇操作</h3>
-            <p>按左側「新增題目」建立新題目，或按題目旁邊的「修改」編輯既有題目。</p>
-          </aside>
         )}
       </section>
     </div>

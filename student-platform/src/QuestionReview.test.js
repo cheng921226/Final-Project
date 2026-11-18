@@ -91,7 +91,7 @@ test('shows pending AI questions and publishes the latest batch', async () => {
   render(<QuestionReview />);
 
   expect(await screen.findByText('待審核')).toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: '全部核准發布' }));
+  fireEvent.click(screen.getByRole('button', { name: '發布最新一批' }));
 
   expect(window.confirm).toHaveBeenCalled();
   expect(global.fetch).toHaveBeenCalledWith(
@@ -100,7 +100,7 @@ test('shows pending AI questions and publishes the latest batch', async () => {
   );
   expect(await screen.findByText('已發布 1 題，學生現在可以看到新版題目。')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '取消發布' })).toBeInTheDocument();
-  expect(screen.queryByRole('button', { name: '全部核准發布' })).not.toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: '發布最新一批' })).not.toBeInTheDocument();
 });
 
 test('builds correct-answer choices from non-empty option lines', async () => {
@@ -158,7 +158,7 @@ test('uses the selected knowledge point end time when it is available', async ()
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
 
-  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(80);
+  expect(screen.getByLabelText('出題時間（秒）')).toHaveValue(80);
 });
 
 test('uses one second before the next knowledge point when the selected point has no end time', async () => {
@@ -185,7 +185,7 @@ test('uses one second before the next knowledge point when the selected point ha
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
 
-  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(99);
+  expect(screen.getByLabelText('出題時間（秒）')).toHaveValue(99);
 });
 
 test('places a new question five seconds before the video ends for the last open-ended knowledge point', async () => {
@@ -213,7 +213,7 @@ test('places a new question five seconds before the video ends for the last open
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '12' } });
 
-  expect(screen.getByLabelText('出現秒數 source_timestamp')).toHaveValue(115);
+  expect(screen.getByLabelText('出題時間（秒）')).toHaveValue(115);
 });
 
 test('continues option letters on Enter and removes an empty prefix on Backspace', async () => {
@@ -267,6 +267,13 @@ test('keeps pending, unpublished, and published questions visible', async () => 
   expect(screen.getByRole('button', { name: '待審核 1' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '未發布 1' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '已發布 1' })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '待審核 1' }));
+  expect(screen.queryByText('已發布題目')).not.toBeInTheDocument();
+  expect(screen.getByText('正確答案')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: '搜尋題目' }), { target: { value: 'LIFO' } });
+  expect(screen.getByText('待審題目')).toBeInTheDocument();
+  fireEvent.change(screen.getByRole('searchbox', { name: '搜尋題目' }), { target: { value: '無符合題目' } });
+  expect(screen.getByText('找不到符合搜尋條件的題目。')).toBeInTheDocument();
 });
 
 test('unpublishes a published question and updates the review list', async () => {
