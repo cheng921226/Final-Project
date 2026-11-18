@@ -1,7 +1,8 @@
-export function partitionPracticeQuestions(questions, lectureCompleted = false) {
+export function partitionPracticeQuestions(questions, lectureCompleted = false, videoEnded = false) {
   return (questions || []).reduce((groups, question) => {
     if (question.learning_status === 'skipped'
-      || (lectureCompleted && question.learning_status === 'unanswered')) {
+      || (question.learning_status === 'unanswered'
+        && (lectureCompleted || (videoEnded && questionPlaybackTime(question) === null)))) {
       groups.pending.push(question);
     }
     return groups;
@@ -12,6 +13,11 @@ export function questionPlaybackTime(question) {
   if (question.source_timestamp == null || question.source_timestamp === '') return null;
   const seconds = Number(question.source_timestamp);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : null;
+}
+
+export function savedPositionReachedEnd(position, duration) {
+  return Number.isFinite(duration) && duration >= 1
+    && Number.isFinite(position) && position >= Math.floor(duration);
 }
 
 export function findTimedQuestion({

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import QuestionReview from './QuestionReview';
 
@@ -379,4 +379,42 @@ test('shows a clear inline message when unpublishing is forbidden', async () => 
     '你沒有權限變更這門課的題目。請由課程建立者或授課教師操作。'
   );
   expect(screen.getByRole('button', { name: '已發布 1' })).toBeInTheDocument();
+});
+
+
+test('labels linked extensions, filters by type and reflects the original publication on both rows', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  const course = reviewData.courses[0];
+  const lecture = course.lectures[0];
+  const original = { ...lecture.questions[0], question_type: 'original' };
+  const extension = {
+    ...original, id: 6, question_type: 'extension', source_question_id: original.id,
+    question_text: '什麼情況適合用堆疊？', source_timestamp: null,
+  };
+  global.fetch = jest.fn()
+    .mockResolvedValueOnce({ ok: true, json: async () => ({
+      ...reviewData,
+      courses: [{ ...course, lectures: [{ ...lecture, questions: [original, extension] }] }],
+    }) })
+    .mockResolvedValueOnce({ ok: true, json: async () => ({ ...original, status: 'published' }) });
+  const confirm = jest.spyOn(window, 'confirm').mockReturnValue(true);
+  renderReview();
+
+  expect(await screen.findByText('對應原題：堆疊使用哪一種順序？')).toBeInTheDocument();
+  const extensionCard = screen.getByText(extension.question_text).closest('.question-review-item');
+  expect(within(extensionCard).getByText('延伸題')).toBeInTheDocument();
+  expect(within(extensionCard).queryByRole('button', { name: '核准並發布' })).not.toBeInTheDocument();
+  expect(screen.getByText('搭配 1 道延伸題')).toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole('combobox', { name: '題目類型' }), { target: { value: 'extension' } });
+  expect(screen.queryByText(original.question_text)).not.toBeInTheDocument();
+  expect(screen.getByText(extension.question_text)).toBeInTheDocument();
+  fireEvent.click(within(extensionCard).getByRole('button', { name: '修改' }));
+  expect(screen.getByRole('heading', { name: '修改延伸題' })).toBeInTheDocument();
+  expect(screen.queryByLabelText('出題時間（秒）')).not.toBeInTheDocument();
+
+  fireEvent.change(screen.getByRole('combobox', { name: '題目類型' }), { target: { value: 'all' } });
+  fireEvent.click(screen.getByRole('button', { name: '核准並發布' }));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining('1 道延伸題'));
+  expect(await within(extensionCard).findByText('已發布')).toBeInTheDocument();
 });

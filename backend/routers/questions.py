@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
 
-from database.supabase import supabase_admin
+from database.supabase import fetch_all_by_id, supabase_admin
 from fastapi import APIRouter, Depends, HTTPException
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
@@ -400,21 +400,19 @@ def get_teacher_question_review(user=Depends(get_current_user)):
     questions = []
     knowledge_points = []
     if lecture_ids:
-        questions = (
-            supabase_admin.table("questions")
+        questions = fetch_all_by_id(
+            lambda: supabase_admin.table("questions")
             .select(
                 "id, lecture_id, knowledge_point_id, question_text, options_json, "
                 "answer, explanation, source_timestamp, question_type, source_question_id, "
                 "status, source_type, generation_batch_id"
             )
             .in_("lecture_id", lecture_ids)
-            .eq("question_type", "original")
             .neq("status", "deleted")
-            .order("source_timestamp")
-            .execute()
-            .data
-            or []
         )
+        questions.sort(key=lambda row: (
+            row["source_timestamp"] is None, row["source_timestamp"] or 0
+        ))
         knowledge_points = (
             supabase_admin.table("knowledge_points")
             .select("id, lecture_id, title, start_time, end_time")

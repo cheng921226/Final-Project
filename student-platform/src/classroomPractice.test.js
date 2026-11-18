@@ -67,3 +67,12 @@ test('questions without timestamps never trigger during playback', () => {
     completedIds: new Set(),
   })).toBeUndefined();
 });
+
+test('shows untimed unanswered questions at the end even below the completion threshold', () => {
+  const questions = [
+    { id: 1, learning_status: 'unanswered', source_timestamp: 10 },
+    { id: 2, learning_status: 'unanswered', source_timestamp: null },
+    { id: 3, learning_status: 'completed', source_timestamp: null },
+  ];
+  expect(partitionPracticeQuestions(questions, false, true).pending.map(item => item.id)).toEqual([2]);
+});

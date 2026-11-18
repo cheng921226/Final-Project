@@ -363,7 +363,7 @@ def generate_question_group(
 related_knowledge_point 必須填這份知識點列表中的 ID。若逐字稿沒有足夠內容支撐某知識點出題，把該 ID 和具體原因放進 skipped_knowledge_points。每個 ID 都必須有題目或明確列為略過。
 如果沒有知識點列表，先從逐字稿辨識教過的核心概念，依同樣規則決定題數，related_knowledge_point 填 null。略過開場、行政說明和重複內容。
 每題固定 4 個選項，answer 只能是 A、B、C 或 D，並提供 explanation。
-原題的 source_timestamp 以逐字稿推估該題相關內容講解完畢的影片時間，填非負整數秒數。緩衝由系統加上。若同一知識點出兩題，優先放在各自概念講解完成的時間。
+原題的 source_timestamp 以逐字稿推估該題相關內容講解完畢的影片時間，填非負整數秒數。緩衝由系統加上。若確實沒有足夠的時間資訊定位，填 null，該題會在影片播完後出現。不要猜測時間。若同一知識點出兩題，優先放在各自概念講解完成的時間。
 每道原題在 retry_questions 中提供 1 題延伸題；若值得再用另一個情境驗證，可提供第 2 題。延伸題測相同概念，但需換例子或情境，省略時間欄位。
 題目、選項與解析使用繁體中文，直接呈現課程知識。只輸出 JSON。
 JSON 格式：{{"questions":[{{"question_text":"課堂題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"A","explanation":"解析","related_knowledge_point":3,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"B","explanation":"延伸題解析"}}]}}],"skipped_knowledge_points":[{{"id":4,"reason":"略過原因"}}]}}
@@ -385,14 +385,14 @@ JSON 格式：{{"questions":[{{"question_text":"課堂題","options":["A. 選項
         if not isinstance(question, dict):
             continue
         options = question.get("options")
-        estimate = normalize_source_timestamp(question.get("source_timestamp"))
+        raw_timestamp = question.get("source_timestamp")
+        estimate = normalize_source_timestamp(raw_timestamp)
         if (
             not question.get("question_text")
             or not isinstance(options, list)
             or len(options) != 4
             or normalize_answer(question.get("answer")) not in {"A", "B", "C", "D"}
-            or estimate is None
-            or estimate < 0
+            or (raw_timestamp is not None and (estimate is None or estimate < 0))
         ):
             continue
         point_id = (

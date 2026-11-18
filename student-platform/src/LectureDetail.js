@@ -7,6 +7,7 @@ import {
   lecturePlayerMode,
   partitionPracticeQuestions,
   questionPlaybackTime,
+  savedPositionReachedEnd,
 } from './classroomPractice';
 import { lectureDetailCache } from './lectureDetailCache';
 import assistantUniversityMark from './assistant-university-mark.png';
@@ -261,10 +262,15 @@ function LectureDetail() {
   const [resetMessage, setResetMessage] = useState('');
   const [watchedPercent, setWatchedPercent] = useState(0);
   const [isCompleted, setIsCompleted] = useState(false);
+  const [videoEndKey, setVideoEndKey] = useState(null);
+  const hasVideoEnded = videoEndKey === cacheKey;
   const { pending: pendingQuestions } = useMemo(
-    () => partitionPracticeQuestions(questions, isCompleted),
-    [questions, isCompleted]
+    () => partitionPracticeQuestions(questions, isCompleted, hasVideoEnded),
+    [questions, isCompleted, hasVideoEnded]
   );
+  const endQuestionCount = hasVideoEnded
+    ? pendingQuestions.filter(question => questionPlaybackTime(question) === null).length
+    : 0;
   const skippedQuestionCount = questions.filter(question => question.learning_status === 'skipped').length;
 
   const mindmapSvgRef = useRef(null);
@@ -372,6 +378,12 @@ function LectureDetail() {
     setWatchedPercent(percent);
     setIsCompleted(totalWatched / totalDuration >= COMPLETION_THRESHOLD);
   }
+
+  const markVideoEnded = useCallback(() => {
+    setVideoEndKey(cacheKey);
+    const cached = lectureDetailCache.get(cacheKey);
+    if (cached) cached.data.videoEnded = true;
+  }, [cacheKey]);
 
   const showTimedQuestion = useCallback((question, currentTime) => {
     if (!timedQuestionsEnabledRef.current || !question || activeQuestionRef.current || completedQuestionIdsRef.current.has(question.id)) return;
@@ -658,6 +670,7 @@ function LectureDetail() {
       setChatInitialized(true);
       prevWatchedSecondsRef.current = data.watchedSeconds;
       setIsCompleted(data.isCompleted);
+      if (data.videoEnded) markVideoEnded();
       setWatchedPercent(data.watchedPercent);
       shownQuestionIdsRef.current = new Set(data.shownQuestionIds);
       completedQuestionIdsRef.current = new Set(data.completedQuestionIds);
@@ -734,6 +747,7 @@ function LectureDetail() {
         if (lectureRes.ok) {
           const lectureData = await lectureRes.json();
           const lecture = lectureData[0] || {};
+          data.durationSeconds = lecture.duration_seconds;
           data.timedQuestionsEnabled = lecture.timed_questions_enabled !== false;
           timedQuestionsEnabledRef.current = data.timedQuestionsEnabled;
           if (lecturePlayerMode(lecture) === 'local') {
@@ -820,6 +834,10 @@ function LectureDetail() {
           const progressData = await progressRes.json();
           data.watchedSeconds = progressData?.watched_seconds || 0;
           data.isCompleted = !!progressData?.completed;
+          if (savedPositionReachedEnd(progressData?.last_position, data.durationSeconds)) {
+            data.videoEnded = true;
+            markVideoEnded();
+          }
           data.watchedPercent = data.isCompleted ? 100 : 0;
           if (progressData?.watched_seconds > 0) {
             prevWatchedSecondsRef.current = progressData.watched_seconds;
@@ -917,7 +935,7 @@ function LectureDetail() {
 
     fetchData();
     return () => controller.abort();
-  }, [cacheKey, lectureId, token]);
+  }, [cacheKey, lectureId, markVideoEnded, token]);
 
   // 將後端產生的 Markdown 轉換成可縮放、拖曳的 Markmap。
   useEffect(() => {
@@ -1082,6 +1100,7 @@ function LectureDetail() {
                 if (res.ok) {
                   const data = await res.json();
                   if (!disposed && !playbackFailed && data?.last_position > 0) {
+                    if (savedPositionReachedEnd(data.last_position, totalDurationRef.current)) markVideoEnded();
                     ignoreSeekUntilRef.current = Date.now() + 3000;
                     event.target.seekTo(data.last_position, true);
                     lastObservedTimeRef.current = data.last_position;
@@ -1162,6 +1181,7 @@ function LectureDetail() {
             }
 
             if (state === PLAYER_STATE.ENDED) {
+              markVideoEnded();
               cancelPauseHelp();
               if (segmentStartRef.current < currentTime) {
                 watchedSegmentsRef.current.push({
@@ -1238,7 +1258,7 @@ function LectureDetail() {
       playerRef.current = null;
       youtubeContainer.replaceChildren();
     };
-  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, schedulePauseHelp]);
+  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, markVideoEnded, schedulePauseHelp]);
 
   // HTML5 adapter：供備份影片與本機上傳影片共用。
   useEffect(() => {
@@ -1294,6 +1314,7 @@ function LectureDetail() {
           if (response.ok) resumeAt = (await response.json())?.last_position;
         } catch (e) { }
       }
+      if (savedPositionReachedEnd(resumeAt, totalDurationRef.current)) markVideoEnded();
       if (Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
         video.currentTime = Math.min(Number(resumeAt), video.duration || Number(resumeAt));
         lastObservedTimeRef.current = video.currentTime;
@@ -1351,10 +1372,12 @@ function LectureDetail() {
       maybeShowTimedQuestion(currentTime);
     };
     const onEnded = () => {
+      markVideoEnded();
       cancelPauseHelp();
       const currentTime = video.currentTime || 0;
       const totalWatched = getTotalWatched();
       saveProgress(lectureId, currentTime, totalWatched, totalDurationRef.current);
+      updateProgressDisplay(totalWatched, totalDurationRef.current);
       logEvent(lectureId, 'watch_progress', {
         last_position: Math.floor(currentTime),
         watched_seconds: Math.floor(totalWatched),
@@ -1389,7 +1412,7 @@ function LectureDetail() {
       if (playerRef.current === adapter) playerRef.current = null;
       playerReadyRef.current = false;
     };
-  }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, schedulePauseHelp]);
+  }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, markVideoEnded, schedulePauseHelp]);
 
   useEffect(() => {
     const feed = chatFeedRef.current;
@@ -1598,7 +1621,9 @@ function LectureDetail() {
       setActiveQuestion(null);
       setSelectedAnswer('');
       setQuestionFeedback(null);
-      playerRef.current?.playVideo?.();
+      if (playerRef.current?.getPlayerState?.() !== PLAYER_STATE.ENDED) {
+        playerRef.current?.playVideo?.();
+      }
     } catch (err) {
       setQuestionFeedback({ error: err.message || '稍後再試' });
     } finally {
@@ -1745,7 +1770,9 @@ function LectureDetail() {
     setActiveQuestion(null);
     setSelectedAnswer('');
     setQuestionFeedback(null);
-    if (shouldResume) playerRef.current?.playVideo?.();
+    if (shouldResume && playerRef.current?.getPlayerState?.() !== PLAYER_STATE.ENDED) {
+      playerRef.current?.playVideo?.();
+    }
   }
 
   const htmlPlaybackUrl = playerMode === 'local'
@@ -1835,7 +1862,7 @@ function LectureDetail() {
                       <div className="classroom-practice-number">{index + 1}</div>
                       <div className="classroom-practice-content">
                         <div className="classroom-practice-meta">
-                          {timestamp !== null && <span>{formatVideoTime(timestamp)}</span>}
+                          <span>{timestamp === null ? '片尾練習' : formatVideoTime(timestamp)}</span>
                           <span className="status-pending">{question.learning_status === 'skipped' ? '稍後作答' : '尚未作答'}</span>
                         </div>
                         <p>{question.question_text}</p>
@@ -2141,6 +2168,11 @@ function LectureDetail() {
                 <span style={{ width: `${watchedPercent}%` }} />
               </div>
             )}
+            {endQuestionCount > 0 && (
+              <div className="lecture-demo-tools">
+                <button type="button" onClick={scrollToPractice}>前往片尾練習（{endQuestionCount} 題）</button>
+              </div>
+            )}
             {userProfile?.email === 'teststudent@example.com' && (
               <div className="lecture-demo-tools">
                 <button
@@ -2365,7 +2397,7 @@ function LectureDetail() {
                   onClick={continueAfterQuestion}
                   className="px-5 py-2 rounded-xl bg-slate-800 text-white text-sm font-bold hover:bg-slate-700 transition"
                 >
-                  繼續播放
+                  {hasVideoEnded && questionOrigin === 'practice' ? '返回練習列表' : '繼續播放'}
                 </button>
               )}
             </div>

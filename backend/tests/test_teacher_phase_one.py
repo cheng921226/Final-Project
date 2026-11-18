@@ -32,6 +32,7 @@ from routers.questions import (
     QuestionSkipCreate,
     delete_teacher_question,
     get_lecture_questions,
+    get_teacher_question_review,
     publish_teacher_question,
     require_lecture_viewer,
     skip_question,
@@ -814,6 +815,41 @@ class TeacherAuthorizationTests(unittest.TestCase):
                 publish_teacher_question(5, SimpleNamespace(id="teacher-auth"))
 
         self.assertEqual(context.exception.status_code, 409)
+
+    def test_teacher_review_returns_linked_extensions_and_hides_deleted_questions(self):
+        known_rows = [
+            {"id": 5, "lecture_id": 7, "question_type": "original",
+             "source_timestamp": 30, "status": "pending"},
+            {"id": 6, "lecture_id": 7, "question_type": "extension",
+             "source_question_id": 5, "source_timestamp": None, "status": "pending"},
+            {"id": 7, "lecture_id": 7, "question_type": "extension",
+             "source_question_id": 5, "source_timestamp": None, "status": "deleted"},
+        ]
+        queries = {name: Mock() for name in ("courses", "lectures", "questions", "knowledge_points")}
+        for query in queries.values():
+            for operation in ("select", "eq", "neq", "in_", "order", "range"):
+                getattr(query, operation).return_value = query
+        queries["courses"].execute.return_value.data = [{"id": 10}]
+        queries["lectures"].execute.return_value.data = [{"id": 7, "course_id": 10}]
+        queries["knowledge_points"].execute.return_value.data = []
+        question_query = queries["questions"]
+        question_query.execute.side_effect = lambda: FakeResponse([
+            row for row in known_rows
+            if all(row.get(column) != value for (column, value), _ in question_query.neq.call_args_list)
+            and all(row.get(column) == value for (column, value), _ in question_query.eq.call_args_list)
+        ])
+        database = Mock()
+        database.table.side_effect = queries.__getitem__
+        with (
+            patch("routers.questions.require_teacher", return_value={"id": 1, "role": "teacher"}),
+            patch("routers.questions.supabase_admin", database),
+        ):
+            result = get_teacher_question_review(SimpleNamespace(id="teacher-auth"))
+
+        questions = result["courses"][0]["lectures"][0]["questions"]
+        self.assertEqual([question["id"] for question in questions], [5, 6])
+        self.assertEqual(questions[1]["question_type"], "extension")
+        self.assertEqual(questions[1]["source_question_id"], 5)
 
     def test_students_receive_only_published_questions(self):
         query = Mock()

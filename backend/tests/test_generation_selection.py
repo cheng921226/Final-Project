@@ -65,7 +65,7 @@ class GenerationSelectionTests(unittest.TestCase):
         ai_questions = [
             {"question_text": title, "options": ["一", "二", "三", "四"], "answer": "A",
              "source_timestamp": timestamp, "related_knowledge_point": point_id}
-            for title, timestamp, point_id in [("第一題", 30, 3), ("第二題", 58, 4)]
+            for title, timestamp, point_id in [("第一題", 30, 3), ("第二題", 58, 4), ("片尾題", None, 4)]
         ]
         response = SimpleNamespace(text=json.dumps({"questions": ai_questions}))
         with (
@@ -87,11 +87,11 @@ class GenerationSelectionTests(unittest.TestCase):
             )
 
         rows = table.insert.call_args.args[0]
-        self.assertEqual([row["source_timestamp"] for row in rows], [35, 59])
+        self.assertEqual([row["source_timestamp"] for row in rows], [35, 59, None])
         self.assertEqual(rows[0]["knowledge_point_id"], 3)
         self.assertEqual(
             [question["source_timestamp"] for question in result["data"]["questions"]],
-            [35, 59],
+            [35, 59, None],
         )
 
 

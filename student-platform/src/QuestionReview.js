@@ -9,6 +9,7 @@ const END_OF_VIDEO_QUESTION_LEAD_SECONDS = 5;
 
 const EMPTY_FORM = {
   id: null,
+  question_type: 'original',
   lecture_id: '',
   knowledge_point_id: '',
   question_text: '',
@@ -19,7 +20,7 @@ const EMPTY_FORM = {
 };
 
 function formatTime(seconds) {
-  if (seconds === null || seconds === undefined || seconds === '') return '未設定';
+  if (seconds === null || seconds === undefined || seconds === '') return '影片播完後';
   const value = Math.max(0, Number(seconds) || 0);
   const minutes = Math.floor(value / 60);
   const remainder = Math.floor(value % 60);
@@ -85,13 +86,14 @@ function toPayload(form) {
 function questionToForm(question) {
   return {
     id: question.id,
+    question_type: question.question_type || 'original',
     lecture_id: String(question.lecture_id || ''),
     knowledge_point_id: question.knowledge_point_id ? String(question.knowledge_point_id) : '',
     question_text: question.question_text || '',
     options_text: optionsToText(question.options_json),
     answer: question.answer || 'A',
     explanation: question.explanation || '',
-    source_timestamp: question.source_timestamp ?? '',
+    source_timestamp: question.question_type === 'extension' ? '' : question.source_timestamp ?? '',
   };
 }
 
@@ -125,6 +127,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
   const [questionActionError, setQuestionActionError] = useState(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [keyword, setKeyword] = useState('');
   const [courseSearch, setCourseSearch] = useState('');
   const questionTextRef = useRef(null);
@@ -195,11 +198,21 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
 
   const questions = lecture?.questions || [];
   const pendingQuestions = questions.filter(question => question.status === 'pending');
+  const hasPendingOriginals = pendingQuestions.some(question => question.question_type !== 'extension');
+  const questionsById = new Map(questions.map(question => [String(question.id), question]));
+  const extensionCounts = new Map();
+  for (const question of questions) {
+    if (question.question_type === 'extension' && question.source_question_id != null) {
+      const id = String(question.source_question_id);
+      extensionCounts.set(id, (extensionCounts.get(id) || 0) + 1);
+    }
+  }
   const unpublishedQuestions = questions.filter(question => question.status === 'unpublished');
   const publishedQuestions = questions.filter(question => question.status === 'published');
   const search = keyword.trim().toLowerCase();
   const filteredQuestions = questions.filter(question =>
     (statusFilter === 'all' || question.status === statusFilter)
+    && (typeFilter === 'all' || (question.question_type || 'original') === typeFilter)
     && (!search || [question.question_text, optionsToText(question.options_json), question.explanation]
       .some(text => text?.toLowerCase().includes(search)))
   );
@@ -276,6 +289,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
     if (!canLeaveEditor()) return false;
     setLectureId(nextLectureId);
     setStatusFilter('all');
+    setTypeFilter('all');
     setKeyword('');
     setForm({ ...EMPTY_FORM, lecture_id: nextLectureId });
     setEditorOpen(false);
@@ -404,7 +418,9 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
   }
 
   async function deleteQuestion(question) {
-    const confirmed = window.confirm(`確定刪除這題嗎？刪除後會從題目列表消失，但歷史作答仍會保留。\n\n${question.question_text}`);
+    const linkedCount = extensionCounts.get(String(question.id)) || 0;
+    const linked = linkedCount ? `，以及它的 ${linkedCount} 道延伸題` : '';
+    const confirmed = window.confirm(`確定刪除這題${linked}嗎？歷史作答會保留。\n\n${question.question_text}`);
     if (!confirmed) return;
 
     setSaving(true);
@@ -420,9 +436,11 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
       }
       setMessage('題目已刪除，歷史作答仍然保留。');
       updateLectureQuestions(lectureId, currentQuestions => (
-        currentQuestions.filter(item => String(item.id) !== String(question.id))
+        currentQuestions.filter(item => String(item.id) !== String(question.id)
+          && String(item.source_question_id) !== String(question.id))
       ));
-      if (form.id === question.id) {
+      if (form.id === question.id
+        || String(questionsById.get(String(form.id))?.source_question_id) === String(question.id)) {
         setForm({ ...EMPTY_FORM, lecture_id: lectureId });
         setEditorOpen(false);
       }
@@ -437,7 +455,11 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
     if (saving) return;
     const isPublishing = action === 'publish';
     const actionLabel = isPublishing ? '發布' : '取消發布';
-    if (!isPublishing && !window.confirm(`確定將這題改為未發布嗎？學生將不會看到這題。\n\n${question.question_text}`)) return;
+    const linkedCount = extensionCounts.get(String(question.id)) || 0;
+    if (isPublishing && linkedCount && !window.confirm(
+      `確定發布這道原題和 ${linkedCount} 道延伸題嗎？\n\n${question.question_text}`
+    )) return;
+    if (!isPublishing && !window.confirm(`確定將這題${linkedCount ? '和對應的延伸題' : ''}改為未發布嗎？學生將不會看到這題${linkedCount ? '和對應的延伸題' : ''}。\n\n${question.question_text}`)) return;
 
     setSaving(true);
     setMessage('');
@@ -458,7 +480,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
       }
       setMessage(isPublishing ? '題目已發布，學生現在可以看到。' : '題目已設為未發布，仍保留在題目列表。');
       updateLectureQuestions(lectureId, currentQuestions => currentQuestions.map(item => (
-        String(item.id) === String(question.id)
+        (String(item.id) === String(question.id) || String(item.source_question_id) === String(question.id))
           ? { ...item, status: isPublishing ? 'published' : 'unpublished' }
           : item
       )));
@@ -472,8 +494,8 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
   }
 
   async function publishPendingBatch() {
-    if (!lectureId || !pendingQuestions.length || !canLeaveEditor()) return;
-    if (!window.confirm('確定發布最新一批待審核題目嗎？發布後會取代這個小節原本的 AI 題目。')) return;
+    if (!lectureId || !hasPendingOriginals || !canLeaveEditor()) return;
+    if (!window.confirm('確定發布最新一批待審核題目嗎？這會一併發布同批待審核的延伸題，並取代這個小節原本的 AI 題目。')) return;
 
     setSaving(true);
     setMessage('');
@@ -627,7 +649,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
               </div>
             </div>
             <div className="question-review-toolbar">
-              {pendingQuestions.length > 0 && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>發布最新一批</button>}
+              {hasPendingOriginals && <button type="button" className="question-save-button" onClick={publishPendingBatch} disabled={saving}>發布最新一批</button>}
               <button type="button" className="question-secondary-button" onClick={startCreate} disabled={saving || !lectureId}>新增題目</button>
             </div>
           </div>
@@ -640,6 +662,11 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
               value={keyword}
               onChange={event => setKeyword(event.target.value)}
             />
+            <select aria-label="題目類型" value={typeFilter} onChange={event => setTypeFilter(event.target.value)}>
+              <option value="all">全部題型</option>
+              <option value="original">原題</option>
+              <option value="extension">延伸題</option>
+            </select>
             <div className="question-review-toolbar" role="group" aria-label="切換小節">
               <button type="button" className="question-secondary-button compact" disabled={saving || lectureIndex < 1} onClick={() => changeLecture(String(lectures[lectureIndex - 1].id))}>上一小節</button>
               <button type="button" className="question-secondary-button compact" disabled={saving || lectureIndex < 0 || lectureIndex >= lectures.length - 1} onClick={() => changeLecture(String(lectures[lectureIndex + 1].id))}>下一小節</button>
@@ -648,43 +675,56 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
 
           {questions.length ? (
             <div className="question-review-list">
-              {filteredQuestions.length ? filteredQuestions.map(question => (
-                <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
-                  <div className="question-review-content">
-                    <small>
-                      <span className={`question-review-status ${question.status}`}>
-                        {question.status === 'pending' ? '待審核' : question.status === 'unpublished' ? '未發布' : '已發布'}
-                      </span>
-                      {formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}
-                    </small>
-                    <strong>{question.question_text}</strong>
-                    <ul className="question-review-options" aria-label="作答選項">
-                      {answerChoices(optionsToText(question.options_json)).map(({ value, option }) => (
-                        <li key={value} className={value === question.answer?.toUpperCase() ? 'is-correct' : undefined}>
-                          {value}. {option.replace(/^[A-Z][.、)]\s*/i, '')}
-                          {value === question.answer?.toUpperCase() && <b>正確答案</b>}
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="question-review-explanation">{question.explanation || '尚未填寫解析'}</p>
+              {filteredQuestions.length ? filteredQuestions.map(question => {
+                const isExtension = question.question_type === 'extension';
+                const original = questionsById.get(String(question.source_question_id));
+                const extensionCount = extensionCounts.get(String(question.id)) || 0;
+                return (
+                  <div key={question.id} className={`question-review-item ${form.id === question.id ? 'active' : ''}`}>
+                    <div className="question-review-content">
+                      <small>
+                        <span className={`question-review-status ${question.status}`}>
+                          {question.status === 'pending' ? '待審核' : question.status === 'unpublished' ? '未發布' : '已發布'}
+                        </span>
+                        <span className={`question-review-type${isExtension ? ' is-extension' : ''}`}>{isExtension ? '延伸題' : '原題'}</span>
+                        {isExtension ? '補充練習' : formatTime(question.source_timestamp)} · 答案 {question.answer || '未設定'}
+                      </small>
+                      <strong>{question.question_text}</strong>
+                      {isExtension && (
+                        <p className="question-review-relation">
+                          {original ? `對應原題：${original.question_text}`
+                            : question.source_question_id ? `對應原題 #${question.source_question_id}` : '尚未連結原題'}
+                        </p>
+                      )}
+                      {extensionCount > 0 && <p className="question-review-relation">搭配 {extensionCount} 道延伸題</p>}
+                      <ul className="question-review-options" aria-label="作答選項">
+                        {answerChoices(optionsToText(question.options_json)).map(({ value, option }) => (
+                          <li key={value} className={value === question.answer?.toUpperCase() ? 'is-correct' : undefined}>
+                            {value}. {option.replace(/^[A-Z][.、)]\s*/i, '')}
+                            {value === question.answer?.toUpperCase() && <b>正確答案</b>}
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="question-review-explanation">{question.explanation || '尚未填寫解析'}</p>
+                    </div>
+                    <div className="question-review-actions">
+                      <button type="button" className="question-secondary-button compact" disabled={saving} onClick={() => startEdit(question)}>
+                        修改
+                      </button>
+                      {!isExtension && (question.status === 'published'
+                        ? <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>取消發布</button>
+                        : <button type="button" className="question-save-button compact" onClick={() => changePublicationStatus(question, 'publish')} disabled={saving}>{question.status === 'pending' ? '核准並發布' : '發布'}</button>)}
+                      {!isExtension && question.status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
+                      <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
+                    </div>
+                    {String(questionActionError?.questionId) === String(question.id) && (
+                      <p className="question-review-action-error" role="alert">
+                        {questionActionError.message}
+                      </p>
+                    )}
                   </div>
-                  <div className="question-review-actions">
-                    <button type="button" className="question-secondary-button compact" disabled={saving} onClick={() => startEdit(question)}>
-                      修改
-                    </button>
-                    {question.status === 'published'
-                      ? <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>取消發布</button>
-                      : <button type="button" className="question-save-button compact" onClick={() => changePublicationStatus(question, 'publish')} disabled={saving}>{question.status === 'pending' ? '核准並發布' : '發布'}</button>}
-                    {question.status === 'pending' && <button type="button" className="question-secondary-button compact" onClick={() => changePublicationStatus(question, 'unpublish')} disabled={saving}>設為未發布</button>}
-                    <button type="button" className="question-delete-button" onClick={() => deleteQuestion(question)} disabled={saving}>刪除</button>
-                  </div>
-                  {String(questionActionError?.questionId) === String(question.id) && (
-                    <p className="question-review-action-error" role="alert">
-                      {questionActionError.message}
-                    </p>
-                  )}
-                </div>
-              )) : <div className="teacher-empty compact">{search ? '找不到符合搜尋條件的題目。' : '這個狀態目前沒有題目。'}</div>}
+                );
+              }) : <div className="teacher-empty compact">{search ? '找不到符合搜尋條件的題目。' : '找不到符合篩選條件的題目。'}</div>}
             </div>
           ) : (
             <div className="teacher-empty compact">這個小節目前沒有題目。</div>
@@ -695,8 +735,10 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
         <form className="teacher-panel question-editor" onSubmit={saveQuestion}>
           <div className="panel-title">
             <div>
-              <h3>{form.id ? '修改題目' : '新增題目'}</h3>
-              <p>出現時間請填影片秒數，例如 80 代表 1:20。</p>
+              <h3>{form.question_type === 'extension' ? '修改延伸題' : form.id ? '修改題目' : '新增題目'}</h3>
+              <p>{form.question_type === 'extension'
+                ? '延伸題供補充練習使用，隨原題發布。'
+                : '出題時間留空會列為片尾練習。觀看達 80% 後也可從待作答開啟。'}</p>
             </div>
           </div>
 
@@ -731,7 +773,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
                 ))}
               </select>
             </label>
-            <label className="review-field">
+            {form.question_type !== 'extension' && <label className="review-field">
               <span>出題時間（秒）</span>
               <input
                 type="number"
@@ -740,7 +782,7 @@ function QuestionReviewView({ initialCourseId, initialLectureId }) {
                 onChange={event => setForm({ ...form, source_timestamp: event.target.value })}
                 placeholder="例如 80"
               />
-            </label>
+            </label>}
           </div>
 
           <label className="review-field">

@@ -321,3 +321,29 @@ test.each([false, true])('uses saved completion (%s) to show untouched practice 
     expect(screen.queryByText('無影片時間點的題目')).not.toBeInTheDocument();
   }
 });
+
+test('shows the end-of-video practice entry when an uploaded video ends', async () => {
+  localStorage.setItem('access_token', 'end-practice-token');
+  const responses = {
+    '/lectures/2': [{ media_source: 'upload' }],
+    '/lectures/2/media': { playback_url: '/lecture.mp4' },
+    '/lectures/2/chats': { messages: [] },
+    '/video_progresses/2': { completed: false, watched_seconds: 0 },
+    '/lectures/2/questions': [
+      { id: 1, question_text: '片尾練習題', learning_status: 'unanswered', source_timestamp: null },
+    ],
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+
+  const { container } = renderLectureDetail('/course/1/lecture/2');
+  await screen.findByText(/儘管發問吧/);
+  const video = container.querySelector('video');
+  expect(screen.queryByText('片尾練習題')).not.toBeInTheDocument();
+  fireEvent.ended(video);
+
+  expect(screen.getByText('片尾練習題')).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: '前往片尾練習（1 題）' })).toBeInTheDocument();
+});
