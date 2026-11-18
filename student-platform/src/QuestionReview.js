@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import SearchableCourseSelect from './SearchableCourseSelect';
+import { Link, useSearchParams } from 'react-router-dom';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -95,9 +94,25 @@ function questionToForm(question) {
   };
 }
 
+function countPendingQuestions(lecture) {
+  return (lecture.questions || []).filter(question => question.status === 'pending').length;
+}
+
 export default function QuestionReview() {
+  const [params] = useSearchParams();
+  const initialCourseId = params.get('course') || '';
+  const initialLectureId = params.get('lecture') || '';
+  return (
+    <QuestionReviewView
+      key={initialLectureId || `course:${initialCourseId}`}
+      initialCourseId={initialCourseId}
+      initialLectureId={initialLectureId}
+    />
+  );
+}
+
+function QuestionReviewView({ initialCourseId, initialLectureId }) {
   const token = localStorage.getItem('access_token');
-  const initialLectureId = new URLSearchParams(window.location.search).get('lecture') || '';
   const [data, setData] = useState(null);
   const [courseId, setCourseId] = useState('');
   const [lectureId, setLectureId] = useState('');
@@ -139,17 +154,11 @@ export default function QuestionReview() {
       const result = await res.json();
       setData(result);
 
-      const firstCourse = result.courses?.[0];
-      const preferredCourse = preferredLectureId
-        ? result.courses?.find(course =>
-            course.lectures?.some(lecture => String(lecture.id) === String(preferredLectureId))
-          )
-        : null;
-      const nextCourseId = preferredCourse?.id
-        || (courseId && result.courses?.some(course => String(course.id) === String(courseId))
-          ? courseId
-          : firstCourse?.id);
-      const nextCourse = result.courses?.find(course => String(course.id) === String(nextCourseId)) || firstCourse;
+      const courses = result.courses || [];
+      const nextCourse = courses.find(course => preferredLectureId
+        && course.lectures?.some(lecture => String(lecture.id) === String(preferredLectureId)))
+        || courses.find(course => String(course.id) === (courseId || initialCourseId));
+      const nextCourseId = nextCourse?.id;
       const nextLectureId = preferredLectureId && nextCourse?.lectures?.some(lecture => String(lecture.id) === String(preferredLectureId))
         ? preferredLectureId
         : nextCourse?.lectures?.[0]?.id;
@@ -508,30 +517,87 @@ export default function QuestionReview() {
     );
   }
 
+  if (!course) {
+    const matchingCourses = data.courses
+      .map((item, index) => ({
+        item,
+        theme: index % 4,
+        title: item.title || item.course_name || `課程 ${item.id}`,
+      }))
+      .filter(({ title }) => title.toLowerCase().includes(search));
+
+    return (
+      <div className="teacher-page question-review-page">
+        <header className="teacher-hero"><h1>審題中心</h1></header>
+        {(initialCourseId || initialLectureId) && (
+          <p role="status">找不到指定的課程或小節，請從下方選擇課程。</p>
+        )}
+        <div className="question-review-navigation searchable-course-field">
+          <input
+            type="search"
+            aria-label="搜尋課程"
+            placeholder="輸入課程名稱"
+            value={keyword}
+            onChange={event => setKeyword(event.target.value)}
+          />
+        </div>
+        {matchingCourses.length === 0 && (
+          <div className="teacher-empty" role="status">找不到符合的課程。</div>
+        )}
+        <div className="course-grid">
+          {matchingCourses.map(({ item, title, theme }) => {
+            const courseLectures = item.lectures || [];
+            const pendingCount = courseLectures.reduce((count, lecture) =>
+              count + countPendingQuestions(lecture),
+            0);
+            return (
+              <Link
+                key={item.id}
+                className={`course-link course-card course-management-tile cover-theme-${theme}`}
+                to={`/teacher/questions?course=${encodeURIComponent(item.id)}`}
+                aria-labelledby={`review-course-${item.id}`}
+              >
+                <div className="course-cover" aria-hidden="true">
+                  <div className="cover-art"><i /><i /><i /><i /></div>
+                </div>
+                <div className="course-card-body">
+                  <h2 id={`review-course-${item.id}`}>{title}</h2>
+                  <p className="course-meta">{courseLectures.length} 個小節</p>
+                  <div className="course-card-footer">
+                    <span className="course-status-badge status-draft">待審核 {pendingCount} 題</span>
+                    <span className="course-enter">進入審題 <span aria-hidden="true">→</span></span>
+                  </div>
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="teacher-page question-review-page">
       <header className="teacher-hero">
         <div>
-          <h1>審題中心</h1>
+          <Link className="course-management-back" to="/teacher/questions" onClick={event => {
+            if (!canLeaveEditor()) event.preventDefault();
+          }}>← 返回課程圖卡</Link>
+          <h1>{course.title || course.course_name || '審題中心'}</h1>
         </div>
         <div className="teacher-filters">
-          <SearchableCourseSelect
-            courses={data.courses}
-            value={courseId}
-            onChange={nextCourseId => {
-                const nextCourse = data.courses.find(item => String(item.id) === String(nextCourseId));
-                const firstLectureId = nextCourse?.lectures?.[0]?.id ? String(nextCourse.lectures[0].id) : '';
-                if (!changeLecture(firstLectureId)) return false;
-                setCourseId(nextCourseId);
-                return true;
-            }}
-          />
           <label>
             <span>小節</span>
             <select value={lectureId} disabled={saving || !lectures.length} onChange={event => changeLecture(event.target.value)}>
-              {lectures.map(item => (
-                <option key={item.id} value={item.id}>{item.title || item.course_name || `小節 ${item.id}`}</option>
-              ))}
+              {lectures.map(item => {
+                const title = item.title || item.course_name || `小節 ${item.id}`;
+                const pending = countPendingQuestions(item);
+                return (
+                  <option key={item.id} value={item.id}>
+                    {pending ? `${title}（待審核 ${pending} 題）` : title}
+                  </option>
+                );
+              })}
             </select>
           </label>
         </div>

@@ -4,7 +4,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from routers.lectures import _selected_generation_components
-from services.ai_generation import generate_questions, run_ai_generation_pipeline
+from services.ai_generation import (
+    generate_knowledge_points,
+    generate_questions,
+    run_ai_generation_pipeline,
+)
 from services.lecture_processing import GENERATION_COMPONENTS
 from services.pipeline_runner import run_media_ai_pipeline
 
@@ -84,3 +88,53 @@ class GenerationSelectionTests(unittest.TestCase):
             [question["source_timestamp"] for question in result["data"]["questions"]],
             [35, 59],
         )
+
+
+    def test_knowledge_points_only_save_ranges_from_the_timed_transcript(self):
+        points = [
+            {"title": name, "description": "原則", "start_time": start, "end_time": end}
+            for name, start, end in [
+                ("正確區間", 0, 20),
+                ("缺少結束時間", 0, None),
+                ("未對齊", 1, 20),
+                ("時間反向", 20, 8),
+                ("超過片尾", 20, 40),
+                ("空區間", 20, 20),
+            ]
+        ]
+        segments = [
+            {"text": "開始講解", "start_time": 0.1, "end_time": 8.2},
+            {"text": "接續講解", "start_time": 8.2, "end_time": 20.1},
+            {"text": "片尾", "start_time": 20.1, "end_time": 40},
+        ]
+        response = SimpleNamespace(text=json.dumps({"knowledge_points": points}))
+        with (
+            patch("services.ai_generation.existing_rows", return_value=[]),
+            patch("services.ai_generation.generate_json_content", return_value=response) as generate,
+            patch("services.ai_generation.supabase_admin") as database,
+        ):
+            table = database.table.return_value
+            table.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {
+                "duration_seconds": 30,
+            }
+            table.insert.return_value.execute.return_value.data = []
+            result = generate_knowledge_points(8, segments)
+
+        self.assertEqual(result["data"]["knowledge_points"], [points[0]])
+        table.insert.assert_called_once_with([{"lecture_id": 8, **points[0]}])
+        self.assertIn("[0 - 8] 開始講解", generate.call_args.args[0])
+        self.assertNotIn("[20 - 40]", generate.call_args.args[0])
+
+    def test_knowledge_points_without_timestamps_do_not_call_ai_or_insert(self):
+        with (
+            patch("services.ai_generation.existing_rows", return_value=[]),
+            patch("services.ai_generation.generate_json_content") as generate,
+            patch("services.ai_generation.supabase_admin") as database,
+        ):
+            table = database.table.return_value
+            table.select.return_value.eq.return_value.maybe_single.return_value.execute.return_value.data = {}
+            with self.assertRaisesRegex(ValueError, "逐字稿沒有可定位"):
+                generate_knowledge_points(8, [{"text": "沒有時間的內容"}])
+
+        generate.assert_not_called()
+        table.insert.assert_not_called()

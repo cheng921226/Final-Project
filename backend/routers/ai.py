@@ -12,11 +12,12 @@ from pydantic import BaseModel, Field, ValidationError
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
 from routers.users import get_user_id, get_user_role
-from services.time_values import normalize_time_range, time_to_seconds
+from services.time_values import time_to_seconds
 from services.ai_generation import (
     CONTENT_SYSTEM_INSTRUCTION,
     delayed_question_timestamp,
     format_transcript_for_prompt,
+    generate_knowledge_points as generate_lecture_knowledge_points,
     normalize_source_timestamp,
 )
 from .security import AuthContext, get_auth_context, get_current_user
@@ -427,56 +428,14 @@ def generate_knowledge_points(
 ):
     teacher = require_teacher(user)
     require_lecture_manager(body.lecture_id, teacher)
-    existing_response = (
-        supabase_admin.table("knowledge_points")
-        .select("*")
-        .eq("lecture_id", body.lecture_id)
-        .maybe_single()
-        .execute()
-    )
-    existing_data = getattr(existing_response, "data", None)
-
-    if existing_data:
-        return {"status": "cached", "data": existing_data}
-
+    segments, _ = parse_transcript_rows(get_lecture_transcript(body.lecture_id))
     try:
-        transcript_rows = get_lecture_transcript(body.lecture_id)
-        _, transcript = parse_transcript_rows(transcript_rows)
-        if not transcript:
-            raise HTTPException(
-                status_code=400, detail="Transcript not found for this lecture."
-            )
-
-        prompt = f'''請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
-依逐字稿時間推估 start_time / end_time，輸出非負整數秒數，不可使用 mm:ss，無時間資訊則填 null。
-JSON 格式：{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":null,"end_time":null}}]}}
-
-課程逐字稿：
-{transcript}'''
-        ai_response = generate_json_content(prompt)
-
-        try:
-            result_json = json.loads(ai_response.text)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Failed to parse AI response.")
-
-        for kp in result_json["knowledge_points"]:
-            start_time, end_time = normalize_time_range(
-                kp.get("start_time"), kp.get("end_time")
-            )
-            supabase_admin.table("knowledge_points").insert(
-                {
-                    "lecture_id": body.lecture_id,
-                    "title": kp["title"],
-                    "description": kp["description"],
-                    "start_time": start_time,
-                    "end_time": end_time,
-                }
-            ).execute()
-
-        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
+        result = generate_lecture_knowledge_points(body.lecture_id, segments)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {**result, "lecture_id": body.lecture_id}
 
 
 class QuestionsRequest(BaseModel):

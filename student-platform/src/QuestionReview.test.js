@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import QuestionReview from './QuestionReview';
 
-jest.mock('react-router-dom', () => ({ Link: ({ children, to }) => <a href={to}>{children}</a> }), { virtual: true });
+function renderReview(path = '/teacher/questions?course=10') {
+  return render(<MemoryRouter initialEntries={[path]}><QuestionReview /></MemoryRouter>);
+}
 
 const reviewData = {
   teacher: { id: 1, role: 'teacher' },
@@ -35,7 +38,6 @@ afterEach(() => {
 
 test('opens the course and lecture provided by the course-management link', async () => {
   localStorage.setItem('access_token', 'teacher-token');
-  window.history.replaceState({}, '', '/teacher/questions?lecture=21');
   global.fetch = jest.fn().mockResolvedValueOnce({
     ok: true,
     json: async () => ({
@@ -61,11 +63,33 @@ test('opens the course and lecture provided by the course-management link', asyn
     }),
   });
 
-  render(<QuestionReview />);
+  renderReview('/teacher/questions?lecture=21');
 
   expect(await screen.findByText('快速排序的核心操作是什麼？')).toBeInTheDocument();
-  expect(screen.getByRole('combobox', { name: '課程' })).toHaveValue('演算法');
+  expect(screen.getByRole('heading', { name: '演算法' })).toBeInTheDocument();
   expect(screen.getByRole('combobox', { name: '小節' })).toHaveValue('21');
+});
+
+test('opens the selected review course from its card and returns to the catalog', async () => {
+  localStorage.setItem('access_token', 'teacher-token');
+  global.fetch = jest.fn().mockResolvedValue({ ok: true, json: async () => reviewData });
+  renderReview('/teacher/questions');
+
+  await screen.findByRole('link', { name: '資料結構' });
+  const search = screen.getByRole('searchbox', { name: '搜尋課程' });
+  fireEvent.change(search, { target: { value: '其他課程' } });
+  expect(screen.queryByRole('link', { name: '資料結構' })).not.toBeInTheDocument();
+  expect(screen.getByText('找不到符合的課程。')).toBeInTheDocument();
+  fireEvent.change(search, { target: { value: ' 結構 ' } });
+  expect(screen.getByRole('link', { name: '資料結構' })).toBeInTheDocument();
+  expect(screen.getByText('待審核 1 題')).toBeInTheDocument();
+  expect(screen.queryByRole('combobox', { name: '小節' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('link', { name: '資料結構' }));
+  expect(await screen.findByRole('combobox', { name: '小節' })).toHaveValue('7');
+  expect(screen.getByText('堆疊使用哪一種順序？')).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('link', { name: '← 返回課程圖卡' }));
+  expect(await screen.findByRole('link', { name: '資料結構' })).toBeInTheDocument();
 });
 
 test('shows pending AI questions and publishes the latest batch', async () => {
@@ -88,9 +112,10 @@ test('shows pending AI questions and publishes the latest batch', async () => {
     });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
 
-  render(<QuestionReview />);
+  renderReview();
 
   expect(await screen.findByText('待審核')).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: '堆疊（待審核 1 題）' })).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: '發布最新一批' }));
 
   expect(window.confirm).toHaveBeenCalled();
@@ -100,6 +125,7 @@ test('shows pending AI questions and publishes the latest batch', async () => {
   );
   expect(await screen.findByText('已發布 1 題，學生現在可以看到新版題目。')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '取消發布' })).toBeInTheDocument();
+  expect(screen.getByRole('option', { name: '堆疊' })).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: '發布最新一批' })).not.toBeInTheDocument();
 });
 
@@ -107,7 +133,7 @@ test('builds correct-answer choices from non-empty option lines', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, json: async () => reviewData });
 
-  render(<QuestionReview />);
+  renderReview();
   await screen.findByText('堆疊使用哪一種順序？');
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
 
@@ -153,7 +179,7 @@ test('uses the selected knowledge point end time when it is available', async ()
     }),
   });
 
-  render(<QuestionReview />);
+  renderReview();
   await screen.findByText('堆疊使用哪一種順序？');
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
@@ -180,7 +206,7 @@ test('uses one second before the next knowledge point when the selected point ha
     }),
   });
 
-  render(<QuestionReview />);
+  renderReview();
   await screen.findByText('堆疊使用哪一種順序？');
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '11' } });
@@ -208,7 +234,7 @@ test('places a new question five seconds before the video ends for the last open
     }),
   });
 
-  render(<QuestionReview />);
+  renderReview();
   await screen.findByText('堆疊使用哪一種順序？');
   fireEvent.click(screen.getByRole('button', { name: '新增題目' }));
   fireEvent.change(screen.getByLabelText('對應知識點'), { target: { value: '12' } });
@@ -220,7 +246,7 @@ test('continues option letters on Enter and removes an empty prefix on Backspace
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, json: async () => reviewData });
 
-  render(<QuestionReview />);
+  renderReview();
   await screen.findByText('堆疊使用哪一種順序？');
   fireEvent.click(screen.getByRole('button', { name: '修改' }));
 
@@ -259,7 +285,7 @@ test('keeps pending, unpublished, and published questions visible', async () => 
     }),
   });
 
-  render(<QuestionReview />);
+  renderReview();
 
   expect(await screen.findByText('待審題目')).toBeInTheDocument();
   expect(screen.getByText('未發布題目')).toBeInTheDocument();
@@ -302,7 +328,7 @@ test('unpublishes a published question and updates the review list', async () =>
     });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
 
-  render(<QuestionReview />);
+  renderReview();
 
   fireEvent.click(await screen.findByRole('button', { name: '取消發布' }));
 
@@ -343,7 +369,7 @@ test('shows a clear inline message when unpublishing is forbidden', async () => 
     });
   jest.spyOn(window, 'confirm').mockReturnValue(true);
 
-  render(<QuestionReview />);
+  renderReview();
 
   fireEvent.click(await screen.findByRole('button', { name: '取消發布' }));
 

@@ -549,7 +549,7 @@ def update_lecture_order(
     return {"course_id": course_id, "lecture_ids": payload.lecture_ids}
 
 
-def _transcript_text(lecture_id: int) -> str:
+def _transcript_material(lecture_id: int) -> tuple[str, list[dict[str, Any]]]:
     response = (
         supabase_admin.table("transcripts")
         .select("content,segments_json")
@@ -558,10 +558,14 @@ def _transcript_text(lecture_id: int) -> str:
         .execute()
     )
     row = response.data or {}
-    segments = row.get("segments_json")
-    if isinstance(segments, list) and segments:
-        return format_transcript_for_prompt(segments)
-    return str(row.get("content") or "").strip()
+    raw_segments = row.get("segments_json")
+    segments = (
+        [segment for segment in raw_segments if isinstance(segment, dict)]
+        if isinstance(raw_segments, list)
+        else []
+    )
+    text = format_transcript_for_prompt(segments) or str(row.get("content") or "").strip()
+    return text, segments
 
 
 @router.post("/lectures/{lecture_id}/regenerate")
@@ -599,7 +603,7 @@ def regenerate_lecture_content(
 
 
 def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, Any]:
-    transcript_text = _transcript_text(lecture_id)
+    transcript_text, segments = _transcript_material(lecture_id)
     if not transcript_text:
         raise HTTPException(status_code=400, detail="這個小節沒有逐字稿，無法重新產生")
 
@@ -632,7 +636,7 @@ def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, 
                 lecture_id,
                 "knowledge_points",
                 lambda: generate_knowledge_points(
-                    lecture_id, transcript_text, skip_existing=False
+                    lecture_id, segments, skip_existing=False
                 ),
             )
             old_ids = [row["id"] for row in old_rows]
@@ -694,7 +698,10 @@ def _run_regeneration_step(lecture_id: int, component: str, callback):
         result = callback()
     except Exception as exc:
         set_generation_status(lecture_id, component, "failed", error=str(exc))
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        status_code = (
+            422 if component == "knowledge_points" and isinstance(exc, ValueError) else 500
+        )
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     set_generation_status(lecture_id, component, "completed")
     return result
 

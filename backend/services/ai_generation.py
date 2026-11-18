@@ -10,7 +10,7 @@ from google.genai import errors, types
 
 from database.supabase import supabase_admin
 from services.lecture_processing import claim_generation, set_generation_status
-from services.time_values import normalize_time_range, time_to_seconds
+from services.time_values import normalize_seconds, time_to_seconds
 
 
 logger = logging.getLogger(__name__)
@@ -145,49 +145,91 @@ JSON 格式：{{"summary":"摘要內容"}}
 
 
 def generate_knowledge_points(
-    lecture_id: int, transcript_text: str, skip_existing: bool = True
+    lecture_id: int, segments: list[dict[str, Any]], skip_existing: bool = True
 ) -> dict[str, Any]:
     existing = existing_rows("knowledge_points", lecture_id)
     if skip_existing and existing:
         return {"status": "cached", "data": existing}
 
-    prompt = f'''請根據以下課程逐字稿，產生 5 到 8 個適合學生複習用的知識點。
-依照逐字稿時間推估 start_time / end_time，使用秒數；無法判斷時填 null。
+    lecture = (
+        supabase_admin.table("lectures")
+        .select("duration_seconds")
+        .eq("id", lecture_id)
+        .maybe_single()
+        .execute()
+    )
+    duration = (lecture.data or {}).get("duration_seconds")
+    timed_segments = []
+    for segment in segments:
+        text = str(segment.get("text") or "").strip()
+        start = normalize_seconds(segment.get("start_time"))
+        end = normalize_seconds(segment.get("end_time"))
+        if not text or start is None or end is None or end <= start:
+            continue
+        if duration and end > duration:
+            continue
+        timed_segments.append({"start_time": start, "end_time": end, "text": text})
+
+    if not timed_segments:
+        raise ValueError("逐字稿沒有可定位的時間區間，請先補上逐字稿時間，再生成知識點。")
+
+    timed_segments.sort(key=lambda segment: segment["start_time"])
+    transcript_text = format_transcript_for_prompt(timed_segments)
+    prompt = f'''請根據有時間標記的課程逐字稿，整理適合學生複習的核心知識點。
+先辨識主題轉換，再找出學生看完後應該能獨立解釋、區分或應用的概念。依核心概念數量決定知識點數量。
+每個知識點聚焦一項概念、方法、判斷原則或常見錯誤。需要不同解釋或應用步驟的概念應分開；同一概念的不同例子與重複說明應合併。
+涵蓋影片前、中、後各個有教學內容的主題，略過開場、過場、行政說明和重複總結。
+title 使用具體的概念名稱。description 用一到兩句說明重點，必要時補上適用條件或容易混淆的地方。
+每個知識點都必須對應一段可定位的講解。start_time 必須照抄第一個相關逐字稿片段的開始秒數，end_time 必須照抄最後一個相關片段的結束秒數，兩者都填 JSON 整數且結束須晚於開始。
+若同一概念在多處講解，選擇最完整的連續區間。找不到可定位的區間就省略該知識點，不猜測時間或填 null。
+依影片出現順序排列，只輸出繁體中文 JSON。
 JSON 格式：{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":0,"end_time":30}}]}}
 
 課程逐字稿：
 {transcript_text}'''
 
     ai_response = generate_json_content(prompt)
-    result_json = parse_json_response(ai_response.text)
-    knowledge_points = result_json.get("knowledge_points", [])
+    result = parse_json_response(ai_response.text)
+    candidates = result.get("knowledge_points") if isinstance(result, dict) else None
+    if not isinstance(candidates, list):
+        raise RuntimeError("AI 回傳的知識點格式不正確，請重新生成。")
 
-    rows = []
-    for kp in knowledge_points:
-        if not kp.get("title") or not kp.get("description"):
+    starts = {segment["start_time"] for segment in timed_segments}
+    ends = {segment["end_time"] for segment in timed_segments}
+    knowledge_points = []
+    for point in candidates:
+        if not isinstance(point, dict):
             continue
-        start_time, end_time = normalize_time_range(
-            kp.get("start_time"), kp.get("end_time")
-        )
-        rows.append(
-            {
-                "lecture_id": lecture_id,
-                "title": kp.get("title"),
-                "description": kp.get("description"),
-                "start_time": start_time,
-                "end_time": end_time,
-            }
-        )
+        title = point.get("title")
+        description = point.get("description")
+        if not isinstance(title, str) or not isinstance(description, str):
+            continue
+        start, end = point.get("start_time"), point.get("end_time")
+        if type(start) is not int or type(end) is not int:
+            continue
+        if start not in starts or end not in ends or end <= start:
+            continue
+        if title.strip() and description.strip():
+            knowledge_points.append({
+                "title": title.strip(),
+                "description": description.strip(),
+                "start_time": start,
+                "end_time": end,
+            })
 
-    inserted = []
-    if rows:
-        response = supabase_admin.table("knowledge_points").insert(rows).execute()
-        inserted = response.data or []
+    if not knowledge_points:
+        raise RuntimeError("AI 沒有產生可對照逐字稿時間的知識點，請重新生成。")
 
+    knowledge_points.sort(key=lambda point: point["start_time"])
+    response = (
+        supabase_admin.table("knowledge_points")
+        .insert([{"lecture_id": lecture_id, **point} for point in knowledge_points])
+        .execute()
+    )
     return {
         "status": "success",
         "data": {"knowledge_points": knowledge_points},
-        "inserted": inserted,
+        "inserted": response.data or [],
     }
 
 
@@ -457,7 +499,11 @@ def run_ai_generation_pipeline(
         if components is None or component in components:
             steps[component] = run_step(
                 component,
-                lambda: generate(lecture_id, transcript_text, skip_existing=skip_existing),
+                lambda: generate(
+                    lecture_id,
+                    segments if component == "knowledge_points" else transcript_text,
+                    skip_existing=skip_existing,
+                ),
             )
 
     if components is None or "questions" in components:
