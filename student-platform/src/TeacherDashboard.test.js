@@ -143,7 +143,7 @@ test('filters students by class, credit status, learning status, and keyword', a
         lectures: [],
         questions: [],
         students: [
-          { id: 1, student_number: 'S001', name: '王小明', email: 'ming@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 2, total_lectures: 2, watched_minutes: 40, attempts: 3, accuracy: 90, last_active: '2024-01-01T00:00:00Z', course_passed: true, credits_earned: 2 },
+          { id: 1, student_number: 'S001', name: '王小明', email: 'ming@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 2, total_lectures: 2, watched_minutes: 40, attempts: 3, accuracy: 90, last_active: '2024-01-01T00:00:00Z', course_passed: true, credits_earned: 2, final_score: 92.5 },
           { id: 2, student_number: 'S002', name: '陳小華', email: 'hua@example.com', classes: [{ id: 11, name: '資訊三乙' }], completed_lectures: 1, total_lectures: 2, watched_minutes: 20, attempts: 2, accuracy: 50, last_active: '2024-01-02T00:00:00Z', course_passed: false, credits_earned: 0 },
           { id: 3, student_number: 'S003', name: '林小美', email: 'mei@example.com', classes: [{ id: 10, name: '資訊三甲' }], completed_lectures: 0, total_lectures: 2, watched_minutes: 0, attempts: 0, accuracy: 0, last_active: null, course_passed: false, credits_earned: 0 },
         ],
@@ -154,6 +154,8 @@ test('filters students by class, credit status, learning status, and keyword', a
   try {
     render(<TeacherDashboard />);
     await screen.findByText('王小明');
+    expect(screen.getByRole('button', { name: /最終測驗成績/ })).toBeInTheDocument();
+    expect(screen.getByText('92.5 分')).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText('班級'), { target: { value: '10' } });
     expect(screen.getByText('王小明')).toBeInTheDocument();

@@ -48,6 +48,7 @@ const STUDENT_SORT_COLUMNS = [
   ['watched_minutes', '觀看時間'],
   ['accuracy', '正確率'],
   ['mastery_rate', '掌握率'],
+  ['final_score', '最終測驗成績'],
   ['course_passed', '學分狀態'],
   ['last_active', '最近活動'],
 ];
@@ -75,6 +76,9 @@ function studentSortValue(student, key) {
   }
   if (key === 'course_passed') {
     return student.course_passed ? 1 + (Number(student.credits_earned) || 0) / 100 : 0;
+  }
+  if (key === 'final_score') {
+    return student.final_score == null ? null : Number(student.final_score);
   }
   if (key === 'last_active') {
     return student.last_active ? new Date(student.last_active).getTime() : null;
@@ -924,6 +928,7 @@ export default function TeacherDashboard() {
                     <td>{student.watched_minutes} 分鐘</td>
                     <td><span className={`accuracy-chip ${student.accuracy < 60 ? 'needs-help' : ''}`}>{student.accuracy}%</span></td>
                     <td>{formatMasteryRate(student.mastery_rate)}</td>
+                    <td>{student.final_score == null ? '—' : `${Number(student.final_score)} 分`}</td>
                     <td><span className={`credit-status-chip ${student.course_passed ? 'earned' : ''}`}>{student.course_passed ? `已取得 ${student.credits_earned} 學分` : '未取得'}</span></td>
                     <td>{formatDate(student.last_active)}</td>
                   </tr>

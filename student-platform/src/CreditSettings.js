@@ -13,7 +13,6 @@ function emptyForm(course = {}) {
     retest_cooldown_minutes: course.retest_cooldown_minutes ?? 60,
     final_question_count: course.final_question_count ?? 10,
     certification_enabled: course.certification_enabled ?? true,
-    certificate_show_score: course.certificate_show_score ?? true,
   };
 }
 
@@ -156,7 +155,6 @@ export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, embe
         retest_cooldown_minutes: toNumber(form.retest_cooldown_minutes, 60),
         final_question_count: toNumber(form.final_question_count, 10),
         certification_enabled: Boolean(form.certification_enabled),
-        certificate_show_score: Boolean(form.certificate_show_score),
       };
 
       const res = await fetch(`${API_URL}/teacher/courses/${courseId}/credit-settings`, {
@@ -218,7 +216,6 @@ export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, embe
 
       <fieldset className="settings-switches credit-settings-fields" disabled={saving}>
         <label><input type="checkbox" checked={form.certification_enabled} onChange={event => updateField('certification_enabled', event.target.checked)} /> 完成後顯示認證</label>
-        <label><input type="checkbox" checked={form.certificate_show_score} onChange={event => updateField('certificate_show_score', event.target.checked)} /> 認證顯示最終測驗成績</label>
       </fieldset>
 
       {!embedded && <div className="final-bank-status">

@@ -20,7 +20,6 @@ class CourseCreditSettingsPayload(BaseModel):
     retest_cooldown_minutes: int = Field(default=60, ge=0, le=43200)
     final_question_count: int = Field(default=10, ge=1, le=50)
     certification_enabled: bool = True
-    certificate_show_score: bool = True
 
 
 def user_profile(user) -> dict[str, Any]:
@@ -416,7 +415,6 @@ def update_course_credit_settings(
         "retest_cooldown_minutes": payload.retest_cooldown_minutes,
         "final_question_count": payload.final_question_count,
         "certification_enabled": payload.certification_enabled,
-        "certificate_show_score": payload.certificate_show_score,
     }
     updated_course = (
         supabase_admin.table("courses")

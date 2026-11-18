@@ -334,7 +334,7 @@ def issue_certificate(
         "course_name": course.get("title")
         or course.get("course_name")
         or f"課程 {course['id']}",
-        "show_final_score": bool(course.get("certificate_show_score", True)),
+        "show_final_score": False,
     }
     if existing:
         response = (

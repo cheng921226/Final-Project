@@ -27,6 +27,7 @@ export default function Certificate() {
   const [certificate, setCertificate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const credits = Number(certificate?.credits_awarded || 0);
 
   useEffect(() => {
     if (!token) {
@@ -87,19 +88,13 @@ export default function Certificate() {
     ctx.fillText(certificate.student_name || 'Student', 800, 380);
     ctx.fillStyle = '#475569';
     ctx.font = '28px sans-serif';
-    ctx.fillText('已完成課程', 800, 440);
+    ctx.fillText('已通過課程', 800, 440);
     ctx.fillStyle = '#0f172a';
     ctx.font = '700 46px sans-serif';
     ctx.fillText(certificate.course_name || 'Course', 800, 510);
 
-    const details = [
-      `完成日期  ${formatDate(certificate.earned_at)}`,
-      `取得學分  ${Number(certificate.credits_awarded || 0).toFixed(1)}`,
-      `學習時數  ${Number(certificate.learning_hours || 0).toFixed(1)} 小時`,
-    ];
-    if (certificate.show_final_score && certificate.final_score !== null && certificate.final_score !== undefined) {
-      details.push(`最終測驗  ${certificate.final_score} 分`);
-    }
+    const details = [`通過日期  ${formatDate(certificate.earned_at)}`];
+    if (credits > 0) details.push(`取得學分  ${credits.toFixed(1)}`);
     ctx.fillStyle = '#334155';
     ctx.font = '26px sans-serif';
     details.forEach((line, index) => ctx.fillText(line, 800, 600 + index * 42));
@@ -131,13 +126,11 @@ export default function Certificate() {
           <h1>課程完成認證</h1>
           <p className="certificate-copy">茲證明</p>
           <h2>{certificate.student_name}</h2>
-          <p className="certificate-copy">已完成課程</p>
+          <p className="certificate-copy">已通過課程</p>
           <h3>{certificate.course_name}</h3>
           <div className="certificate-details">
-            <span><small>完成日期</small>{formatDate(certificate.earned_at)}</span>
-            <span><small>取得學分</small>{Number(certificate.credits_awarded || 0).toFixed(1)}</span>
-            <span><small>學習時數</small>{Number(certificate.learning_hours || 0).toFixed(1)} 小時</span>
-            {certificate.show_final_score && certificate.final_score !== null && certificate.final_score !== undefined && <span><small>最終測驗</small>{certificate.final_score} 分</span>}
+            <span><small>通過日期</small>{formatDate(certificate.earned_at)}</span>
+            {credits > 0 && <span><small>取得學分</small>{credits.toFixed(1)}</span>}
           </div>
           <footer><span>Student-Platform</span><code>{certificate.certificate_code}</code></footer>
         </div>
