@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -12,21 +12,15 @@ function safeFilename(value) {
   return String(value || 'course').replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, '_');
 }
 
-function loadImage(source) {
-  return new Promise((resolve, reject) => {
-    const image = new Image();
-    image.onload = () => resolve(image);
-    image.onerror = reject;
-    image.src = source;
-  });
-}
-
 export default function Certificate() {
   const { courseId } = useParams();
   const token = localStorage.getItem('access_token');
   const [certificate, setCertificate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  const sheetRef = useRef(null);
   const credits = Number(certificate?.credits_awarded || 0);
 
   useEffect(() => {
@@ -49,65 +43,24 @@ export default function Certificate() {
   }, [courseId, token]);
 
   async function downloadCertificate() {
-    if (!certificate) return;
-    const canvas = document.createElement('canvas');
-    canvas.width = 1600;
-    canvas.height = 900;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#f8fafc';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#0f766e';
-    ctx.lineWidth = 18;
-    ctx.strokeRect(38, 38, 1524, 824);
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(70, 70, 1460, 760);
+    const sheet = sheetRef.current;
+    if (!certificate || !sheet || downloading) return;
 
+    setDownloading(true);
+    setDownloadError('');
     try {
-      const universityWatermark = await loadImage('/fcu-logo.svg');
-      ctx.save();
-      ctx.globalAlpha = 0.14;
-      ctx.drawImage(universityWatermark, 350, 330, 900, 232);
-      ctx.restore();
-    } catch (_) {
-      // The certificate can still be downloaded if the decorative asset fails.
+      const { toPng } = await import('html-to-image');
+      await document.fonts?.ready;
+      const image = await toPng(sheet, { pixelRatio: 2 });
+      const link = document.createElement('a');
+      link.download = `${safeFilename(certificate.course_name)}_${safeFilename(certificate.student_name)}_certificate.png`;
+      link.href = image;
+      link.click();
+    } catch {
+      setDownloadError('無法下載認證圖片，請稍後再試。');
+    } finally {
+      setDownloading(false);
     }
-
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '700 62px sans-serif';
-    ctx.fillText('課程完成認證', 800, 180);
-    ctx.fillStyle = '#0f766e';
-    ctx.font = '600 24px sans-serif';
-    ctx.fillText('CERTIFICATE OF COMPLETION', 800, 225);
-    ctx.fillStyle = '#475569';
-    ctx.font = '28px sans-serif';
-    ctx.fillText('茲證明', 800, 305);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '700 52px sans-serif';
-    ctx.fillText(certificate.student_name || 'Student', 800, 380);
-    ctx.fillStyle = '#475569';
-    ctx.font = '28px sans-serif';
-    ctx.fillText('已通過課程', 800, 440);
-    ctx.fillStyle = '#0f172a';
-    ctx.font = '700 46px sans-serif';
-    ctx.fillText(certificate.course_name || 'Course', 800, 510);
-
-    const details = [`通過日期  ${formatDate(certificate.earned_at)}`];
-    if (credits > 0) details.push(`取得學分  ${credits.toFixed(1)}`);
-    ctx.fillStyle = '#334155';
-    ctx.font = '26px sans-serif';
-    details.forEach((line, index) => ctx.fillText(line, 800, 600 + index * 42));
-    ctx.fillStyle = '#64748b';
-    ctx.font = '21px monospace';
-    ctx.fillText(`Certificate ID: ${certificate.certificate_code}`, 800, 780);
-    ctx.font = '22px sans-serif';
-    ctx.fillText('Student-Platform', 800, 815);
-
-    const link = document.createElement('a');
-    link.download = `${safeFilename(certificate.course_name)}_${safeFilename(certificate.student_name)}_certificate.png`;
-    link.href = canvas.toDataURL('image/png', 1);
-    link.click();
   }
 
   if (loading) return <div className="teacher-state"><div className="teacher-loader" /><p>正在載入課程認證...</p></div>;
@@ -117,24 +70,32 @@ export default function Certificate() {
     <div className="certificate-page">
       <div className="certificate-toolbar">
         <Link className="secondary-button" to="/achievements">返回學習成就</Link>
-        <button className="question-save-button" type="button" onClick={downloadCertificate}>下載認證圖片</button>
+        <button className="question-save-button" type="button" onClick={downloadCertificate} disabled={downloading}>
+          {downloading ? '正在準備圖片…' : '下載認證圖片'}
+        </button>
       </div>
-      <section className="certificate-sheet">
-        <div className="certificate-inner">
-          <img className="certificate-watermark" src="/fcu-logo.svg" alt="" aria-hidden="true" />
-          <p className="certificate-kicker">CERTIFICATE OF COMPLETION</p>
-          <h1>課程完成認證</h1>
-          <p className="certificate-copy">茲證明</p>
-          <h2>{certificate.student_name}</h2>
-          <p className="certificate-copy">已通過課程</p>
-          <h3>{certificate.course_name}</h3>
-          <div className="certificate-details">
-            <span><small>通過日期</small>{formatDate(certificate.earned_at)}</span>
-            {credits > 0 && <span><small>取得學分</small>{credits.toFixed(1)}</span>}
+      {downloadError && <p className="auth-error" role="alert">{downloadError}</p>}
+      <div className="certificate-display">
+        <section className="certificate-sheet" ref={sheetRef}>
+          <div className="certificate-inner">
+            <div className="certificate-corners" aria-hidden="true"><i /><i /><i /><i /></div>
+            <img className="certificate-watermark" src="/fcu-logo.svg" alt="" aria-hidden="true" />
+            <h1>課程完成認證</h1>
+            <p className="certificate-kicker">CERTIFICATE OF COMPLETION</p>
+            <div className="certificate-divider" aria-hidden="true"><i /></div>
+            <p className="certificate-copy">茲證明</p>
+            <h2>{certificate.student_name}</h2>
+            <p className="certificate-copy">已通過課程</p>
+            <h3>{certificate.course_name}</h3>
+            <div className="certificate-details">
+              <span><small>通過日期</small>{formatDate(certificate.earned_at)}</span>
+              {credits > 0 && <span><small>取得學分</small>{credits.toFixed(1)}</span>}
+            </div>
+            <footer><span>Student-Platform</span><code>{certificate.certificate_code}</code></footer>
           </div>
-          <footer><span>Student-Platform</span><code>{certificate.certificate_code}</code></footer>
-        </div>
-      </section>
+        </section>
+        <div className="certificate-light" aria-hidden="true" />
+      </div>
     </div>
   );
 }

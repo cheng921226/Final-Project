@@ -3,7 +3,7 @@
 :root {
   --ink: #302629; --muted: #7b6d70; --primary: #7d212a;
   --primary-dark: #611923; --primary-soft: #f6e9eb; --accent: #b36443;
-  --surface: #fffdfb; --canvas: #faf7f6; --line: #e9dfe0;
+  --surface: #fffdfb; --canvas: #f6eee7; --line: #e9dfe0;
   --panel-radius: 16px; --quiet-shadow: 0 3px 12px #49232904;
   --select-font-size: 0.75rem;
   --select-menu-background: #3d3d3d;
@@ -102,7 +102,7 @@ select option,
 
 ::selection { color: #611923; background: #efd3d7; }
 .app-shell { background: var(--canvas); }
-.topbar { background: #fdfaf9f5; border-color: var(--line); padding-inline: max(28px, calc((100vw - 1240px) / 2)); }
+.topbar { background: #fffaf5f5; border-color: var(--line); padding-inline: max(28px, calc((100vw - 1240px) / 2)); }
 .brand { gap: 11px; flex-shrink: 0; }
 .brand-mark { width: 36px; height: 40px; display: grid; place-items: center; color: var(--primary); }
 .brand-mark svg { width: 31px; height: 31px; }
