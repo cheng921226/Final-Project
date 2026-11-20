@@ -134,7 +134,7 @@ test('updates mastery after practice and keeps the answer feedback visible', asy
   expect(await screen.findByRole('link', { name: '回課堂練習' })).toHaveAttribute(
     'href', '/course/1/lecture/4#classroom-practice-title',
   );
-  fireEvent.click(screen.getByRole('button', { name: '開始補充練習' }));
+  fireEvent.click(screen.getByRole('button', { name: '訂正補充練習' }));
   const option = await screen.findByRole('radio', { name: 'A. 最後放入' });
   const submit = screen.getByRole('button', { name: '送出補充練習' });
   expect(submit).toBeDisabled();

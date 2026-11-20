@@ -503,6 +503,11 @@ function ReviewMode() {
               <p>目前課程</p>
               <h2>{courseTitle}</h2>
               <span>{reviewData.stats?.lecture_count ?? 0} 個小節 · {reviewData.stats?.question_count ?? 0} 題可練習</span>
+              {reviewData.next_lecture_id && (
+                <Link className="question-secondary-button compact review-classroom-link" to={`/course/${courseId}/lecture/${reviewData.next_lecture_id}#classroom-practice-title`}>
+                  回課堂練習
+                </Link>
+              )}
             </div>
             <div className="review-stat">
               <span>掌握率</span>
@@ -521,94 +526,8 @@ function ReviewMode() {
             </div>
           </section>
 
-          <section className="review-panel review-practice-panel" aria-labelledby="review-practice-title">
-            <div className="panel-title">
-              <div>
-                <h3 id="review-practice-title">下一步練習</h3>
-                <p>{assessment?.mastery_question_count
-                  ? `掌握目標 ${formatPercent(assessment.pass_threshold)}${assessment.passed ? '，已達標' : ''}。練習結果用於學習回饋。`
-                  : '這門課目前沒有已發布的課堂題目。'}</p>
-              </div>
-              <div className="review-practice-actions">
-                {reviewData.next_lecture_id && (
-                  <Link className="question-secondary-button" to={`/course/${courseId}/lecture/${reviewData.next_lecture_id}#classroom-practice-title`}>
-                    回課堂練習
-                  </Link>
-                )}
-                {assessment?.needs_retest && !retestSession && (
-                  <button type="button" className="question-save-button" onClick={startRetest} disabled={resetting || retestLoading || reviewLoading}>
-                    {retestLoading ? '準備中…' : '開始補充練習'}
-                  </button>
-                )}
-              </div>
-            </div>
-            {retestSession && (
-              <div className="retest-panel">
-                <p role="status">已作答 {answeredCount}／{retestQuestions.length} 題</p>
-                <div className="review-question-list">
-                  {retestQuestions.map(question => (
-                    <fieldset key={question.question_id} className="review-question">
-                      <legend>{question.question_text}</legend>
-                      <div className="review-options retest-options">
-                        {getQuestionOptions(question).map((option, index) => {
-                          const value = String.fromCharCode(65 + index);
-                          return (
-                            <label key={value}>
-                              <input
-                                type="radio"
-                                name={`retest-${question.question_id}`}
-                                value={value}
-                                disabled={retestSubmitting}
-                                checked={retestAnswers[question.question_id] === value}
-                                onChange={() => setRetestAnswers(current => ({
-                                  ...current,
-                                  [question.question_id]: value,
-                                }))}
-                              />
-                              <span>{value}. {String(option).replace(/^[A-Z][.、:)）]\s*/i, '')}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    </fieldset>
-                  ))}
-                </div>
-                <div className="question-editor-actions">
-                  <button type="button" className="question-save-button" onClick={submitRetest}
-                    disabled={resetting || retestSubmitting || answeredCount !== retestQuestions.length}>
-                    {retestSubmitting ? '送出中…' : '送出補充練習'}
-                  </button>
-                </div>
-              </div>
-            )}
-            {retestMessage && <p role="status" className="review-practice-feedback">{retestMessage}</p>}
-            {practiceMastery?.before != null && practiceMastery.after != null && (
-              <p role="status">
-                練習前掌握率 {formatPercent(practiceMastery.before, 2)} → 送出後 {formatPercent(practiceMastery.after, 2)}
-              </p>
-            )}
-            {error && (
-              <div role="alert">
-                <p>{error}</p>
-                <button type="button" className="question-secondary-button" onClick={() => setRefreshKey(key => key + 1)}>
-                  重新讀取複習進度
-                </button>
-              </div>
-            )}
-            {retestResults.length > 0 && (
-              <div className="review-question-list">
-                {retestResults.map(result => (
-                  <article key={result.question_id} className="review-question">
-                    <strong>{result.is_correct ? '答對' : '答錯'} · {result.question_text}</strong>
-                    <p>你的答案：{result.selected_answer} ／ 正確答案：{result.correct_answer}</p>
-                    {result.explanation && <p>{result.explanation}</p>}
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
 
-          <section className="review-grid">
+          <section className="review-grid review-grid-wide">
             <article className="review-panel review-personal-recommendations" aria-labelledby="personal-review-title">
               <div className="panel-title">
                 <div>
@@ -680,23 +599,6 @@ function ReviewMode() {
               )}
 
             </article>
-
-            <article className="review-panel">
-              <div className="panel-title">
-                <div>
-                  <h3>重點整理</h3>
-                  <p>把整門課的摘要合併成複習提示。</p>
-                </div>
-              </div>
-              <div className="review-summary-box">
-                <strong>{reviewData.summary_review?.suggestion}</strong>
-                {reviewData.summary_review?.summary ? (
-                  <p>{reviewData.summary_review.summary}</p>
-                ) : (
-                  <p>這門課目前還沒有摘要資料。</p>
-                )}
-              </div>
-            </article>
           </section>
 
           <section className="review-grid review-grid-wide">
@@ -736,6 +638,87 @@ function ReviewMode() {
               ) : (
                 <p className="review-success">{wrongQuestions.length ? '目前沒有待訂正的錯題。' : '目前沒有錯題紀錄。'}</p>
               )}
+              {(wrongQuestions.length > 0 || retestSession || retestResults.length > 0 || error) && (
+                <div className="review-practice-panel review-correction" aria-labelledby="review-correction-title">
+                  <div className="panel-title">
+                    <div>
+                      <h4 id="review-correction-title">訂正方式</h4>
+                      <p>先閱讀錯題與解析，再按「訂正補充練習」，每輪最多 10 題。</p>
+                      <p>答對原題或對應的延伸題後，該原題就會標為已訂正，並更新掌握率</p>
+                    </div>
+                    {assessment?.needs_retest && !retestSession && (
+                      <button type="button" className="question-save-button" onClick={startRetest} disabled={resetting || retestLoading || reviewLoading}>
+                        {retestLoading ? '準備中…' : '訂正補充練習'}
+                      </button>
+                    )}
+                  </div>
+                  {retestSession && (
+                    <div className="retest-panel">
+                      <p role="status">已作答 {answeredCount}／{retestQuestions.length} 題</p>
+                      <div className="review-question-list">
+                        {retestQuestions.map(question => (
+                          <fieldset key={question.question_id} className="review-question">
+                            <legend>{question.question_text}</legend>
+                            <div className="review-options retest-options">
+                              {getQuestionOptions(question).map((option, index) => {
+                                const value = String.fromCharCode(65 + index);
+                                return (
+                                  <label key={value}>
+                                    <input
+                                      type="radio"
+                                      name={`retest-${question.question_id}`}
+                                      value={value}
+                                      disabled={retestSubmitting}
+                                      checked={retestAnswers[question.question_id] === value}
+                                      onChange={() => setRetestAnswers(current => ({
+                                        ...current,
+                                        [question.question_id]: value,
+                                      }))}
+                                    />
+                                    <span>{value}. {String(option).replace(/^[A-Z][.、:)）]\s*/i, '')}</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </fieldset>
+                        ))}
+                      </div>
+                      <div className="question-editor-actions">
+                        <button type="button" className="question-save-button" onClick={submitRetest}
+                          disabled={resetting || retestSubmitting || answeredCount !== retestQuestions.length}>
+                          {retestSubmitting ? '送出中…' : '送出補充練習'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  {retestMessage && <p role="status" className="review-practice-feedback">{retestMessage}</p>}
+                  {practiceMastery?.before != null && practiceMastery.after != null && (
+                    <p role="status">
+                      練習前掌握率 {formatPercent(practiceMastery.before, 2)} → 送出後 {formatPercent(practiceMastery.after, 2)}
+                    </p>
+                  )}
+                  {error && (
+                    <div role="alert">
+                      <p>{error}</p>
+                      <button type="button" className="question-secondary-button" onClick={() => setRefreshKey(key => key + 1)}>
+                        重新讀取複習進度
+                      </button>
+                    </div>
+                  )}
+                  {retestResults.length > 0 && (
+                    <div className="review-question-list">
+                      {retestResults.map(result => (
+                        <article key={result.question_id} className="review-question">
+                          <strong>{result.is_correct ? '答對' : '答錯'} · {result.question_text}</strong>
+                          <p>你的答案：{result.selected_answer} ／ 正確答案：{result.correct_answer}</p>
+                          {result.explanation && <p>{result.explanation}</p>}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
             </article>
           </section>
         </>

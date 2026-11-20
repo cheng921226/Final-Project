@@ -6313,14 +6313,8 @@ a {
   }
 }
 
-.review-practice-panel .panel-title,
-.review-practice-actions {
+.review-practice-panel .panel-title {
   flex-wrap: wrap;
-}
-
-.review-practice-actions {
-  display: flex;
-  gap: 8px;
 }
 
 .review-practice-feedback {
@@ -6533,4 +6527,33 @@ a {
 
 .review-item-consolidate em {
   color: #237346;
+}
+
+
+.review-classroom-link {
+  display: inline-flex;
+  margin-top: 10px;
+}
+
+.review-correction {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.review-correction h4 {
+  margin: 0 0 8px;
+}
+
+.review-correction .panel-title > div {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.review-correction .panel-title p {
+  line-height: 1.8;
+}
+
+.review-correction .panel-title > button {
+  flex-shrink: 0;
 }
