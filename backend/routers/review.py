@@ -19,6 +19,8 @@ from .security import AuthContext, get_auth_context
 router = APIRouter()
 
 RETEST_MAX_QUESTIONS = 10
+CLASS_REVIEW_MIN_STUDENTS = 5
+CLASS_REVIEW_LIMIT = 3
 
 
 class RetestAnswer(BaseModel):
@@ -161,6 +163,94 @@ def get_course_review(
             "lecture_count": len(lectures),
         },
     )
+
+
+def class_review_recommendations(
+    questions: list[dict[str, Any]],
+    attempts: list[dict[str, Any]],
+    knowledge_points: list[dict[str, Any]],
+    enrolled_ids: set[int],
+) -> list[dict[str, Any]]:
+    point_map = rows_by_id(knowledge_points)
+    question_map = {
+        question["id"]: question for question in questions
+        if question.get("status") == "published"
+        and (question.get("question_type") or "original") == "original"
+        and question.get("knowledge_point_id") in point_map
+    }
+    first_attempts = {}
+    for attempt in attempts:
+        if (
+            attempt.get("student_id") not in enrolled_ids
+            or attempt.get("question_id") not in question_map
+            or (attempt.get("attempt_type") or "initial") != "initial"
+        ):
+            continue
+        key = (attempt["student_id"], attempt["question_id"])
+        previous = first_attempts.get(key)
+        if previous is None or (
+            str(attempt.get("answered_at") or ""), attempt.get("id") or 0
+        ) < (str(previous.get("answered_at") or ""), previous.get("id") or 0):
+            first_attempts[key] = attempt
+
+    grouped = {}
+    for attempt in first_attempts.values():
+        point_id = question_map[attempt["question_id"]]["knowledge_point_id"]
+        group = grouped.setdefault(point_id, {"students": set(), "answer_count": 0, "wrong_count": 0})
+        group["students"].add(attempt["student_id"])
+        group["answer_count"] += 1
+        group["wrong_count"] += not attempt.get("is_correct")
+
+    recommended = []
+    for point_id, group in grouped.items():
+        student_count = len(group["students"])
+        if student_count < CLASS_REVIEW_MIN_STUDENTS or not group["wrong_count"]:
+            continue
+        recommended.append({
+            **point_map[point_id],
+            "student_count": student_count,
+            "answer_count": group["answer_count"],
+            "wrong_count": group["wrong_count"],
+            "wrong_rate": group["wrong_count"] / group["answer_count"],
+        })
+    recommended.sort(key=lambda point: (-point["wrong_rate"], -point["student_count"], point["id"]))
+    return recommended[:CLASS_REVIEW_LIMIT]
+
+
+@router.get("/courses/{course_id}/review/class-recommendations")
+def get_class_review_recommendations(
+    course_id: int, context: AuthContext = Depends(get_auth_context),
+):
+    student_id = review_student_id(context)
+    _, lectures, lecture_ids = get_course_scope(course_id, student_id)
+    if not lecture_ids:
+        return {"recommended_knowledge_points": [], "minimum_students": CLASS_REVIEW_MIN_STUDENTS}
+    enrollments = fetch_all_by_id(
+        lambda: supabase_admin.table("student_courses").select("id,student_id").eq("course_id", course_id)
+    )
+    enrolled_ids = {row["student_id"] for row in enrollments}
+    questions = select_questions(lecture_ids)
+    points = fetch_all_by_id(
+        lambda: supabase_admin.table("knowledge_points")
+        .select("id,lecture_id,title,description,start_time,end_time")
+        .in_("lecture_id", lecture_ids)
+        .eq("is_active", True)
+    )
+    attempts = fetch_all_by_id(
+        lambda: supabase_admin.table("question_attempts")
+        .select("id,student_id,question_id,is_correct,answered_at,attempt_type")
+        .in_("lecture_id", lecture_ids)
+        .eq("attempt_type", "initial")
+    )
+    recommended = class_review_recommendations(questions, attempts, points, enrolled_ids)
+    lecture_map = rows_by_id(lectures)
+    return {
+        "minimum_students": CLASS_REVIEW_MIN_STUDENTS,
+        "recommended_knowledge_points": [
+            {**point, "lecture": lecture_map.get(point["lecture_id"])}
+            for point in recommended
+        ],
+    }
 
 
 @router.post("/courses/{course_id}/review/retest/start")
@@ -564,6 +654,7 @@ def build_review_payload(
 
     wrong_questions = []
     weak_counter: Counter[Any] = Counter()
+    recovered_counter: Counter[Any] = Counter()
     latest_retest_attempts = latest_attempts_by_question(context["retest_attempts"])
     for question in historical_wrong_questions:
         attempt = first_initial_attempts.get(question.get("id"))
@@ -571,8 +662,9 @@ def build_review_payload(
         correct_answer = normalize_answer(question.get("answer"))
         kp = kp_map.get(question.get("knowledge_point_id"))
         retest_mastered = question["id"] in context["mastered_question_ids"]
-        if kp and not retest_mastered:
-            weak_counter[kp.get("id")] += 1
+        if kp:
+            counter = recovered_counter if retest_mastered else weak_counter
+            counter[kp["id"]] += 1
         related_retest_attempts = [
             latest_retest_attempts.get(question.get("id")),
             *[
@@ -615,20 +707,24 @@ def build_review_payload(
                 **kp,
                 "lecture": lecture_map.get(kp.get("lecture_id")),
                 "priority": count,
-                "reason": f"這個知識點有 {count} 題待訂正。",
+                "review_status": "needs_reinforcement",
+                "reason": f"已作答但尚未掌握，有 {count} 題待訂正。",
             }
         )
 
-    if not recommended:
-        for kp in knowledge_points[:5]:
-            recommended.append(
-                {
-                    **kp,
-                    "lecture": lecture_map.get(kp.get("lecture_id")),
-                    "priority": 0,
-                    "reason": "課程主要知識點，可搭配小節內容複習。",
-                }
-            )
+    for kp_id, count in recovered_counter.most_common():
+        if kp_id in weak_counter:
+            continue
+        kp = kp_map[kp_id]
+        recommended.append(
+            {
+                **kp,
+                "lecture": lecture_map.get(kp.get("lecture_id")),
+                "priority": 0,
+                "review_status": "consolidate",
+                "reason": f"有 {count} 題首次答錯，後來已補練答對，可以再次鞏固。",
+            }
+        )
 
     summary_text = "\n\n".join(
         text for summary in summaries

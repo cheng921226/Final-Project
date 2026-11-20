@@ -148,7 +148,8 @@ test('updates mastery after practice and keeps the answer feedback visible', asy
   expect(screen.getByText('堆疊採後進先出。')).toBeInTheDocument();
   expect(screen.getByText('練習前掌握率 70% → 送出後 80%')).toBeInTheDocument();
   expect(screen.getByText('目前沒有待訂正的錯題。')).toBeInTheDocument();
-  fireEvent.change(screen.getByRole('combobox', { name: '顯示錯題' }), { target: { value: 'all' } });
+  fireEvent.click(screen.getByRole('button', { name: /^全部（/ }));
+  expect(screen.getByRole('button', { name: /^全部（/ })).toHaveAttribute('aria-pressed', 'true');
   expect(screen.getByText('補練後已掌握')).toBeInTheDocument();
 });
 
@@ -167,4 +168,66 @@ test('links a recommended knowledge point to its video start time', async () => 
   expect(await screen.findByRole('link', { name: '前往：後進先出' }))
     .toHaveAttribute('href', '/course/1/lecture/4?t=125');
   expect(screen.queryByRole('link', { name: '前往：無定位資訊' })).not.toBeInTheDocument();
+});
+
+test('limits personal recommendations to five and loads class recommendations only on demand', async () => {
+  let classAttempts = 0;
+  const points = Array.from({ length: 7 }, (_, index) => ({
+    id: index + 1, lecture_id: 4, title: `個人概念 ${index + 1}`, start_time: index * 10,
+    review_status: index < 4 ? 'needs_reinforcement' : 'consolidate',
+  }));
+  renderReview(async url => {
+    if (url.endsWith('/courses')) return response(courses);
+    if (url.endsWith('/name')) return response({});
+    if (url.endsWith('/class-recommendations')) {
+      if (++classAttempts === 1) {
+        return { ok: false, json: async () => ({ detail: '暫時無法取得全班資料' }) };
+      }
+      return response({
+        minimum_students: 5,
+        recommended_knowledge_points: [{
+          id: 9, lecture_id: 4, start_time: 120, title: '全班概念',
+          student_count: 20, answer_count: 25, wrong_count: 15, wrong_rate: 0.6,
+        }],
+      });
+    }
+    return response({ recommended_knowledge_points: points });
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '資料結構' }));
+  await screen.findByText('個人概念 5');
+  expect(screen.queryByText('個人概念 6')).not.toBeInTheDocument();
+  expect(classAttempts).toBe(0);
+  fireEvent.click(screen.getByRole('button', { name: '顯示全部（7 個）' }));
+  expect(screen.getByText('個人概念 7')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '收合個人推薦' }));
+  expect(screen.queryByText('個人概念 6')).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole('button', { name: '看看全班易錯重點 →' }));
+  expect(await screen.findByText('暫時無法取得全班資料')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: '重新載入全班易錯重點' }));
+  expect(await screen.findByText('全班概念')).toBeInTheDocument();
+  expect(screen.getByText('20 人作答，首次答題共 25 題次，其中 15 題次答錯（60%）。')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '前往：全班概念' })).toHaveAttribute('href', '/course/1/lecture/4?t=120');
+  fireEvent.click(screen.getByRole('button', { name: '收合全班易錯重點' }));
+  expect(screen.queryByText('全班概念')).not.toBeInTheDocument();
+  expect(screen.getByText('個人概念 1')).toBeInTheDocument();
+});
+
+test('ignores late class recommendations when selecting a different course', async () => {
+  let finishClassRequest;
+  renderReview(async url => {
+    if (url.endsWith('/courses')) return response(courses);
+    if (url.endsWith('/name')) return response({});
+    if (url.endsWith('/class-recommendations')) return new Promise(resolve => { finishClassRequest = resolve; });
+    return response({ recommended_knowledge_points: [] });
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '資料結構' }));
+  fireEvent.click(await screen.findByRole('button', { name: '看看全班易錯重點 →' }));
+  fireEvent.click(screen.getByRole('button', { name: '更換課程' }));
+  fireEvent.click(screen.getByRole('button', { name: '演算法' }));
+  await screen.findByRole('button', { name: '看看全班易錯重點 →' });
+  await act(async () => {
+    finishClassRequest(response({ recommended_knowledge_points: [{ id: 99, title: '上一門課的資料' }] }));
+  });
+  expect(screen.queryByText('上一門課的資料')).not.toBeInTheDocument();
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -43,6 +43,84 @@ function lectureTitle(lecture) {
   return lecture?.title || lecture?.course_name || '未命名小節';
 }
 
+function ReviewKnowledgePoint({ point, courseId }) {
+  return (
+    <div className={`review-item${point.review_status ? ` review-item-${point.review_status}` : ''}`}>
+      <small>
+        {point.review_status === 'needs_reinforcement' ? '優先複習 · '
+          : point.review_status === 'consolidate' ? '再次鞏固 · ' : ''}
+        {lectureTitle(point.lecture)}
+      </small>
+      <div className="review-item-heading">
+        <strong>{point.title}</strong>
+        {point.lecture_id != null && point.start_time != null
+        && point.start_time !== '' && Number.isFinite(Number(point.start_time))
+        && Number(point.start_time) >= 0 && (
+          <Link
+            className="review-watch-segment fx-34"
+            to={`/course/${courseId}/lecture/${point.lecture_id}?t=${Number(point.start_time)}`}
+            aria-label={`前往：${point.title}`}
+          >
+            <span className="btn-label">前往</span>
+          </Link>
+        )}
+      </div>
+      <p>{point.description}</p>
+      <em>{point.reason}</em>
+    </div>
+  );
+}
+
+
+function GlidingTabs({ tabs, value, onChange }) {
+  const railRef = useRef(null);
+  const buttonRefs = useRef([]);
+  const [pillStyle, setPillStyle] = useState(null);
+
+  useLayoutEffect(() => {
+    function measureActiveButton() {
+      const activeIndex = tabs.findIndex(tab => tab.value === value);
+      const button = buttonRefs.current[activeIndex];
+      if (!button) return;
+      const left = button.offsetLeft;
+      const width = button.offsetWidth;
+      setPillStyle(current => current?.left === left && current?.width === width
+        ? current : { left, width });
+    }
+
+    measureActiveButton();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null : new ResizeObserver(measureActiveButton);
+    if (railRef.current) observer?.observe(railRef.current);
+    buttonRefs.current.forEach(button => {
+      if (button) observer?.observe(button);
+    });
+    window.addEventListener('resize', measureActiveButton);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measureActiveButton);
+    };
+  }, [tabs, value]);
+
+  return (
+    <div ref={railRef} className="review-filter-rail" role="group" aria-label="顯示錯題">
+      <span className="review-filter-pill" aria-hidden="true"
+        style={pillStyle || { visibility: 'hidden' }} />
+      {tabs.map((tab, index) => (
+        <button
+          key={tab.value}
+          ref={button => { buttonRefs.current[index] = button; }}
+          type="button"
+          aria-pressed={value === tab.value}
+          onClick={() => onChange(tab.value)}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function ReviewMode() {
   const [searchParams] = useSearchParams();
   const requestedCourseId = searchParams.get('course') || '';
@@ -66,6 +144,12 @@ function ReviewMode() {
   const [retestResults, setRetestResults] = useState([]);
   const [practiceMastery, setPracticeMastery] = useState(null);
   const [wrongFilter, setWrongFilter] = useState('pending');
+  const [showAllRecommendations, setShowAllRecommendations] = useState(false);
+  const [showClassRecommendations, setShowClassRecommendations] = useState(false);
+  const [classReviewData, setClassReviewData] = useState(null);
+  const [classReviewLoading, setClassReviewLoading] = useState(false);
+  const [classReviewError, setClassReviewError] = useState('');
+  const [classReviewRetry, setClassReviewRetry] = useState(0);
   const headingRef = useRef(null);
 
   useEffect(() => {
@@ -162,6 +246,31 @@ function ReviewMode() {
     return () => controller.abort();
   }, [courseId, token, refreshKey]);
 
+  useEffect(() => {
+    if (!showClassRecommendations || !courseId || !token) return;
+    const controller = new AbortController();
+    setClassReviewLoading(true);
+    setClassReviewData(null);
+    setClassReviewError('');
+    async function loadClassRecommendations() {
+      try {
+        const response = await fetch(`${API_URL}/courses/${courseId}/review/class-recommendations`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(typeof data.detail === 'string' ? data.detail : '無法載入全班易錯重點');
+        if (!controller.signal.aborted) setClassReviewData(data);
+      } catch (error) {
+        if (!controller.signal.aborted) setClassReviewError(error.message || '無法載入全班易錯重點');
+      } finally {
+        if (!controller.signal.aborted) setClassReviewLoading(false);
+      }
+    }
+    loadClassRecommendations();
+    return () => controller.abort();
+  }, [showClassRecommendations, courseId, token, classReviewRetry]);
+
   const selectedCourse = useMemo(
     () => courses.find(course => String(course.id) === String(courseId)),
     [courses, courseId]
@@ -174,6 +283,12 @@ function ReviewMode() {
   const pendingWrong = wrongQuestions.filter(item => item.retest_status !== 'mastered');
   const visibleWrong = wrongFilter === 'pending' ? pendingWrong : wrongQuestions;
   const answeredCount = Object.keys(retestAnswers).length;
+  const recommendations = [...(reviewData?.recommended_knowledge_points || [])].sort(
+    (left, right) => Number(left.review_status === 'consolidate') - Number(right.review_status === 'consolidate')
+  );
+  const visibleRecommendations = showAllRecommendations ? recommendations : recommendations.slice(0, 5);
+  const reinforcementCount = recommendations.filter(point => point.review_status === 'needs_reinforcement').length;
+  const consolidationCount = recommendations.filter(point => point.review_status === 'consolidate').length;
 
   function clearRetest() {
     setRetestSession(null);
@@ -192,6 +307,10 @@ function ReviewMode() {
     setRetestResults([]);
     setPracticeMastery(null);
     setWrongFilter('pending');
+    setShowAllRecommendations(false);
+    setShowClassRecommendations(false);
+    setClassReviewData(null);
+    setClassReviewError('');
     headingRef.current?.focus();
   }
 
@@ -490,41 +609,76 @@ function ReviewMode() {
           </section>
 
           <section className="review-grid">
-            <article className="review-panel">
+            <article className="review-panel review-personal-recommendations" aria-labelledby="personal-review-title">
               <div className="panel-title">
                 <div>
-                  <h3>推薦複習知識點</h3>
-                  <p>優先看錯題相關概念，沒有錯題時會列出課程主要知識點。</p>
+                  <h3 id="personal-review-title">個人推薦複習清單</h3>
+                  <p>{reinforcementCount > 0
+                    ? `依你的作答紀錄，先複習 ${reinforcementCount} 個待加強的概念${consolidationCount ? `，再回顧 ${consolidationCount} 個已訂正的概念。` : '。'}`
+                    : consolidationCount > 0
+                      ? `你已訂正先前的錯題，這 ${consolidationCount} 個概念可以再複習一次，加深印象。`
+                      : '完成課堂練習後，這裡會依你的作答紀錄整理複習方向。'}</p>
                 </div>
+                <button
+                  type="button"
+                  className="question-secondary-button compact"
+                  aria-expanded={showClassRecommendations}
+                  aria-controls="class-review-recommendations"
+                  onClick={() => setShowClassRecommendations(current => !current)}
+                >
+                  {showClassRecommendations ? '收合全班易錯重點' : '看看全班易錯重點 →'}
+                </button>
               </div>
 
-              {(reviewData.recommended_knowledge_points || []).length === 0 ? (
-                <p className="teacher-empty compact">目前沒有可推薦的知識點。</p>
+              {recommendations.length === 0 ? (
+                <p className="teacher-empty compact">你目前沒有待加強的知識點，可以繼續完成課堂題目，或看看全班易錯重點。</p>
               ) : (
                 <div className="review-list">
-                  {reviewData.recommended_knowledge_points.map(point => (
-                    <div key={`${point.lecture_id}-${point.id}`} className="review-item">
-                      <small>{lectureTitle(point.lecture)}</small>
-                      <div className="review-item-heading">
-                        <strong>{point.title}</strong>
-                        {point.lecture_id != null && point.start_time != null
-                        && point.start_time !== '' && Number.isFinite(Number(point.start_time))
-                        && Number(point.start_time) >= 0 && (
-                          <Link
-                            className="review-watch-segment fx-34"
-                            to={`/course/${courseId}/lecture/${point.lecture_id}?t=${Number(point.start_time)}`}
-                            aria-label={`前往：${point.title}`}
-                          >
-                            <span className="btn-label">前往</span>
-                          </Link>
-                        )}
-                      </div>
-                      <p>{point.description}</p>
-                      <em>{point.reason}</em>
-                    </div>
+                  {visibleRecommendations.map(point => (
+                    <ReviewKnowledgePoint key={`${point.lecture_id}-${point.id}`} point={point} courseId={courseId} />
                   ))}
                 </div>
               )}
+              {recommendations.length > 5 && (
+                <button
+                  type="button"
+                  className="question-secondary-button compact review-more-recommendations"
+                  aria-expanded={showAllRecommendations}
+                  onClick={() => setShowAllRecommendations(current => !current)}
+                >
+                  {showAllRecommendations ? '收合個人推薦' : `顯示全部（${recommendations.length} 個）`}
+                </button>
+              )}
+              {showClassRecommendations && (
+                <section id="class-review-recommendations" className="review-class-recommendations" aria-labelledby="class-review-title">
+                  <h4 id="class-review-title">全班易錯重點</h4>
+                  <p>依本課程修課學生的原題首次作答統計，至少 {classReviewData?.minimum_students ?? 5} 人作答才列入，顯示錯誤率最高的前 3 個知識點。</p>
+                  {classReviewLoading ? (
+                    <p role="status">正在整理全班易錯重點…</p>
+                  ) : classReviewError ? (
+                    <div role="alert">
+                      <p>{classReviewError}</p>
+                      <button type="button" className="question-secondary-button compact" onClick={() => setClassReviewRetry(current => current + 1)}>重新載入全班易錯重點</button>
+                    </div>
+                  ) : classReviewData && (
+                    classReviewData.recommended_knowledge_points?.length ? (
+                      <div className="review-list">
+                        {classReviewData.recommended_knowledge_points.map(point => (
+                          <ReviewKnowledgePoint
+                            key={point.id}
+                            courseId={courseId}
+                            point={{
+                              ...point,
+                              reason: `${point.student_count} 人作答，首次答題共 ${point.answer_count} 題次，其中 ${point.wrong_count} 題次答錯（${formatPercent(point.wrong_rate, 2)}）。`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ) : <p>目前沒有符合人數門檻且有首次答錯紀錄的知識點。</p>
+                  )}
+                </section>
+              )}
+
             </article>
 
             <article className="review-panel">
@@ -551,24 +705,25 @@ function ReviewMode() {
                 <div>
                   <h3>錯題回顧</h3>
                 </div>
-                <label className="review-field">
-                  <span>顯示錯題</span>
-                  <select value={wrongFilter} onChange={event => setWrongFilter(event.target.value)}>
-                    <option value="pending">待訂正（{pendingWrong.length}）</option>
-                    <option value="all">全部（{wrongQuestions.length}）</option>
-                  </select>
-                </label>
+                <GlidingTabs
+                  value={wrongFilter}
+                  onChange={setWrongFilter}
+                  tabs={[
+                    { value: 'pending', label: `未訂正（${pendingWrong.length}）` },
+                    { value: 'all', label: `全部（${wrongQuestions.length}）` },
+                  ]}
+                />
               </div>
 
               {visibleWrong.length ? (
                 <div className="review-question-list">
                   {visibleWrong.map(item => (
-                    <div key={item.question_id} className="review-question wrong">
+                    <div key={item.question_id} className={`review-question wrong${item.retest_status === 'mastered' ? ' is-mastered' : ''}`}>
                       <div>
                         <small>{lectureTitle(item.lecture)} {formatTime(item.source_timestamp) && `· ${formatTime(item.source_timestamp)}`}</small>
                         <strong>{item.question_text}</strong>
                         <p>首次作答：{item.selected_answer || '未記錄'} ／ 正確答案：{item.correct_answer || '未記錄'}</p>
-                        {item.retest_status === 'mastered' && <p>補練後已掌握</p>}
+                        {item.retest_status === 'mastered' && <p className="review-mastered-status">補練後已掌握</p>}
                         {item.retest_status === 'needs_reinforcement' && <p>補練後仍需加強</p>}
                         {item.explanation && <p>{item.explanation}</p>}
                       </div>

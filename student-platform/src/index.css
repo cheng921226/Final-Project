@@ -3065,6 +3065,17 @@ a {
   font-weight: 800;
 }
 
+.review-question.wrong.is-mastered {
+  border-color: #b8dfc9;
+  background: #effaf3;
+}
+
+.review-question.wrong.is-mastered p:first-of-type,
+.review-question.is-mastered .review-mastered-status {
+  color: #237346;
+  font-weight: 800;
+}
+
 .review-question a {
   align-self: start;
   padding: 7px 10px;
@@ -6416,4 +6427,110 @@ a {
 
 .review-loading p {
   margin: 0;
+}
+
+
+.review-more-recommendations {
+  margin-top: 12px;
+}
+
+.review-class-recommendations {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+.review-class-recommendations h4 {
+  margin: 0;
+}
+
+.review-class-recommendations > p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+
+.review-filter-rail {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px;
+  border-radius: 999px;
+  background: #eee9eb;
+}
+
+.review-filter-pill {
+  position: absolute;
+  z-index: 0;
+  top: 4px;
+  bottom: 4px;
+  border-radius: inherit;
+  background: #fff;
+  box-shadow: 0 2px 6px #39202a12;
+  transition: left .4s cubic-bezier(.65, 0, .35, 1),
+              width .4s cubic-bezier(.65, 0, .35, 1);
+  pointer-events: none;
+}
+
+.review-filter-rail button {
+  position: relative;
+  z-index: 1;
+  flex: 0 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.review-filter-rail button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-filter-pill {
+    transition: none;
+  }
+}
+
+
+.review-personal-recommendations > .panel-title {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.review-personal-recommendations > .panel-title > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+
+.review-personal-recommendations > .panel-title p {
+  line-height: 1.7;
+}
+
+.review-item-needs_reinforcement {
+  border-left: 3px solid var(--primary);
+}
+
+.review-item-consolidate {
+  border-left: 3px solid #37825b;
+  background: #f3faf5;
+}
+
+.review-item-consolidate em {
+  color: #237346;
 }
