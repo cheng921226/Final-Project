@@ -124,6 +124,7 @@ test('students see only their enrolled published courses without status or analy
   expect(screen.queryByRole('heading', { name: '其他教師已發布課程' })).not.toBeInTheDocument();
   expect(screen.queryByText('已發布')).not.toBeInTheDocument();
   expect(screen.queryByRole('link', { name: '課程分析' })).not.toBeInTheDocument();
+  expect(screen.getByRole('link', { name: '複習中心' })).toHaveAttribute('href', '/review?course=12');
   expect(global.fetch).toHaveBeenCalledTimes(2);
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/courses',

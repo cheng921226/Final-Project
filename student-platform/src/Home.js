@@ -173,6 +173,9 @@ function HomeCourseCatalog({ token, user, waitingForUser, cacheKey }) {
                           ? <Link className="course-card-main" to={`/course/${course.id}`}>{cardContent}</Link>
                           : <div className="course-card-main">{cardContent}</div>}
                         <div className="course-card-footer">
+                          {user?.role === 'student' && canOpen && (
+                            <Link className="course-review-link" to={`/review?course=${encodeURIComponent(course.id)}`}>複習中心</Link>
+                          )}
                           {view === 'mine' && canViewStatus && <span className={`status-pill status-${course.status}`}>{STATUS_LABELS[course.status] || course.status}</span>}
                           {course.canAnalyze && <Link className="course-analysis-link" to={`/teacher?course=${encodeURIComponent(course.id)}`}>課程分析</Link>}
                           {canOpen

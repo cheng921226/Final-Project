@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 const API_URL = 'http://127.0.0.1:8000';
 
@@ -44,6 +44,8 @@ function lectureTitle(lecture) {
 }
 
 function ReviewMode() {
+  const [searchParams] = useSearchParams();
+  const requestedCourseId = searchParams.get('course') || '';
   const token = localStorage.getItem('access_token');
   const [courses, setCourses] = useState([]);
   const [courseId, setCourseId] = useState('');
@@ -79,7 +81,9 @@ function ReviewMode() {
         if (!res.ok) throw new Error('無法取得課程清單');
         const data = await res.json();
         if (!controller.signal.aborted) {
-          setCourses(Array.isArray(data) ? data : []);
+          const availableCourses = Array.isArray(data) ? data : [];
+          setCourses(availableCourses);
+          setCourseId(availableCourses.some(course => String(course.id) === requestedCourseId) ? requestedCourseId : '');
         }
       } catch (err) {
         if (!controller.signal.aborted) setError(err.message || '課程清單載入失敗');
@@ -90,7 +94,7 @@ function ReviewMode() {
 
     fetchCourses();
     return () => controller.abort();
-  }, [token]);
+  }, [requestedCourseId, token]);
 
   useEffect(() => {
     async function fetchUserProfile() {
@@ -123,7 +127,7 @@ function ReviewMode() {
     async function fetchReview() {
       if (!token) {
         setReviewData(null);
-        setError('請先登入，系統才能根據你的作答紀錄產生複習模式。');
+        setError('請先登入，系統才能根據你的作答紀錄開啟複習中心。');
         return;
       }
 
@@ -295,8 +299,8 @@ function ReviewMode() {
       <header className="review-hero">
         <div>
           <Link to="/" className="back-link">← 返回首頁</Link>
-          <p className="eyebrow">Review mode</p>
-          <h1 ref={headingRef} tabIndex={-1}>個人化課程複習</h1>
+          <p className="eyebrow">Review center</p>
+          <h1 ref={headingRef} tabIndex={-1}>複習中心</h1>
           <p>依照你在整門課的錯題、作答紀錄與課程內容，整理推薦知識點、錯題回顧與重新測驗。</p>
         </div>
 
@@ -326,7 +330,10 @@ function ReviewMode() {
       </header>
 
       {courseLoading ? (
-        <div className="empty-card">正在載入課程清單...</div>
+        <div className="empty-card review-loading" role="status">
+          <div className="ld-flip" aria-hidden="true" />
+          <p>正在載入課程清單...</p>
+        </div>
       ) : error && !reviewData ? (
         <div className="empty-card" role="alert">
           {error}
@@ -364,7 +371,10 @@ function ReviewMode() {
           )}
         </section>
       ) : reviewLoading && !reviewData ? (
-        <div className="empty-card">正在整理 {courseTitle} 的複習內容...</div>
+        <div className="empty-card review-loading" role="status">
+          <div className="ld-flip" aria-hidden="true" />
+          <p>正在整理 {courseTitle} 的複習內容...</p>
+        </div>
       ) : !reviewData ? (
         <div className="empty-card">尚無複習資料</div>
       ) : (

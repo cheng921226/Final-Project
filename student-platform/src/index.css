@@ -6403,3 +6403,17 @@ a {
     transition-delay: 0ms !important;
   }
 }
+
+
+.review-loading {
+  display: flex;
+  min-height: 240px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+}
+
+.review-loading p {
+  margin: 0;
+}

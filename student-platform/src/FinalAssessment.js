@@ -217,7 +217,7 @@ export default function FinalAssessment() {
           <p>上次成績 {data.latest_attempt?.score ?? 0} 分，通過標準 {data.settings.passing_score} 分。</p>
           <strong>{formatCountdown(remaining)}</strong>
           <p>重新測驗開放時間：{formatDateTime(data.retry_available_at)}</p>
-          <p>等待期間仍可觀看影片、使用複習模式及回顧知識點。</p>
+          <p>等待期間仍可觀看影片、使用複習中心及回顧知識點。</p>
           {remaining === 0 && <button className="question-save-button" type="button" onClick={loadStatus}>重新確認資格</button>}
         </section>
       )}

@@ -8,10 +8,10 @@ const courses = [
   { id: 2, course_name: '演算法', teacher_name: '王老師' },
 ];
 
-function renderReview(mockFetch) {
+function renderReview(mockFetch, path = '/review') {
   localStorage.setItem('access_token', 'student-token');
   global.fetch = jest.fn(mockFetch);
-  return render(<MemoryRouter><ReviewMode /></MemoryRouter>);
+  return render(<MemoryRouter initialEntries={[path]}><ReviewMode /></MemoryRouter>);
 }
 
 function response(data) {
@@ -52,6 +52,20 @@ test('waits for a course card selection and can return to the course cards', asy
   expect(screen.getByRole('heading', { name: '選擇課程' })).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '資料結構' })).toBeInTheDocument();
   expect(screen.queryByText('6／10 題已掌握')).not.toBeInTheDocument();
+});
+
+test('opens the course specified by a homepage review link', async () => {
+  renderReview(async url => {
+    if (url.endsWith('/courses')) return response(courses);
+    if (url.endsWith('/name')) return response({});
+    return response({ stats: { question_count: 10 } });
+  }, '/review?course=2');
+
+  expect(await screen.findByRole('heading', { name: '演算法' })).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(
+    expect.stringMatching(/\/courses\/2\/review$/),
+    expect.any(Object),
+  );
 });
 
 test('ignores a late review response after switching courses', async () => {

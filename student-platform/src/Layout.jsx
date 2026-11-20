@@ -246,7 +246,7 @@ export default function Layout({ token, setToken }) {
                         <>
                             {user.role === 'student' && (
                                 <>
-                                    <Link to="/review" className="review-nav-link" aria-current={location.pathname === '/review' ? 'page' : undefined}>複習模式</Link>
+                                    <Link to="/review" className="review-nav-link" aria-current={location.pathname === '/review' ? 'page' : undefined}>複習中心</Link>
                                     <Link to="/achievements" className="review-nav-link" aria-current={location.pathname === '/achievements' ? 'page' : undefined}>學習成就</Link>
                                 </>
                             )}

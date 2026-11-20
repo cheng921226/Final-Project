@@ -241,6 +241,19 @@ select option,
 }
 .home-catalog-switch button:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 .course-enrollment-label { color: var(--muted); font-size: 12px; }
+.course-review-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid #ead3db;
+  border-radius: 7px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 600;
+}
+.course-review-link:hover { background: #f1dfe5; }
 .lecture-status-stack {
   display: grid;
   justify-items: end;
