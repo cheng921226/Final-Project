@@ -220,7 +220,11 @@ async function saveProgress(lectureId, lastPosition, watchedSeconds, totalDurati
 
 function LectureDetail() {
   const { id, lectureId } = useParams();
-  const { hash } = useLocation();
+  const { hash, search } = useLocation();
+  const requestedTime = new URLSearchParams(search).get('t');
+  const requestedStart = requestedTime !== null && requestedTime.trim() !== ''
+    && Number.isFinite(Number(requestedTime)) && Number(requestedTime) >= 0
+    ? Number(requestedTime) : null;
   const token = localStorage.getItem('access_token');
   const cacheKey = `${lectureId}:${token || 'anonymous'}`;
   const invalidateLectureDetailCache = () => lectureDetailCache.delete(cacheKey);
@@ -1083,7 +1087,7 @@ function LectureDetail() {
             }
             totalDurationRef.current = event.target.getDuration();
 
-            const switchedPosition = switchPositionRef.current;
+            const switchedPosition = switchPositionRef.current ?? requestedStart;
             if (Number.isFinite(switchedPosition)) {
               const bounded = Math.min(switchedPosition, totalDurationRef.current || switchedPosition);
               ignoreSeekUntilRef.current = Date.now() + 3000;
@@ -1258,7 +1262,7 @@ function LectureDetail() {
       playerRef.current = null;
       youtubeContainer.replaceChildren();
     };
-  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, markVideoEnded, schedulePauseHelp]);
+  }, [videoId, lectureId, token, playerMode, maybeShowTimedQuestion, getPlayerCurrentTime, cancelPauseHelp, markVideoEnded, requestedStart, schedulePauseHelp]);
 
   // HTML5 adapter：供備份影片與本機上傳影片共用。
   useEffect(() => {
@@ -1305,7 +1309,7 @@ function LectureDetail() {
     const onLoadedMetadata = async () => {
       playerReadyRef.current = true;
       totalDurationRef.current = video.duration || totalDurationRef.current;
-      let resumeAt = switchPositionRef.current;
+      let resumeAt = switchPositionRef.current ?? requestedStart;
       if (!Number.isFinite(resumeAt) && token) {
         try {
           const response = await fetch(`${API_URL}/video_progresses/${lectureId}`, {
@@ -1315,7 +1319,7 @@ function LectureDetail() {
         } catch (e) { }
       }
       if (savedPositionReachedEnd(resumeAt, totalDurationRef.current)) markVideoEnded();
-      if (Number.isFinite(Number(resumeAt)) && Number(resumeAt) > 0) {
+      if (Number.isFinite(resumeAt) && resumeAt >= 0) {
         video.currentTime = Math.min(Number(resumeAt), video.duration || Number(resumeAt));
         lastObservedTimeRef.current = video.currentTime;
         lastObservedAtRef.current = Date.now();
@@ -1412,7 +1416,7 @@ function LectureDetail() {
       if (playerRef.current === adapter) playerRef.current = null;
       playerReadyRef.current = false;
     };
-  }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, markVideoEnded, schedulePauseHelp]);
+  }, [playerMode, backupInfo?.playback_url, mediaInfo?.playback_url, lectureId, token, maybeShowTimedQuestion, cancelPauseHelp, markVideoEnded, requestedStart, schedulePauseHelp]);
 
   useEffect(() => {
     const feed = chatFeedRef.current;

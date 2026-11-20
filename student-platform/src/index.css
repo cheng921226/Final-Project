@@ -6326,3 +6326,80 @@ a {
   padding: 0 5px;
   font-weight: 700;
 }
+
+
+.review-item-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.review-item-heading strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.review-watch-segment {
+  --primary: #f4ff2b;
+  --secondary: #0f191e;
+  --surface: #e2f1f2;
+  --bink: var(--secondary);
+  --bsurf: var(--surface);
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  flex-shrink: 0;
+  margin: 0;
+  padding: 3px 9px;
+  border: 1px solid var(--bink);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--bink);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  font-weight: 600;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: background .3s ease;
+}
+
+.review-watch-segment .btn-label {
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  transition: inherit;
+}
+
+.review-watch-segment.fx-34 .btn-label::after {
+  content: " →";
+  display: inline-block;
+  transition: transform .3s ease;
+}
+
+.review-watch-segment.fx-34:is(:hover, :focus-visible, [data-preview]) .btn-label::after {
+  transform: translateX(3px);
+}
+
+.review-watch-segment.fx-34:is(:hover, :focus-visible, [data-preview]) {
+  background: color-mix(in srgb, var(--primary) 16%, var(--bsurf));
+}
+
+.review-watch-segment:focus-visible {
+  outline: 2px solid var(--bink);
+  outline-offset: 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-watch-segment,
+  .review-watch-segment *,
+  .review-watch-segment *::after {
+    transition-duration: .01ms !important;
+    transition-delay: 0ms !important;
+  }
+}

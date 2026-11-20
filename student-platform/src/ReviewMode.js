@@ -495,7 +495,20 @@ function ReviewMode() {
                   {reviewData.recommended_knowledge_points.map(point => (
                     <div key={`${point.lecture_id}-${point.id}`} className="review-item">
                       <small>{lectureTitle(point.lecture)}</small>
-                      <strong>{point.title}</strong>
+                      <div className="review-item-heading">
+                        <strong>{point.title}</strong>
+                        {point.lecture_id != null && point.start_time != null
+                        && point.start_time !== '' && Number.isFinite(Number(point.start_time))
+                        && Number(point.start_time) >= 0 && (
+                          <Link
+                            className="review-watch-segment fx-34"
+                            to={`/course/${courseId}/lecture/${point.lecture_id}?t=${Number(point.start_time)}`}
+                            aria-label={`前往：${point.title}`}
+                          >
+                            <span className="btn-label">前往</span>
+                          </Link>
+                        )}
+                      </div>
                       <p>{point.description}</p>
                       <em>{point.reason}</em>
                     </div>

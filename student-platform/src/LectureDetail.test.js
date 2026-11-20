@@ -347,3 +347,23 @@ test('shows the end-of-video practice entry when an uploaded video ends', async 
   expect(screen.getByText('片尾練習題')).toBeInTheDocument();
   expect(screen.getByRole('button', { name: '前往片尾練習（1 題）' })).toBeInTheDocument();
 });
+
+test.each([0, 125])('opens a review segment at %s seconds instead of the saved resume point', async timestamp => {
+  localStorage.setItem('access_token', 'segment-link-token');
+  const responses = {
+    '/lectures/2': [{ media_source: 'upload' }],
+    '/lectures/2/media': { playback_url: '/lecture.mp4' },
+    '/lectures/2/chats': { messages: [] },
+    '/video_progresses/2': { last_position: 250, watched_seconds: 30, completed: false },
+  };
+  global.fetch = jest.fn(async url => ({
+    ok: true,
+    json: async () => responses[new URL(url).pathname] ?? [],
+  }));
+  const { container } = renderLectureDetail(`/course/1/lecture/2?t=${timestamp}`);
+  await screen.findByText(/儘管發問吧/);
+  const video = container.querySelector('video');
+  Object.defineProperty(video, 'duration', { configurable: true, value: 300 });
+  fireEvent.loadedMetadata(video);
+  await waitFor(() => expect(video.currentTime).toBe(timestamp));
+});

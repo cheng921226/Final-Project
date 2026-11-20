@@ -137,3 +137,20 @@ test('updates mastery after practice and keeps the answer feedback visible', asy
   fireEvent.change(screen.getByRole('combobox', { name: '顯示錯題' }), { target: { value: 'all' } });
   expect(screen.getByText('補練後已掌握')).toBeInTheDocument();
 });
+
+test('links a recommended knowledge point to its video start time', async () => {
+  renderReview(async url => {
+    if (url.endsWith('/courses')) return response(courses);
+    if (url.endsWith('/name')) return response({});
+    return response({
+      recommended_knowledge_points: [
+        { id: 1, lecture_id: 4, title: '後進先出', start_time: 125 },
+        { id: 2, lecture_id: 4, title: '無定位資訊', start_time: null },
+      ],
+    });
+  });
+  fireEvent.click(await screen.findByRole('button', { name: '資料結構' }));
+  expect(await screen.findByRole('link', { name: '前往：後進先出' }))
+    .toHaveAttribute('href', '/course/1/lecture/4?t=125');
+  expect(screen.queryByRole('link', { name: '前往：無定位資訊' })).not.toBeInTheDocument();
+});
