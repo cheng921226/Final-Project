@@ -2675,7 +2675,7 @@ a {
   padding: 4px;
   border: 1px solid var(--line, #e0e3ed);
   border-radius: 10px;
-  background: var(--canvas);
+  background: #fefbf9;
 }
 
 .course-status-tabs .course-status-indicator {
