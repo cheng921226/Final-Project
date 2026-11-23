@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CreditSettingsForm } from './CreditSettings';
+import ReorderableLectureList from './ReorderableLectureList';
 import { managementFetch as fetch } from './managementDataCache';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -528,22 +529,30 @@ export default function CourseManagement() {
     }
   }
 
-  async function moveLecture(index, direction) {
-    const lectures = [...(selectedCourse?.lectures || [])];
-    const target = index + direction;
-    if (target < 0 || target >= lectures.length || busyKey) return;
-    [lectures[index], lectures[target]] = [lectures[target], lectures[index]];
+  async function reorderLectures(lectureIds) {
+    if (!selectedCourse || busyKey) return;
+    const originalIds = selectedCourse.lectures.map(item => item.id);
+    const selectedId = selectedCourse.id;
+    function applyOrder(ids) {
+      setData(current => ({ ...current, courses: current.courses.map(course => {
+        if (course.id !== selectedId) return course;
+        const byId = new Map(course.lectures.map(lecture => [lecture.id, lecture]));
+        return { ...course, lectures: ids.map(id => byId.get(id)).filter(Boolean) };
+      }) }));
+    }
+    applyOrder(lectureIds);
     setBusyKey('order');
     try {
-      const response = await fetch(`${API_URL}/teacher/course-management/courses/${selectedCourse.id}/lecture-order`, {
+      const response = await fetch(`${API_URL}/teacher/course-management/courses/${selectedId}/lecture-order`, {
         method: 'PUT',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lecture_ids: lectures.map(item => item.id) }),
+        body: JSON.stringify({ lecture_ids: lectureIds }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.detail || '排序更新失敗');
-      await load(selectedCourse.id);
+      setMessage('小節順序已儲存。');
     } catch (err) {
+      applyOrder(originalIds);
       setMessage(err.message || '排序更新失敗');
     } finally {
       setBusyKey('');
@@ -851,8 +860,9 @@ export default function CourseManagement() {
             </div>
             <span className="table-count">{selectedCourse.lectures?.length || 0} 個小節</span>
           </div>
-          <div className="managed-lecture-list">
-            {(selectedCourse.lectures || []).map((lecture, index) => {
+          <ReorderableLectureList key={selectedCourse.id} items={selectedCourse.lectures || []}
+            disabled={Boolean(busyKey)} onReorder={reorderLectures}>
+            {(lecture, index, dragHandle) => {
               const lectureForm = lectureForms[lecture.id] || {};
               const content = lecture.content_status || {};
               const generation = content.generation_status || {};
@@ -916,6 +926,7 @@ export default function CourseManagement() {
 
               return <article className="managed-lecture-card" key={lecture.id}>
                 <div className="managed-lecture-header">
+                  {dragHandle}
                   <button
                     type="button"
                     className="managed-lecture-toggle"
@@ -935,7 +946,6 @@ export default function CourseManagement() {
                   </div>
                 </div>
                 <div id={detailsId} className="managed-lecture-details" hidden={!expanded}>
-                  <div className="managed-lecture-order"><button type="button" disabled={index === 0 || Boolean(busyKey)} onClick={() => moveLecture(index, -1)} aria-label={`上移 ${lecture.title}`}>↑</button><button type="button" disabled={index === selectedCourse.lectures.length - 1 || Boolean(busyKey)} onClick={() => moveLecture(index, 1)} aria-label={`下移 ${lecture.title}`}>↓</button></div>
                   <div className="managed-lecture-main">
                     <div className="settings-grid">
                       <label className="review-field"><span>小節名稱</span><input value={lectureForm.title || ''} onChange={event => setLectureForms(current => ({ ...current, [lecture.id]: { ...current[lecture.id], title: event.target.value } }))} /></label>
@@ -961,9 +971,9 @@ export default function CourseManagement() {
                   </div>
                 </div>
               </article>;
-            })}
+            }}
+          </ReorderableLectureList>
             {!selectedCourse.lectures?.length && <div className="teacher-empty compact">這門課目前沒有小節，請先新增課程影片。</div>}
-          </div>
         </section>
       </>}
     </div>

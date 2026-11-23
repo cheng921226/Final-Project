@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import CourseManagement from './CourseManagement';
 
@@ -644,4 +644,30 @@ test.each(['pending', 'processing'])('automatically shows interrupted %s jobs an
   const requestsAfterFailure = global.fetch.mock.calls.length;
   await act(async () => { jest.advanceTimersByTime(24000); });
   expect(global.fetch).toHaveBeenCalledTimes(requestsAfterFailure);
+});
+
+test.each([true, false])('saves reordered sections without resetting unsaved edits (success=%s)', async success => {
+  localStorage.setItem('access_token', 'campus-token');
+  const lectures = [
+    { id: 48, title: '第一節', content_status: {} },
+    { id: 49, title: '第二節', content_status: {} },
+  ];
+  global.fetch = jest.fn(url => Promise.resolve({
+    ok: url.endsWith('/lecture-order') ? success : true,
+    json: async () => url.endsWith('/lecture-order') ? { detail: '排序儲存失敗' }
+      : { actor: { role: 'campus' }, courses: [{ ...baseCourse, lectures }] },
+  }));
+  renderManagement();
+  fireEvent.click(await screen.findByRole('button', { name: '第一節' }));
+  fireEvent.change(screen.getByRole('textbox', { name: '小節名稱' }), { target: { value: '尚未儲存的名稱' } });
+  fireEvent.keyDown(screen.getByRole('button', { name: '拖曳排序 第一節' }), { key: 'ArrowDown' });
+  expect(await screen.findByText(success ? '小節順序已儲存。' : '排序儲存失敗')).toBeInTheDocument();
+  expect(global.fetch).toHaveBeenCalledWith(expect.stringMatching(/\/courses\/1\/lecture-order$/),
+    expect.objectContaining({ method: 'PUT', body: JSON.stringify({ lecture_ids: [49, 48] }) }));
+  await waitFor(() => {
+    const titles = screen.getAllByRole('article').map(article => article.querySelector('.managed-lecture-title').textContent);
+    expect(titles).toEqual(success ? ['第二節', '第一節'] : ['第一節', '第二節']);
+  });
+  expect(screen.getByRole('textbox', { name: '小節名稱' })).toHaveValue('尚未儲存的名稱');
+  expect(global.fetch).toHaveBeenCalledTimes(2);
 });
