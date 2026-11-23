@@ -125,7 +125,7 @@ export default function CreditSettings() {
   );
 }
 
-export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, embedded = false }) {
+export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, onSavingChange, embedded = false }) {
   const courseId = course.id;
   const [savedForm, setSavedForm] = useState(() => emptyForm(course));
   const [form, setForm] = useState(savedForm);
@@ -136,6 +136,10 @@ export function CreditSettingsForm({ course, token, onSaved, onDirtyChange, embe
   useEffect(() => {
     onDirtyChange?.(dirty);
   }, [dirty, onDirtyChange]);
+
+  useEffect(() => {
+    onSavingChange?.(saving);
+  }, [saving, onSavingChange]);
 
   function updateField(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));

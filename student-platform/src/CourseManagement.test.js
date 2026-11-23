@@ -391,25 +391,38 @@ test('edits the selected course credit settings directly and warns before discar
   const toggle = await screen.findByRole('button', { name: '學分與認證設定' });
   expect(toggle).toHaveAttribute('aria-expanded', 'false');
   expect(screen.queryByRole('spinbutton', { name: '完成度門檻 (%)' })).not.toBeInTheDocument();
+  toggle.focus();
   fireEvent.click(toggle);
   expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  expect(screen.getByRole('dialog', { name: '學分與認證設定' })).toBeInTheDocument();
   const threshold = screen.getByRole('spinbutton', { name: '完成度門檻 (%)' });
   expect(threshold).toHaveValue(90);
   fireEvent.change(threshold, { target: { value: '85' } });
-  fireEvent.click(toggle);
-  expect(threshold).not.toBeVisible();
-  fireEvent.click(screen.getByRole('link', { name: '← 返回課程管理' }));
-  expect(confirm).toHaveBeenCalledWith('你有尚未儲存的變更，確定要離開嗎？');
-
-  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole('button', { name: '關閉設定' }));
+  expect(screen.getByRole('dialog')).toBeInTheDocument();
+  expect(confirm).toHaveBeenCalledWith('學分設定尚未儲存，確定要捨棄修改並關閉嗎？');
   expect(threshold).toHaveValue(85);
+
+  confirm.mockReturnValue(true);
+  fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  expect(toggle).toHaveFocus();
+  fireEvent.click(toggle);
+  const restoredThreshold = screen.getByRole('spinbutton', { name: '完成度門檻 (%)' });
+  expect(restoredThreshold).toHaveValue(90);
+  fireEvent.change(restoredThreshold, { target: { value: '85' } });
   fireEvent.click(screen.getByRole('button', { name: '儲存學分設定' }));
   expect(await screen.findByText('學分設定已更新。')).toBeInTheDocument();
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/teacher/courses/1/credit-settings',
     expect.objectContaining({ method: 'PUT', body: expect.stringContaining('"completion_threshold":85') })
   );
-  expect(threshold).toHaveValue(85);
+  expect(restoredThreshold).toHaveValue(85);
+  confirm.mockClear();
+  fireEvent.click(screen.getByRole('button', { name: '關閉設定' }));
+  expect(confirm).not.toHaveBeenCalled();
+  fireEvent.click(toggle);
+  expect(screen.getByRole('spinbutton', { name: '完成度門檻 (%)' })).toHaveValue(85);
 });
 
 test('asks before replacing an existing video backup', async () => {

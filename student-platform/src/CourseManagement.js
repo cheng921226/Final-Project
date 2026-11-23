@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CreditSettingsForm } from './CreditSettings';
 import { managementFetch as fetch } from './managementDataCache';
@@ -111,6 +112,69 @@ function PublicationTabs({ labelId, options, value, onChange }) {
   );
 }
 
+function CreditSettingsDialog({ open, onClose, children }) {
+  const dialogRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    if (!open) return undefined;
+    const previousFocus = document.activeElement;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const dialog = dialogRef.current;
+    const focusable = () => [...dialog.querySelectorAll('button, input, select, textarea, a[href]')]
+      .filter(element => !element.disabled);
+    focusable()[0]?.focus();
+    function handleKey(event) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+      }
+      if (event.key !== 'Tab') return;
+      const elements = focusable();
+      const first = elements[0];
+      const last = elements[elements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    dialog.addEventListener('keydown', handleKey);
+    return () => {
+      dialog.removeEventListener('keydown', handleKey);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
+  }, [open]);
+
+  return createPortal(
+    <div className="course-credit-backdrop" hidden={!open} onClick={event => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section
+        id="course-credit-settings"
+        ref={dialogRef}
+        className="course-credit-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label="學分與認證設定"
+      >
+        <div className="course-credit-dialog-close">
+          <button type="button" className="question-secondary-button" onClick={onClose}>關閉設定</button>
+        </div>
+        {children}
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 export default function CourseManagement() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -132,6 +196,13 @@ export default function CourseManagement() {
   const [message, setMessage] = useState(location.state?.deletionMessage || '');
   const [creditSettingsDirty, setCreditSettingsDirty] = useState(false);
   const [creditSettingsOpen, setCreditSettingsOpen] = useState(false);
+  const [creditSettingsSaving, setCreditSettingsSaving] = useState(false);
+  const closeCreditSettings = useCallback(() => {
+    if (creditSettingsSaving) return;
+    if (creditSettingsDirty && !window.confirm('學分設定尚未儲存，確定要捨棄修改並關閉嗎？')) return;
+    setCreditSettingsOpen(false);
+    setCreditSettingsDirty(false);
+  }, [creditSettingsDirty, creditSettingsSaving]);
   const [error, setError] = useState('');
   const skipNextHistoryWarning = useRef(false);
   const activeCourseId = useRef(courseId);
@@ -749,9 +820,10 @@ export default function CourseManagement() {
               className="question-secondary-button course-credit-toggle"
               aria-expanded={creditSettingsOpen}
               aria-controls="course-credit-settings"
-              onClick={() => setCreditSettingsOpen(open => !open)}
+              aria-haspopup="dialog"
+              onClick={() => setCreditSettingsOpen(true)}
             >
-              學分與認證設定 <span aria-hidden="true">{creditSettingsOpen ? '▴' : '▾'}</span>
+              學分與認證設定
             </button>
             <button type="button" className="course-delete-button" onClick={deleteCourse} disabled={Boolean(busyKey)}>{busyKey === 'delete-course' ? '刪除中...' : '刪除課程'}</button>
             <Link className="question-secondary-button" to={`/course/${selectedCourse.id}`}>預覽學生畫面</Link>
@@ -759,13 +831,15 @@ export default function CourseManagement() {
           </div>
         </form>
 
-        <div id="course-credit-settings" hidden={!creditSettingsOpen}>
+        <CreditSettingsDialog open={creditSettingsOpen} onClose={closeCreditSettings}>
+          {creditSettingsOpen && (
           <CreditSettingsForm
             key={selectedCourse.id}
             course={selectedCourse}
             token={token}
             embedded
             onDirtyChange={setCreditSettingsDirty}
+            onSavingChange={setCreditSettingsSaving}
             onSaved={(savedCourseId, settings) => setData(current => ({
               ...current,
               courses: current.courses.map(course =>
@@ -773,7 +847,8 @@ export default function CourseManagement() {
               ),
             }))}
           />
-        </div>
+          )}
+        </CreditSettingsDialog>
 
         <section className="teacher-panel course-lecture-manager">
           <div className="panel-title">

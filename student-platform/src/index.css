@@ -4817,6 +4817,42 @@ a {
   gap: 6px;
 }
 
+.course-credit-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: #24141cb3;
+}
+
+.course-credit-backdrop[hidden] { display: none; }
+
+.course-credit-dialog {
+  width: min(860px, 100%);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  padding: clamp(16px, 3vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 24px 80px #24141c40;
+}
+
+.course-credit-dialog-close {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+}
+
+.course-credit-dialog .settings-form {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+}
+
 .course-management-actions>.question-secondary-button,
 .course-management-actions>.question-save-button {
   display: inline-flex;
