@@ -451,14 +451,10 @@ export default function CourseManagement() {
   async function deleteLecture(lecture) {
     if (!lecture || busyKey) return;
     const expectedTitle = lecture.title || '未命名小節';
-    const typedTitle = window.prompt(
-      `刪除後，這個小節的教材、學生作答與觀看紀錄都會永久消失。\n\n請輸入小節名稱「${expectedTitle}」確認刪除：`
-    );
-    if (typedTitle === null) return;
-    if (typedTitle.trim() !== expectedTitle) {
-      setMessage('小節名稱不一致，已取消刪除。');
-      return;
-    }
+    if (!window.confirm(`確定要刪除小節「${expectedTitle}」嗎？`)) return;
+    if (!window.confirm(
+      `再次確認刪除「${expectedTitle}」？\n\n刪除後，這個小節的教材、學生作答與觀看紀錄都會永久消失，且無法復原。`
+    )) return;
 
     setBusyKey(`delete-lecture-${lecture.id}`);
     setMessage('');
@@ -506,14 +502,10 @@ export default function CourseManagement() {
   async function deleteCourse() {
     if (!selectedCourse || busyKey) return;
     const expectedTitle = selectedCourse.title || '未命名課程';
-    const typedTitle = window.prompt(
-      `刪除後，這門課的小節、教材、學生作答、學習進度與學分紀錄都會永久消失。\n\n請輸入課程名稱「${expectedTitle}」確認刪除：`
-    );
-    if (typedTitle === null) return;
-    if (typedTitle.trim() !== expectedTitle) {
-      setMessage('課程名稱不一致，已取消刪除。');
-      return;
-    }
+    if (!window.confirm(`確定要刪除課程「${expectedTitle}」嗎？`)) return;
+    if (!window.confirm(
+      `再次確認刪除「${expectedTitle}」？\n\n刪除後，這門課的小節、教材、學生作答、學習進度與學分紀錄都會永久消失，且無法復原。`
+    )) return;
 
     setBusyKey('delete-course');
     setMessage('');

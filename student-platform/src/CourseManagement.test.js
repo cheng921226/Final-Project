@@ -508,7 +508,7 @@ test('lectures start collapsed and expose their own question review links when e
   expect(screen.getByRole('link', { name: '前往審題' })).toHaveAttribute('href', '/teacher/questions?lecture=49');
 });
 
-test('requires the exact course title before permanently deleting a course', async () => {
+test('requires two confirmations before permanently deleting a course', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   global.fetch = jest.fn()
     .mockResolvedValueOnce({
@@ -527,12 +527,13 @@ test('requires the exact course title before permanently deleting a course', asy
       ok: true,
       json: async () => ({ actor: { id: 10, role: 'teacher' }, courses: [], teachers: [] }),
     });
-  jest.spyOn(window, 'prompt').mockReturnValue('資料結構');
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
 
   renderManagement();
   fireEvent.click(await screen.findByRole('button', { name: '刪除課程' }));
 
-  expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答、學習進度與學分紀錄'));
+  expect(window.confirm).toHaveBeenCalledTimes(2);
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('學生作答、學習進度與學分紀錄'));
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/teacher/course-management/courses/1',
     expect.objectContaining({ method: 'DELETE' })
@@ -540,7 +541,7 @@ test('requires the exact course title before permanently deleting a course', asy
   expect(await screen.findByText('「資料結構」及相關資料已永久刪除。')).toBeInTheDocument();
 });
 
-test('requires the exact lecture title before permanently deleting a lecture', async () => {
+test('requires two confirmations before permanently deleting a lecture', async () => {
   localStorage.setItem('access_token', 'teacher-token');
   const lecture = {
     id: 48,
@@ -562,13 +563,14 @@ test('requires the exact lecture title before permanently deleting a lecture', a
       ok: true,
       json: async () => ({ actor: { id: 10, role: 'teacher' }, courses: [{ ...baseCourse, lectures: [] }], teachers: [] }),
     });
-  jest.spyOn(window, 'prompt').mockReturnValue('搜尋演算法');
+  jest.spyOn(window, 'confirm').mockReturnValue(true);
 
   renderManagement();
   fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
   fireEvent.click(screen.getByRole('button', { name: '刪除小節' }));
 
-  expect(window.prompt).toHaveBeenCalledWith(expect.stringContaining('學生作答與觀看紀錄'));
+  expect(window.confirm).toHaveBeenCalledTimes(2);
+  expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining('學生作答與觀看紀錄'));
   expect(global.fetch).toHaveBeenCalledWith(
     'http://127.0.0.1:8000/teacher/course-management/lectures/48',
     expect.objectContaining({ method: 'DELETE' })
