@@ -18,6 +18,8 @@ from services.ai_generation import (
 )
 from services.lecture_processing import (
     claim_generation,
+    generation_heartbeat,
+    reconcile_generation_statuses,
     get_generation_statuses,
     set_generation_status,
 )
@@ -166,7 +168,7 @@ def _content_status(lecture_ids: list[int]) -> dict[int, dict[str, Any]]:
         generation_rows = []
 
     generation_by_lecture: dict[int, dict[str, dict[str, Any]]] = {}
-    for row in generation_rows:
+    for row in reconcile_generation_statuses(generation_rows):
         lecture_id = row.get("lecture_id")
         component = row.get("component")
         if lecture_id in result and component:
@@ -299,7 +301,7 @@ def get_course_management_job_statuses(user=Depends(get_current_user)):
                 .data
                 or []
             )
-            for row in rows:
+            for row in reconcile_generation_statuses(rows):
                 lecture_id = row.get("lecture_id")
                 component = row.get("component")
                 if lecture_id is not None and component:
@@ -695,16 +697,17 @@ def _regenerate_components(lecture_id: int, components: list[str]) -> dict[str, 
 def _run_regeneration_step(lecture_id: int, component: str, callback):
     if not claim_generation(lecture_id, component):
         raise HTTPException(status_code=409, detail=f"{component} 目前正在產生中")
-    try:
-        result = callback()
-    except Exception as exc:
-        set_generation_status(lecture_id, component, "failed", error=str(exc))
-        status_code = (
-            422 if component == "knowledge_points" and isinstance(exc, ValueError) else 500
-        )
-        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
-    set_generation_status(lecture_id, component, "completed")
-    return result
+    with generation_heartbeat(lecture_id, component) as started_at:
+        try:
+            result = callback()
+        except Exception as exc:
+            set_generation_status(lecture_id, component, "failed", error=str(exc), expected_started_at=started_at)
+            status_code = (
+                422 if component == "knowledge_points" and isinstance(exc, ValueError) else 500
+            )
+            raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+        set_generation_status(lecture_id, component, "completed", expected_started_at=started_at)
+        return result
 
 
 @router.get("/lectures/{lecture_id}/generation-status")

@@ -6,7 +6,7 @@ from typing import Any
 
 from database.supabase import supabase_admin
 from services.ai_generation import run_ai_generation_pipeline
-from services.lecture_processing import set_generation_status
+from services.lecture_processing import generation_heartbeat, set_generation_status
 from services.transcription import (
     DEFAULT_MODEL_SIZE,
     download_youtube_audio,
@@ -92,37 +92,39 @@ def run_media_ai_pipeline(
         if not file_path:
             raise PipelineStepError("MEDIA_MISSING", "找不到可供轉錄的媒體檔案")
         set_generation_status(lecture_id, "transcript", "processing")
-        try:
-            transcript_result = transcribe_media(
-                file_path,
-                model_size=model_size,
-                language=language or None,
-                word_timestamps=word_timestamps,
-            )
-        except Exception as exc:
-            logger.exception("Transcription failed lecture_id=%s", lecture_id)
-            set_generation_status(lecture_id, "transcript", "failed", error=str(exc))
-            raise PipelineStepError(
-                "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
-            ) from exc
-
-        db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
-        if save_to_db:
-            db_result = save_transcript_segments(
-                lecture_id, transcript_result["segments"]
-            )
-            if not db_result.get("saved_to_db"):
-                set_generation_status(
-                    lecture_id,
-                    "transcript",
-                    "failed",
-                    error=str(db_result.get("db_error")),
+        with generation_heartbeat(lecture_id, "transcript") as started_at:
+            try:
+                transcript_result = transcribe_media(
+                    file_path,
+                    model_size=model_size,
+                    language=language or None,
+                    word_timestamps=word_timestamps,
                 )
+            except Exception as exc:
+                logger.exception("Transcription failed lecture_id=%s", lecture_id)
+                set_generation_status(lecture_id, "transcript", "failed", error=str(exc), expected_started_at=started_at)
                 raise PipelineStepError(
-                    "TRANSCRIPT_SAVE_FAILED",
-                    f"逐字稿寫入資料庫失敗：{db_result.get('db_error')}",
+                    "TRANSCRIPTION_FAILED", f"逐字稿轉換失敗：{exc}"
+                ) from exc
+
+            db_result = {"saved_to_db": False, "inserted": 0, "db_error": None}
+            if save_to_db:
+                db_result = save_transcript_segments(
+                    lecture_id, transcript_result["segments"]
                 )
-        set_generation_status(lecture_id, "transcript", "completed")
+                if not db_result.get("saved_to_db"):
+                    set_generation_status(
+                        lecture_id,
+                        "transcript",
+                        "failed",
+                        error=str(db_result.get("db_error")),
+                        expected_started_at=started_at,
+                    )
+                    raise PipelineStepError(
+                        "TRANSCRIPT_SAVE_FAILED",
+                        f"逐字稿寫入資料庫失敗：{db_result.get('db_error')}",
+                    )
+            set_generation_status(lecture_id, "transcript", "completed", expected_started_at=started_at)
 
     duration = metadata.get("duration") or transcript_result.get("duration")
     if duration is not None:
@@ -222,7 +224,9 @@ def run_youtube_ai_pipeline(
         else:
             download_dir = tempfile.mkdtemp(prefix="youtube_pipeline_")
             try:
-                youtube_info = download_youtube_audio(url, output_dir=download_dir)
+                set_generation_status(lecture_id, "transcript", "processing")
+                with generation_heartbeat(lecture_id, "transcript"):
+                    youtube_info = download_youtube_audio(url, output_dir=download_dir)
             except Exception as exc:
                 logger.exception(
                     "YouTube audio download failed lecture_id=%s", lecture_id

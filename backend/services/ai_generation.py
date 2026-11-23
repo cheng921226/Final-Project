@@ -9,7 +9,7 @@ from google import genai
 from google.genai import errors, types
 
 from database.supabase import supabase_admin
-from services.lecture_processing import claim_generation, set_generation_status
+from services.lecture_processing import claim_generation, generation_heartbeat, set_generation_status
 from services.time_values import normalize_seconds, time_to_seconds
 
 
@@ -578,18 +578,19 @@ def run_ai_generation_pipeline(
     def run_step(component: str, callback):
         if not claim_generation(lecture_id, component):
             return {"status": "failed", "error": "此項目目前正在處理中"}
-        try:
-            result = callback()
-            set_generation_status(lecture_id, component, "completed")
-            return result
-        except Exception as exc:
-            logger.exception(
-                "AI generation failed for lecture_id=%s component=%s",
-                lecture_id,
-                component,
-            )
-            set_generation_status(lecture_id, component, "failed", error=str(exc))
-            return {"status": "failed", "error": str(exc)}
+        with generation_heartbeat(lecture_id, component) as started_at:
+            try:
+                result = callback()
+                set_generation_status(lecture_id, component, "completed", expected_started_at=started_at)
+                return result
+            except Exception as exc:
+                logger.exception(
+                    "AI generation failed for lecture_id=%s component=%s",
+                    lecture_id,
+                    component,
+                )
+                set_generation_status(lecture_id, component, "failed", error=str(exc), expected_started_at=started_at)
+                return {"status": "failed", "error": str(exc)}
 
     generators = {
         "summary": generate_summary,

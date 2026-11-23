@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -45,6 +46,7 @@ class GenerationSelectionTests(unittest.TestCase):
     def test_ai_pipeline_runs_only_selected_steps(self):
         with (
             patch("services.ai_generation.claim_generation", return_value=True),
+            patch("services.ai_generation.generation_heartbeat", return_value=nullcontext()),
             patch("services.ai_generation.set_generation_status"),
             patch("services.ai_generation.generate_summary") as summary,
             patch("services.ai_generation.generate_knowledge_points") as knowledge,

@@ -1,4 +1,5 @@
 import unittest
+from contextlib import nullcontext
 import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -408,6 +409,7 @@ class TeacherAnalyticsTests(unittest.TestCase):
             patch(f"{route}.require_teacher", return_value=teacher),
             patch(f"{route}.require_lecture_manager", return_value={"media_url": url}) as access,
             patch(f"{route}.claim_generation", return_value=True) as claim,
+            patch(f"{route}.generation_heartbeat", return_value=nullcontext()),
             patch(f"{route}.download_youtube_audio", return_value={"file_path": "audio.webm"}),
             patch(f"{route}.transcribe_media", return_value={"segments": segments}),
             patch(f"{route}.save_transcript_segments", return_value={"saved_to_db": True}) as save,
@@ -419,7 +421,7 @@ class TeacherAnalyticsTests(unittest.TestCase):
         access.assert_called_once_with(7, teacher, allow_campus_all=True)
         claim.assert_called_once_with(7, "transcript")
         save.assert_called_once_with(7, segments)
-        status.assert_called_once_with(7, "transcript", "completed")
+        status.assert_called_once_with(7, "transcript", "completed", expected_started_at=None)
         other_ai.assert_not_called()
         self.assertEqual(result["results"], {"transcript": {"saved_to_db": True}})
 

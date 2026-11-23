@@ -619,3 +619,29 @@ test('selects a publication status and saves it only when the course form is sub
     final_assessment_enabled: false,
   });
 });
+
+test.each(['pending', 'processing'])('automatically shows interrupted %s jobs and stops polling', async initialStatus => {
+  jest.useFakeTimers();
+  localStorage.setItem('access_token', 'campus-token');
+  const error = '任務已中斷：超過 10 分鐘未收到運作回報，請重新生成。';
+  global.fetch = jest.fn(url => Promise.resolve({
+    ok: true,
+    json: async () => url.endsWith('/job-statuses')
+      ? { lectures: [{ id: 48, generation_status: { summary: { status: 'failed', error_message: error } } }] }
+      : { actor: { role: 'campus' }, courses: [{ ...baseCourse, lectures: [{
+        id: 48,
+        title: '搜尋演算法',
+        content_status: { transcript: true, generation_status: {
+          summary: { status: initialStatus, updated_at: '2026-11-23T00:00:00Z' },
+        } },
+      }] }] },
+  }));
+  renderManagement();
+  fireEvent.click(await screen.findByRole('button', { name: '搜尋演算法' }));
+  await act(async () => { jest.advanceTimersByTime(8000); });
+  expect(screen.getByText('摘要：失敗')).toBeEnabled();
+  expect(screen.getByText('摘要：失敗')).toHaveAttribute('title', error);
+  const requestsAfterFailure = global.fetch.mock.calls.length;
+  await act(async () => { jest.advanceTimersByTime(24000); });
+  expect(global.fetch).toHaveBeenCalledTimes(requestsAfterFailure);
+});

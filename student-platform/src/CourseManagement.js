@@ -219,6 +219,7 @@ export default function CourseManagement() {
         ['pending', 'processing'].includes(lecture.backup_status)
         || Object.values(lecture.content_status?.generation_status || {}).some(
           status => status?.status === 'processing'
+            || (status?.status === 'pending' && Boolean(status.updated_at))
         )
       )
     ),
@@ -871,7 +872,8 @@ export default function CourseManagement() {
                   unavailable: key === 'transcript' && !isYouTubeUrl(lecture.media_url)
                     ? '只有 YouTube 小節可自動產生逐字稿'
                     : '',
-                  busy: isPending || status === 'processing' || busyKey === `ai-${lecture.id}-${key}`,
+                  busy: isPending || status === 'processing'
+                    || (status === 'pending' && Boolean(generation[key]?.updated_at)) || busyKey === `ai-${lecture.id}-${key}`,
                   error: isPending ? '' : generation[key]?.error_message,
                 };
               });
