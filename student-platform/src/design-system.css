@@ -354,6 +354,35 @@ select option,
 .review-field input:focus, .review-field select:focus, .review-field textarea:focus, .field input:focus,
 .email-preview-row input:focus, .email-preview-field textarea:focus { border-color: #b67984; box-shadow: 0 0 0 3px #7d212a0c; }
 .review-field > span, .field > span { color: #805e68; }
+.upload-file-field input[type="file"] {
+  height: auto;
+  min-height: 44px;
+  padding: 6px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.upload-file-field input[type="file"]::file-selector-button {
+  margin-inline-end: 12px;
+  padding: 8px 14px;
+  border: 1px solid #ead3db;
+  border-radius: 7px;
+  background: #f8edef;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 180ms ease, border-color 180ms ease;
+}
+.upload-file-field input[type="file"]:hover::file-selector-button {
+  background: #f1dfe5;
+  border-color: #b67984;
+}
+.upload-file-field input[type="file"]:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
 .secondary-button, .question-secondary-button, .email-secondary-button { border-radius: 7px; background: #f8edef; color: #874b5d; border-color: #ead3db; }
 .secondary-button:hover, .question-secondary-button:hover, .email-secondary-button:hover { background: #f1dfe5; }
 .review-reset-button { border-color: #e1bdc9; background: #faeff3; color: #844259; }
