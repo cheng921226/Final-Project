@@ -3,22 +3,14 @@ import json
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from google import genai
 from google.genai import errors, types
 from pydantic import BaseModel, Field, ValidationError
 
 from database.supabase import supabase_admin
-from routers.lectures import get_lecture_transcript, get_lecture_knowledge_points
-from routers.users import get_user_id, get_user_role
-from services.ai_generation import (
-    CONTENT_SYSTEM_INSTRUCTION,
-    format_transcript_for_prompt,
-    generate_knowledge_points as generate_lecture_knowledge_points,
-    generate_questions as generate_lecture_questions,
-)
-from .security import AuthContext, get_auth_context, get_current_user
-from .teacher_access import require_lecture_manager, require_teacher
+from routers.lectures import get_lecture_knowledge_points, get_lecture_transcript
+from .security import AuthContext, get_auth_context
 from .users import get_chat_context
 
 router = APIRouter()
@@ -26,23 +18,19 @@ logger = logging.getLogger(__name__)
 
 gemini_client = genai.Client()
 
-GEMINI_MODEL = "gemini-3.8-flash"
-
 def generate_json_content(
     prompt: str | list[str | types.Part],
-    system_instruction: str | None = CONTENT_SYSTEM_INSTRUCTION,
-    model: str = GEMINI_MODEL,
-    response_schema: type[BaseModel] | None = None,
+    *,
+    model: str,
+    response_schema: type[BaseModel],
 ):
-    config = {"response_mime_type": "application/json"}
-    if system_instruction:
-        config["system_instruction"] = system_instruction
-    if response_schema is not None:
-        config["response_schema"] = response_schema
     return gemini_client.models.generate_content(
         model=model,
         contents=prompt,
-        config=config,
+        config={
+            "response_mime_type": "application/json",
+            "response_schema": response_schema,
+        },
     )
 
 
@@ -213,7 +201,6 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
                 try:
                     ai_response = generate_json_content(
                         contents,
-                        system_instruction=None,
                         model=model,
                         response_schema=ChatAnswer,
                     )
@@ -264,190 +251,3 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
     except Exception as exc:
         logger.error("Chat failed: lecture_id=%s error=%s", body.lecture_id, type(exc).__name__)
         raise HTTPException(status_code=500, detail="AI 助教暫時無法完成請求，請稍後再試") from exc
-
-
-# =====================================================================
-# AI 內容生成 API
-# =====================================================================
-
-
-class SummaryRequest(BaseModel):
-    lecture_id: int
-
-
-# 生成摘要
-@router.post("/ai/summary")
-def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
-    teacher = require_teacher(user)
-    require_lecture_manager(body.lecture_id, teacher)
-    existing_response = (
-        supabase_admin.table("summaries")
-        .select("*")
-        .eq("lecture_id", body.lecture_id)
-        .maybe_single()
-        .execute()
-    )
-    existing_data = getattr(existing_response, "data", None)
-
-    if existing_data:
-        return {"status": "cached", "data": existing_data}
-
-    try:
-        transcript_rows = get_lecture_transcript(body.lecture_id)
-        _, transcript = parse_transcript_rows(transcript_rows)
-        if not transcript:
-            raise HTTPException(
-                status_code=400, detail="Transcript not found for this lecture."
-            )
-
-        prompt = f'''請根據以下課程逐字稿，產生 150 字內的課程摘要。
-JSON 格式：{{"summary":"摘要內容"}}
-
-課程逐字稿：
-{transcript}'''
-        ai_response = generate_json_content(prompt)
-
-        try:
-            result_json = json.loads(ai_response.text)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Failed to parse AI response.")
-
-        supabase_admin.table("summaries").upsert(
-            {"lecture_id": body.lecture_id, "summary_text": result_json},
-            on_conflict="lecture_id",
-        ).execute()
-
-        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
-
-
-class MindMapRequest(BaseModel):
-    lecture_id: int
-
-
-# 生成心智圖
-@router.post("/ai/mindmap")
-def generate_mindmap(body: MindMapRequest, user=Depends(get_current_user)):
-    teacher = require_teacher(user)
-    require_lecture_manager(body.lecture_id, teacher)
-    existing_response = (
-        supabase_admin.table("mindmaps")
-        .select("*")
-        .eq("lecture_id", body.lecture_id)
-        .maybe_single()
-        .execute()
-    )
-    existing_data = getattr(existing_response, "data", None)
-
-    if existing_data:
-        return {"status": "cached", "data": existing_data}
-
-    try:
-        transcript_rows = get_lecture_transcript(body.lecture_id)
-        _, transcript = parse_transcript_rows(transcript_rows)
-        if not transcript:
-            raise HTTPException(
-                status_code=400, detail="Transcript not found for this lecture."
-            )
-
-        prompt = f'''請根據以下課程逐字稿，產生一份適合用 Markmap 渲染的 Markdown 格式課程心智圖，只呈現知識架構，不需要影片時間點。
-第一層使用 # 作為根節點，第二層使用 ## 作為主觀念，第三層使用 - 作為子細節。不要使用程式碼區塊，每個節點控制在 15 字以內。
-JSON 格式：{{"markdown":"# 課程總主題\\n## 核心概念一\\n- 概念說明"}}
-
-課程逐字稿：
-{transcript}'''
-        ai_response = generate_json_content(prompt)
-
-        try:
-            result_json = json.loads(ai_response.text)
-        except json.JSONDecodeError:
-            raise HTTPException(status_code=500, detail="Failed to parse AI response.")
-
-        lecture_title = (
-            supabase_admin.table("lectures")
-            .select("title")
-            .eq("id", body.lecture_id)
-            .single()
-            .execute()
-        )
-
-        if not lecture_title.data:
-            raise HTTPException(status_code=404, detail="Lecture not found")
-
-        supabase_admin.table("mindmaps").upsert(
-            {
-                "lecture_id": body.lecture_id,
-                "title": lecture_title.data["title"],
-                "mindmap_json": result_json,
-            },
-            on_conflict="lecture_id",
-        ).execute()
-
-        return {"status": "success", "lecture_id": body.lecture_id, "data": result_json}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"test fail: {str(e)}")
-
-
-class KnowledgePointsRequest(BaseModel):
-    lecture_id: int
-
-
-# 生成知識點
-@router.post("/ai/knowledge_points")
-def generate_knowledge_points(
-    body: KnowledgePointsRequest, user=Depends(get_current_user)
-):
-    teacher = require_teacher(user)
-    require_lecture_manager(body.lecture_id, teacher)
-    segments, _ = parse_transcript_rows(get_lecture_transcript(body.lecture_id))
-    try:
-        result = generate_lecture_knowledge_points(body.lecture_id, segments)
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {**result, "lecture_id": body.lecture_id}
-
-
-class QuestionsRequest(BaseModel):
-    lecture_id: int
-
-
-# 生成題目
-@router.post("/ai/questions")
-def generate_questions(body: QuestionsRequest, user=Depends(get_current_user)):
-    teacher = require_teacher(user)
-    require_lecture_manager(body.lecture_id, teacher)
-    existing_response = (
-        supabase_admin.table("questions")
-        .select("*")
-        .eq("lecture_id", body.lecture_id)
-        .eq("question_type", "original")
-        .neq("status", "deleted")
-        .order("id")
-        .limit(1)
-        .maybe_single()
-        .execute()
-    )
-    existing_data = getattr(existing_response, "data", None)
-
-    if existing_data:
-        return {"status": "cached", "data": existing_data}
-
-    segments, transcript = parse_transcript_rows(get_lecture_transcript(body.lecture_id))
-    transcript = format_transcript_for_prompt(segments) or transcript
-    if not transcript:
-        raise HTTPException(status_code=400, detail="這個小節沒有逐字稿，無法生成題目。")
-
-    try:
-        result = generate_lecture_questions(
-            body.lecture_id,
-            transcript,
-            get_lecture_knowledge_points(body.lecture_id) or [],
-            skip_existing=False,
-            segments=segments,
-        )
-    except RuntimeError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return {**result, "lecture_id": body.lecture_id}
