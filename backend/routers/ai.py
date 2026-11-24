@@ -300,7 +300,7 @@ def generate_summary(body: SummaryRequest, user=Depends(get_current_user)):
                 status_code=400, detail="Transcript not found for this lecture."
             )
 
-        prompt = f'''請根據以下課程逐字稿，產生 150 字內的繁體中文課程摘要。
+        prompt = f'''請根據以下課程逐字稿，產生 150 字內的課程摘要。
 JSON 格式：{{"summary":"摘要內容"}}
 
 課程逐字稿：

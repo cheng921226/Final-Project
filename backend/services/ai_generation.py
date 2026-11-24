@@ -183,7 +183,7 @@ def generate_knowledge_points(
 title 使用具體的概念名稱。description 用一到兩句說明重點，必要時補上適用條件或容易混淆的地方。
 每個知識點都必須對應一段可定位的講解。start_time 必須照抄第一個相關逐字稿片段的開始秒數，end_time 必須照抄最後一個相關片段的結束秒數，兩者都填 JSON 整數且結束須晚於開始。
 若同一概念在多處講解，選擇最完整的連續區間。找不到可定位的區間就省略該知識點，不猜測時間或填 null。
-依影片出現順序排列，只輸出繁體中文 JSON。
+依影片出現順序排列，只輸出 JSON。
 JSON 格式：{{"knowledge_points":[{{"title":"知識點標題","description":"知識點說明","start_time":0,"end_time":30}}]}}
 
 課程逐字稿：
@@ -365,7 +365,7 @@ related_knowledge_point 必須填這份知識點列表中的 ID。若逐字稿�
 每題固定 4 個選項，answer 只能是 A、B、C 或 D，並提供 explanation。
 原題的 source_timestamp 以逐字稿推估該題相關內容講解完畢的影片時間，填非負整數秒數。緩衝由系統加上。若確實沒有足夠的時間資訊定位，填 null，該題會在影片播完後出現。不要猜測時間。若同一知識點出兩題，優先放在各自概念講解完成的時間。
 每道原題在 retry_questions 中提供 1 題延伸題；若值得再用另一個情境驗證，可提供第 2 題。延伸題測相同概念，但需換例子或情境，省略時間欄位。
-題目、選項與解析使用繁體中文，直接呈現課程知識。只輸出 JSON。
+題目、選項與解析直接呈現課程知識。只輸出 JSON。
 JSON 格式：{{"questions":[{{"question_text":"課堂題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"A","explanation":"解析","related_knowledge_point":3,"source_timestamp":125,"retry_questions":[{{"question_text":"延伸題","options":["A. 選項","B. 選項","C. 選項","D. 選項"],"answer":"B","explanation":"延伸題解析"}}]}}],"skipped_knowledge_points":[{{"id":4,"reason":"略過原因"}}]}}
 
 課程逐字稿：

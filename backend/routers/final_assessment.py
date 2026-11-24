@@ -8,7 +8,12 @@ from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from roles import CAMPUS_ROLE, can_manage_course, has_teacher_access
-from services.ai_generation import gemini_client, normalize_answer, parse_json_response
+from services.ai_generation import (
+    CONTENT_SYSTEM_INSTRUCTION,
+    gemini_client,
+    normalize_answer,
+    parse_json_response,
+)
 from services.question_statistics import question_attempt_statistics
 
 from .security import get_current_user
@@ -1102,7 +1107,10 @@ JSON 格式：
         ai_response = gemini_client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            config={"response_mime_type": "application/json"},
+            config={
+                "response_mime_type": "application/json",
+                "system_instruction": CONTENT_SYSTEM_INSTRUCTION,
+            },
         )
         result = parse_json_response(ai_response.text)
     except Exception as exc:
