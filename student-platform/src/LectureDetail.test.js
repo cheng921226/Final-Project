@@ -367,3 +367,58 @@ test.each([0, 125])('opens a review segment at %s seconds instead of the saved r
   fireEvent.loadedMetadata(video);
   await waitFor(() => expect(video.currentTime).toBe(timestamp));
 });
+
+test('highlights and centers the current knowledge point without scrolling the whole page', async () => {
+  jest.useFakeTimers();
+  const responses = {
+    '/lectures/2': [{ media_source: 'upload' }],
+    '/lectures/2/media': { playback_url: '/lecture.mp4' },
+    '/lectures/2/knowledge_points': [
+      { id: 1, title: '第一個概念', start_time: 10, end_time: 20 },
+      { id: 2, title: '第二個概念', start_time: 30, end_time: 40 },
+    ],
+  };
+  global.fetch = jest.fn(async url => ({ ok: true, json: async () => responses[new URL(url).pathname] ?? [] }));
+  try {
+    const view = renderLectureDetail('/course/1/lecture/2');
+    const first = await screen.findByRole('button', { name: /第一個概念/ });
+    const second = screen.getByRole('button', { name: /第二個概念/ });
+    const list = view.container.querySelector('.knowledge-list');
+    const scrollList = jest.fn();
+    list.scrollTo = scrollList;
+    Object.defineProperty(list, 'clientHeight', { configurable: true, value: 200 });
+    Object.defineProperty(list, 'scrollHeight', { configurable: true, value: 1000 });
+    jest.spyOn(list, 'getBoundingClientRect').mockReturnValue({ top: 100 });
+    jest.spyOn(first, 'getBoundingClientRect').mockReturnValue({ top: 200, height: 60 });
+    jest.spyOn(second, 'getBoundingClientRect').mockReturnValue({ top: 500, height: 60 });
+    const pageScrollCalls = window.scrollTo.mock.calls.length;
+    const video = view.container.querySelector('video');
+    await act(async () => { fireEvent.loadedMetadata(video); });
+    expect(first).not.toHaveClass('is-active');
+    video.currentTime = 12;
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(first).toHaveClass('is-active');
+    expect(first).toHaveAttribute('aria-current', 'true');
+    expect(scrollList).toHaveBeenLastCalledWith({ top: 30, behavior: 'smooth' });
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(scrollList).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('目前播放')).toBeInTheDocument();
+    video.currentTime = 32;
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(first).not.toHaveClass('is-active');
+    expect(second).toHaveClass('is-active');
+    expect(scrollList).toHaveBeenLastCalledWith({ top: 330, behavior: 'smooth' });
+    video.currentTime = 25;
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(second).not.toHaveClass('is-active');
+    expect(screen.queryByText('目前播放')).not.toBeInTheDocument();
+    video.currentTime = 15;
+    await act(async () => { jest.advanceTimersByTime(500); });
+    expect(first).toHaveClass('is-active');
+    expect(scrollList).toHaveBeenLastCalledWith({ top: 30, behavior: 'smooth' });
+    expect(window.scrollTo).toHaveBeenCalledTimes(pageScrollCalls);
+    view.unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});

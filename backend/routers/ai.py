@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from database.supabase import supabase_admin
 from routers.lectures import get_lecture_knowledge_points, get_lecture_transcript
+from services.chat_context import build_chat_material
 from .security import AuthContext, get_auth_context
 from .users import get_chat_context
 
@@ -129,20 +130,9 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
         # 撈知識點
         knowledge_points_raw = get_lecture_knowledge_points(body.lecture_id)
 
-        # 抓影片當前時間點前後 60 秒的逐字稿片段（上下文）
         timestamp = body.video_timestamp
-        context_segments = []
-        for seg in transcript_segments:
-            start = seg.get("start_time", seg.get("start", 0))
-            try:
-                start_sec = float(start)
-            except (ValueError, TypeError):
-                start_sec = 0
-            text = seg.get("text")
-            if isinstance(text, str) and abs(start_sec - timestamp) <= 60:
-                context_segments.append(text)
-        transcript_context = (
-            "\n".join(context_segments) if context_segments else transcript_text[:500]
+        transcript_context = build_chat_material(
+            transcript_segments, transcript_text, knowledge_points_raw, timestamp
         )
 
         # 格式化知識點
@@ -171,14 +161,11 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
         prompt = f"""課程小節 ID：{body.lecture_id}
 影片時間：{timestamp_str}
 
-附近逐字稿：
+目前知識點與前後教材：
 {transcript_context}
 
 本節知識點：
 {kp_text}
-
-完整逐字稿備用參考：
-{transcript_text[:2000]}
 
 先前對話：
 {history_text if history_text else "（本次對話剛開始）"}
@@ -189,6 +176,7 @@ def ai_chat(body: ChatRequest, context: AuthContext = Depends(get_auth_context))
         sources = "課程逐字稿、知識點與學生附上的圖片" if image_part else "課程逐字稿和知識點"
         chat_prompt = f'''你是一位親切、有耐心的專業課程 AI 助教，使用繁體中文，回答約 100 到 200 字，語氣自然。
 只能根據{sources}回答，不可編造；非課程問題請禮貌拒絕並引導回課程。學生表示不懂時，換個方式或用簡單比喻說明。
+優先說明目前播放位置對應的概念；前後知識點僅供補充，不要假設學生已看過後續內容。先前對話用於理解追問，回答仍以課程資料為依據。資料缺少或未定位時請明確說明，必要時請學生補充。
 直接回答，不要寒暄、稱讚、自我介紹、重述問題或加「助教：」前綴。
 請輸出 JSON：{{"answer":"助教回答內容"}}
 

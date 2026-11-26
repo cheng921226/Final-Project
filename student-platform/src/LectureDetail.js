@@ -10,6 +10,7 @@ import {
   savedPositionReachedEnd,
 } from './classroomPractice';
 import { lectureDetailCache } from './lectureDetailCache';
+import { findActiveKnowledgePoint } from './knowledgePlayback';
 import assistantUniversityMark from './assistant-university-mark.png';
 
 const API_URL = 'http://127.0.0.1:8000';
@@ -248,6 +249,8 @@ function LectureDetail() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('summary');
   const [activeKp, setActiveKp] = useState(null);
+  const knowledgeListRef = useRef(null);
+  const activeKnowledgePointRef = useRef(null);
   const [userProfile, setUserProfile] = useState(null);
   const [summaryError, setSummaryError] = useState('');
   const [questions, setQuestions] = useState([]);
@@ -349,6 +352,39 @@ function LectureDetail() {
       return fallback;
     }
   }, []);
+
+  useEffect(() => {
+    setActiveKp(null);
+    if (loading || !knowledgePoints.length) return undefined;
+    const syncKnowledgePoint = () => {
+      const index = playerReadyRef.current
+        ? findActiveKnowledgePoint(knowledgePoints, getPlayerCurrentTime()) : null;
+      setActiveKp(current => current === index ? current : index);
+    };
+    syncKnowledgePoint();
+    // Read the existing player locally; this does not make network requests.
+    const timer = window.setInterval(syncKnowledgePoint, 500);
+    return () => window.clearInterval(timer);
+  }, [getPlayerCurrentTime, knowledgePoints, lectureId, loading, playerMode]);
+
+  useEffect(() => {
+    if (activeKp === null) return;
+    const list = knowledgeListRef.current;
+    const point = activeKnowledgePointRef.current;
+    if (!list || !point) return;
+    const pointBounds = point.getBoundingClientRect();
+    const listBounds = list.getBoundingClientRect();
+    const target = list.scrollTop + pointBounds.top - listBounds.top - list.clientTop
+      + pointBounds.height / 2 - list.clientHeight / 2;
+    const top = Math.max(0, Math.min(target, list.scrollHeight - list.clientHeight));
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (typeof list.scrollTo === 'function') {
+      list.scrollTo({ top, behavior: reducedMotion ? 'auto' : 'smooth' });
+    } else {
+      list.scrollTop = top;
+    }
+  }, [activeKp]);
+
 
   const cancelPauseHelp = useCallback((dismissPrompt = true) => {
     if (pauseHelpTimerRef.current) {
@@ -1448,15 +1484,15 @@ function LectureDetail() {
     lastPlayerStateRef.current = window.YT?.PlayerState?.PLAYING ?? 1;
 
     playerRef.current.seekTo(seconds, true);
+    setActiveKp(findActiveKnowledgePoint(knowledgePoints, seconds));
     playerRef.current.playVideo();
     maybeShowTimedQuestion(seconds);
     segmentStartRef.current = seconds;
   }
 
-  function seekToKnowledgePoint(startTime, index) {
+  function seekToKnowledgePoint(startTime) {
     const seconds = timeToSeconds(startTime);
     seekToTime(seconds, 'knowledge_point');
-    setActiveKp(index);
   }
 
   function seekToNote(videoTimestamp) {
@@ -1804,7 +1840,7 @@ function LectureDetail() {
               </div>
             </div>
           </div>
-          <div className="knowledge-list flex-1 overflow-y-auto">
+          <div ref={knowledgeListRef} className="knowledge-list flex-1 overflow-y-auto">
             {loading ? (
               <p className="knowledge-empty">正在整理知識點…</p>
             ) : knowledgePoints.length === 0 ? (
@@ -1813,9 +1849,11 @@ function LectureDetail() {
               knowledgePoints.map((p, i) => (
                 <button
                   key={p.id || i}
+                  ref={activeKp === i ? activeKnowledgePointRef : null}
                   type="button"
-                  onClick={() => seekToKnowledgePoint(p.start_time, i)}
+                  onClick={() => seekToKnowledgePoint(p.start_time)}
                   aria-pressed={activeKp === i}
+                  aria-current={activeKp === i ? 'true' : undefined}
                   className={`knowledge-point-card ${activeKp === i ? 'is-active' : ''}`}
                 >
                   <span className="knowledge-point-index" aria-hidden="true">
@@ -1823,6 +1861,7 @@ function LectureDetail() {
                   </span>
                   <span className="knowledge-point-content">
                     <span className="knowledge-point-title">{p.title || `知識點 ${i + 1}`}</span>
+                    {activeKp === i && <span className="knowledge-playing-label">目前播放</span>}
                     <span className="knowledge-point-description">
                       {p.description || '這個知識點目前沒有補充說明'}
                     </span>
@@ -2240,16 +2279,12 @@ function LectureDetail() {
               <button type="button" onClick={handleQuickAskCurrentMoment} disabled={chatLoading}>
                 這段在教什麼？
               </button>
-              {chatInitialized && !chatMessages.length && (
-                <>
-                  <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請整理目前這段影片的重點。')}>
-                    整理這段的重點
-                  </button>
-                  <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請用一個例子說明這段影片的主要概念。')}>
-                    用例子解釋這段
-                  </button>
-                </>
-              )}
+              <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請整理目前這段影片的重點。')}>
+                整理這段的重點
+              </button>
+              <button type="button" disabled={chatLoading} onClick={() => handleAskQuestion('請用一個例子說明這段影片的主要概念。')}>
+                用例子解釋這段
+              </button>
             </div>
             <div className="assistant-composer">
               {chatImage && (

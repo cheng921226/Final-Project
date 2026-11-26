@@ -3650,9 +3650,9 @@ a {
 }
 
 .knowledge-point-card.is-active {
-  border-color: #c9cbf4;
-  background: linear-gradient(135deg, #fff 10%, #eeeeff 100%);
-  box-shadow: 0 9px 24px rgba(85, 85, 189, .13);
+  border-color: #c18b94;
+  background: linear-gradient(135deg, #fffdfb 10%, #f9e9ed 100%);
+  box-shadow: 0 0 0 1px #7d212a0a, 0 5px 20px #7d212a20;
 }
 
 .knowledge-point-card:focus-visible {
@@ -3709,6 +3709,25 @@ a {
 .knowledge-point-card:hover .knowledge-point-title,
 .knowledge-point-card.is-active .knowledge-point-title {
   color: #5151b3;
+}
+
+.knowledge-point-card.is-active .knowledge-point-index {
+  border-color: var(--primary);
+  background: var(--primary);
+  box-shadow: 0 0 10px #7d212a35;
+}
+
+.knowledge-point-card.is-active .knowledge-point-title {
+  color: var(--primary);
+}
+
+.knowledge-playing-label {
+  display: inline-block;
+  margin-top: 5px;
+  color: var(--primary);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 .knowledge-point-description {
@@ -4133,14 +4152,24 @@ a {
 
 .assistant-suggestions {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
   flex-shrink: 0;
-  gap: 6px;
+  min-width: 0;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scroll-padding-inline: 14px;
+  scrollbar-width: thin;
+  scrollbar-color: #8d626c transparent;
   padding: 0 14px 10px;
 }
 
 .assistant-suggestions button {
+  flex: 0 0 auto;
   min-height: 32px;
   padding: 5px 12px;
   border: 1px solid var(--assistant-line);
@@ -4148,6 +4177,8 @@ a {
   background: var(--assistant-glass);
   color: var(--assistant-text);
   text-align: start;
+  white-space: nowrap;
+  scroll-snap-align: start;
 }
 
 .assistant-form {
