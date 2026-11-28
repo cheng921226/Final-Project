@@ -236,7 +236,7 @@ export default function Layout({ token, setToken }) {
             <nav className="topbar" aria-label="主要導覽">
                 <Link to="/" className="brand" aria-label="首頁">
                     <span className="brand-mark"><BrandMark /></span>
-                    <span className="brand-wordmark"><span className="brand-title">AI輔助線上學習平台</span><small>LEARNING, CONNECTED.</small></span>
+                    <span className="brand-wordmark"><span className="brand-title">AI 輔助線上學習平台</span><small>LEARNING, CONNECTED.</small></span>
                 </Link>
 
                 <div className="nav-user">

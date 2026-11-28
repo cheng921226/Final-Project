@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import App from './App';
 
 jest.mock('markmap-lib', () => ({
@@ -17,7 +17,8 @@ afterEach(() => {
 
 test('renders the learning platform home navigation', () => {
   render(<App />);
-  expect(screen.getByText('AI輔助線上學習平台')).toBeInTheDocument();
+  const navigation = screen.getByRole('navigation', { name: '主要導覽' });
+  expect(within(navigation).getByText('AI 輔助線上學習平台')).toBeInTheDocument();
   expect(screen.getByText('登入')).toBeInTheDocument();
 });
 

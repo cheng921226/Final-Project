@@ -1,4 +1,4 @@
-# Final-Project (大四畢業專題)
+# AI 輔助線上學習平台
 
 這是一個結合 React 前端與 FastAPI 後端的線上課程平台。
 

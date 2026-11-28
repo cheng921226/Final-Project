@@ -332,7 +332,7 @@ export default function TeacherDashboard() {
         '如有任何問題，歡迎與授課教師聯繫。',
         '',
         '祝學習順利！',
-        'AI輔助線上學習平台',
+        'AI 輔助線上學習平台',
       ].join('\n')
       : [
         '親愛的同學您好：',
@@ -346,7 +346,7 @@ export default function TeacherDashboard() {
         '如有任何問題，歡迎與授課教師聯繫。',
         '',
         '祝學習順利！',
-        'AI輔助線上學習平台',
+        'AI 輔助線上學習平台',
       ].join('\n');
 
     return { subject: emailSubject, body: emailBody };
